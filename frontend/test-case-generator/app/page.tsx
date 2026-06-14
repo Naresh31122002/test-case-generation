@@ -1,1544 +1,909 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import {
-  Download,
-  Search,
-  Eye,
-  Triangle,
-  AlertCircle,
-  Linkedin,
-  Facebook,
-  Twitter,
-  Instagram,
-  Youtube,
-  Music,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  ArrowRight,
-  FileText,
-  RefreshCw,
-  Calendar,
-  ChevronUp,
-  ChevronDown,
-  Brain,
+  Search, FileText, Download, Brain, Calendar,
+  RefreshCw, ChevronLeft, ChevronRight, X, Eye,
+  Clock, SlidersHorizontal, LayoutDashboard,
+  LayoutGrid, List, GripVertical, CheckCircle2,
+  AlertCircle, Circle, Code2,
 } from "lucide-react"
-import { Chatbot } from "@/components/chatbot"
-import { Button } from "@/components/ui/button"
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useRouter } from "next/navigation"
+import { Separator } from "@/components/ui/separator"
 import { api, Story } from "@/lib/api"
 import { toast } from "sonner"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Chatbot } from "@/components/chatbot"
+import { ExportScriptDialog } from "@/components/export-script-dialog"
+import { TestCase } from "@/lib/api"
 
+/* ─── types ─────────────────────────────────────────────────── */
 interface FormData {
   storyId: string
   storyDescription: string
   createdDate: string
   fromDate: string
   toDate: string
-  priority?: string
-  category?: string
-  assignee?: string
-}
-
-interface TestCase {
-  storyId: string
-  storyDescription: string
-  testCaseCount: number
-  processStartTime: string
-  processEndTime: string
-  testCaseCreatedTime: string
-  status?: "completed" | "in-progress" | "pending" | "failed"
-  priority?: "high" | "medium" | "low"
-  category?: string
-  coverage?: number
-  assignee?: string
-}
-
-interface DashboardStats {
-  totalTestCases: number
-  completedTestCases: number
-  pendingTestCases: number
-  failedTestCases: number
-  averageCoverage: number
-  totalStories: number
-}
-
-function calculateDuration(embeddingTime: string | null, testCaseTime: string | null): string {
-  if (!embeddingTime || !testCaseTime) return 'N/A';
-
-  const embedding = new Date(embeddingTime);
-  const testCase = new Date(testCaseTime);
-  const diffMs = testCase.getTime() - embedding.getTime();
-
-  // Convert to minutes and seconds
-  const minutes = Math.floor(diffMs / 60000);
-  const seconds = Math.floor((diffMs % 60000) / 1000);
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
-}
-
-function NextReloadBanner() {
-  const [nextReload, setNextReload] = useState<Date | null>(null);
-  const [timeLeft, setTimeLeft] = useState<string>("");
-  const [isTriggering, setIsTriggering] = useState(false);
-
-  const fetchNextReload = async () => {
-    try {
-      const response = await fetch("http://127.0.0.1:5001/api/scheduler/next-reload");
-      // Backend may return either plain ISO text or JSON: { next_reload: ISOString }
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        const value = data?.next_reload ?? data?.nextReload ?? null;
-        const date = value ? new Date(String(value).trim()) : null;
-        if (date && !isNaN(date.getTime())) setNextReload(date);
-      } else {
-        const text = await response.text();
-        const date = new Date(text.trim());
-        if (!isNaN(date.getTime())) setNextReload(date);
-      }
-    } catch (error) {
-      console.error("Error fetching next reload time:", error);
-    }
-  };
-
-  const triggerReload = async () => {
-    try {
-      setIsTriggering(true);
-      const response = await fetch("http://127.0.0.1:5001/api/scheduler/trigger", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        toast.success('Scheduler triggered successfully!');
-        setTimeout(fetchNextReload, 2000);
-      } else {
-        toast.error('Failed to trigger scheduler');
-      }
-    } catch (error) {
-      console.error("Error triggering reload:", error);
-      toast.error('Failed to trigger scheduler');
-    } finally {
-      setIsTriggering(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchNextReload();
-    const pollInterval = setInterval(fetchNextReload, 30000);
-    return () => clearInterval(pollInterval);
-  }, []);
-
-  useEffect(() => {
-    if (!nextReload) return;
-
-    const updateCountdown = () => {
-      const now = new Date();
-      const diff = Math.max(0, nextReload.getTime() - now.getTime());
-
-      if (diff <= 0) {
-        setTimeLeft("Reloading...");
-        return;
-      }
-
-      const hours = String(Math.floor(diff / 3600000)).padStart(2, '0');
-      const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
-      const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
-      setTimeLeft(`${hours}:${minutes}:${seconds}`);
-    };
-
-    updateCountdown();
-    const countdownInterval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(countdownInterval);
-  }, [nextReload]);
-
-  return (
-    <div className="flex items-center gap-4 ml-auto bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-200">
-      <span className="text-sm font-medium text-gray-600">Next Scheduler Runs At:</span>
-      <div className="flex items-center gap-2">
-        <Clock className="w-4 h-4 text-blue-500" />
-        <span className="font-mono text-sm font-semibold text-gray-900 min-w-[85px]">
-          {timeLeft || "Loading..."}
-        </span>
-      </div>
-      <Button
-        onClick={triggerReload}
-        disabled={isTriggering}
-        className="h-9 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105"
-      >
-        {isTriggering ? (
-          <>
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span>Triggering...</span>
-          </>
-        ) : (
-          <>
-            <RefreshCw className="w-4 h-4" />
-            <span>Trigger</span>
-          </>
-        )}
-      </Button>
-    </div>
-  );
-}
-
-function formatRagTestCases(testCases: any[]) {
-  return testCases.map((tc, idx) => {
-    return [
-      `Test Case ${idx + 1}: ${tc.title}`,
-      `Description: ${tc.description}`,
-      `Steps:`,
-      ...tc.steps.map((step: string, i: number) => `  ${i + 1}. ${step}`),
-      `Expected Result: ${tc.expected_result}`,
-      ''
-    ].join('\n');
-  }).join('\n');
 }
 
 function cleanAndParseLLMResponse(response: string) {
-  // Remove triple backticks and ```json if present
-  let cleaned = response.trim();
-  if (cleaned.startsWith('```json')) cleaned = cleaned.slice(7);
-  if (cleaned.startsWith('```')) cleaned = cleaned.slice(3);
-  if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3);
-  cleaned = cleaned.trim();
-  try {
-    const parsed = JSON.parse(cleaned);
-    return { parsed, cleaned };
-  } catch {
-    return { parsed: null, cleaned };
-  }
+  let cleaned = response.trim()
+  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7)
+  if (cleaned.startsWith("```")) cleaned = cleaned.slice(3)
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3)
+  cleaned = cleaned.trim()
+  try { return { parsed: JSON.parse(cleaned), cleaned } }
+  catch { return { parsed: null, cleaned } }
 }
 
-export default function TestCaseGenerator() {
-  const [formData, setFormData] = useState<FormData>({
-    storyId: "",
-    storyDescription: "",
-    createdDate: "",
-    fromDate: "",
-    toDate: "",
-  })
+function formatRagTestCases(testCases: any[]) {
+  return testCases.map((tc, idx) => [
+    `Test Case ${idx + 1}: ${tc.title}`,
+    `Description: ${tc.description}`,
+    "Steps:", ...tc.steps.map((s: string, i: number) => `  ${i + 1}. ${s}`),
+    `Expected Result: ${tc.expected_result}`, "",
+  ].join("\n")).join("\n")
+}
 
-  const [showModal, setShowModal] = useState(false)
-  const [selectedTestCases, setSelectedTestCases] = useState<string[]>([])
-  const [searchPerformed, setSearchPerformed] = useState(false)
-  const [activeTab, setActiveTab] = useState("dashboard")
-  const [isLoading, setIsLoading] = useState(false)
-  const [currentTime, setCurrentTime] = useState<string>('')
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([
-    {
-      role: "assistant",
-      content:
-        "Hello! I'm your AI Test Case Assistant. I can help you in two ways:\n\n🔍 **RAG Mode (Default)**: Generate comprehensive test cases based on your user stories and existing test case database.\n\n💬 **Gemini Mode**: Ask questions about software testing, QA processes, and best practices.\n\nWhat would you like to do today?",
-    },
-  ])
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
-  const [stories, setStories] = useState<Story[]>([])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [formattedDates, setFormattedDates] = useState<Record<string, string>>({})
+/* ─── component ─────────────────────────────────────────────── */
+export default function TestCaseGenerator() {
   const router = useRouter()
+
+  /* search form */
+  const [formData, setFormData] = useState<FormData>({ storyId: "", storyDescription: "", createdDate: "", fromDate: "", toDate: "" })
+  const [dateFilter, setDateFilter] = useState({ from: "", to: "" })
+
+  /* table */
+  const [stories, setStories] = useState<Story[]>([])
+  const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [perPage, setPerPage] = useState(10)
   const [totalStories, setTotalStories] = useState(0)
-  const [dateFilter, setDateFilter] = useState<{ from: string, to: string }>({ from: '', to: '' });
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
-  const [showStoryContent, setShowStoryContent] = useState(false);
-  const [lastReloadTime, setLastReloadTime] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<'gemini' | 'rag'>('rag');
-  const [projects, setProjects] = useState<string[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [uploadForm, setUploadForm] = useState({
-    projectId: '',
-    storyId: '',
-    content: '',
-    file: null as File | null
-  });
-  const [newProjectName, setNewProjectName] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<{
-    type: 'success' | 'error' | 'info';
-    message: string;
-  } | null>(null);
-  const [showUploadForm, setShowUploadForm] = useState(false);
-  const [showContentDialog, setShowContentDialog] = useState(false);
+  const [perPage, setPerPage] = useState(10)
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc")
 
-  // Auto-remove success messages after 5 seconds
-  useEffect(() => {
-    if (uploadStatus?.type === 'success') {
-      const timer = setTimeout(() => {
-        setUploadStatus(null);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [uploadStatus]);
+  /* project filter */
+  const [projects, setProjects] = useState<string[]>([])
+  const [selectedProject, setSelectedProject] = useState("")
 
-  // Update time on mount and every second
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    };
+  /* story preview sheet */
+  const [previewStory, setPreviewStory] = useState<Story | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
 
-    // Initial update
-    updateTime();
+  /* export script — lazy-loaded test cases for preview story */
+  const [showExportDialog, setShowExportDialog] = useState(false)
+  const [exportTestCases, setExportTestCases] = useState<TestCase[]>([])
+  const [exportLoading, setExportLoading] = useState(false)
 
-    // Update every second
-    const interval = setInterval(updateTime, 1000);
-
-    // Cleanup
-    return () => clearInterval(interval);
-  }, []);
-
-  // Fetch paginated stories from backend
-  const fetchStories = async (page = 1, perPage = 10) => {
+  const openExportForStory = async (story: Story) => {
+    setExportLoading(true)
+    setShowExportDialog(true)
     try {
-      setLoading(true);
-      const response = await api.getStories(page, perPage, dateFilter.from, dateFilter.to, selectedProject, sortOrder);
-
-      if (response.stories && Array.isArray(response.stories)) {
-        setStories(response.stories);
-        setTotalPages(Math.ceil(response.pagination.total / response.pagination.per_page));
-        setTotalStories(response.pagination.total);
-        setCurrentPage(response.pagination.page);
-      } else {
-        console.error('Invalid response format:', response);
-        toast.error('Failed to fetch stories: Invalid response format');
-      }
-    } catch (error) {
-      console.error('Error fetching stories:', error);
-      toast.error('Failed to fetch stories');
+      const res = await api.getTestCases(story.id)
+      const raw = (res as any)?.testcases
+      setExportTestCases(Array.isArray(raw) ? raw : [])
+    } catch {
+      setExportTestCases([])
     } finally {
-      setLoading(false);
+      setExportLoading(false)
     }
-  };
+  }
+
+  /* upload sheet */
+  const [showUpload, setShowUpload] = useState(false)
+  const [uploadForm, setUploadForm] = useState({ projectId: "", storyId: "", content: "", file: null as File | null })
+  const [newProjectName, setNewProjectName] = useState("")
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
+
+  /* clock */
+  const [currentTime, setCurrentTime] = useState("")
+
+  /* chatbot */
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
+    role: "assistant",
+    content: "Hello! I'm your AI Test Case Assistant.\n\n🔍 **RAG Mode**: Generate test cases from user stories.\n💬 **Gemini Mode**: Ask QA questions.\n\nWhat would you like to do?",
+  }])
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<"gemini" | "rag">("rag")
+
+  /* ── view toggle ── */
+  const [viewMode, setViewMode] = useState<"table" | "board">("board")
+
+  /* ── kanban column state (persisted to localStorage) ── */
+  type KanbanCol = "generated" | "review" | "approved"
+  const COLS: { id: KanbanCol; label: string; icon: React.ReactNode; color: string; bg: string; border: string }[] = [
+    { id: "generated", label: "Generated",   icon: <Circle className="w-3.5 h-3.5" />,      color: "#377ACF", bg: "#f0f6ff", border: "#bfdbfe" },
+    { id: "review",    label: "Under Review", icon: <AlertCircle className="w-3.5 h-3.5" />, color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
+    { id: "approved",  label: "Approved",     icon: <CheckCircle2 className="w-3.5 h-3.5" />,color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
+  ]
+
+  const [storyColumns, setStoryColumns] = useState<Record<string, KanbanCol>>({})
+  const dragStoryId = useRef<string | null>(null)
+  const dragOverCol = useRef<KanbanCol | null>(null)
+
+  /* load persisted column state */
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("kanban-columns")
+      if (saved) setStoryColumns(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  /* when stories load, assign any new ones to "generated" */
+  useEffect(() => {
+    setStoryColumns(prev => {
+      const next = { ...prev }
+      let changed = false
+      stories.forEach(s => {
+        if (!next[s.id]) { next[s.id] = "generated"; changed = true }
+      })
+      if (changed) {
+        try { localStorage.setItem("kanban-columns", JSON.stringify(next)) } catch {}
+        return next
+      }
+      return prev
+    })
+  }, [stories])
+
+  const moveCard = (storyId: string, col: KanbanCol) => {
+    setStoryColumns(prev => {
+      const next = { ...prev, [storyId]: col }
+      try { localStorage.setItem("kanban-columns", JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
+  /* ── effects ── */
+  useEffect(() => {
+    const t = setInterval(() => setCurrentTime(new Date().toLocaleTimeString()), 1000)
+    setCurrentTime(new Date().toLocaleTimeString())
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    if (uploadStatus?.type === "success") {
+      const t = setTimeout(() => setUploadStatus(null), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [uploadStatus])
+
+  useEffect(() => { fetchStories(currentPage, perPage) }, [currentPage, dateFilter, selectedProject, sortOrder])
+  useEffect(() => { fetchProjects() }, [])
+
+  /* ── data ── */
+  const fetchStories = async (page = 1, pp = 10) => {
+    try {
+      setLoading(true)
+      const res = await api.getStories(page, pp, dateFilter.from, dateFilter.to, selectedProject, sortOrder)
+      if (res.stories && Array.isArray(res.stories)) {
+        setStories(res.stories)
+        setTotalPages(Math.ceil(res.pagination.total / res.pagination.per_page))
+        setTotalStories(res.pagination.total)
+        setCurrentPage(res.pagination.page)
+      } else toast.error("Invalid response format")
+    } catch { toast.error("Failed to fetch stories") }
+    finally { setLoading(false) }
+  }
 
   const fetchProjects = async () => {
-    try {
-      const response = await api.getProjects();
-      setProjects(response.projects);
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    }
-  };
+    try { const r = await api.getProjects(); setProjects(r.projects) } catch {}
+  }
 
-  useEffect(() => {
-    fetchStories(currentPage, perPage);
-  }, [currentPage, dateFilter, selectedProject, sortOrder]);
-
-  useEffect(() => {
-    fetchProjects();
-  }, []);
-
-  // Debug: log stories and their timestamps
-  useEffect(() => {
-    console.debug('Fetched stories:', stories);
-    stories.forEach((story, idx) => {
-      console.debug(`Story[${idx}] id=${story.id} embedding_timestamp=`, story.embedding_timestamp, 'test_case_created_time=', story.test_case_created_time);
-    });
-  }, [stories]);
-
-  // Format dates after component mounts
-  useEffect(() => {
-    const dates: Record<string, string> = {};
-    stories.forEach(story => {
-      if (story.created_on) {
-        dates[story.id] = new Date(story.created_on).toLocaleString();
-      }
-    });
-    setFormattedDates(dates);
-  }, [stories]);
-
-  // Search stories with advanced filtering
+  /* ── search ── */
   const handleSearch = async () => {
-    setLoading(true);
-
-    // If ID is entered, filter by ID (exact match)
+    setLoading(true)
     if (formData.storyId.trim()) {
-      let filtered = [...stories].filter((story: any) => story.id.toLowerCase() === formData.storyId.trim().toLowerCase());
-      // Further filter by date range if set
-      if (formData.fromDate || formData.toDate) {
-        filtered = filtered.filter((story: any) => {
-          if (!story.created_on) return false;
-          const created = new Date(story.created_on);
-          const from = formData.fromDate ? new Date(formData.fromDate) : null;
-          const to = formData.toDate ? new Date(formData.toDate) : null;
-          if (from && created < from) return false;
-          if (to && created > to) return false;
-          return true;
-        });
-      }
-      setStories(filtered);
-      if (filtered.length === 0) {
-        toast.info('No stories found with the specified ID');
-      }
-      setLoading(false);
-      return;
+      const filtered = stories.filter(s => s.id.toLowerCase() === formData.storyId.trim().toLowerCase())
+      setStories(filtered)
+      if (!filtered.length) toast.info("No stories found with that ID")
+      setLoading(false); return
     }
-
-    // If description is entered, use similarity search
     if (formData.storyDescription.trim()) {
       try {
-        const data = await api.searchStories(formData.storyDescription.trim(), 3); // fetch up to 3 similar stories
-        let filtered = data.stories || [];
-
-        if (filtered.length === 0) {
-          setStories([]);
-          toast.info('No matching stories found');
-          setLoading(false);
-          return;
-        }
-
-        // Further filter by date range if set
-        if (formData.fromDate || formData.toDate) {
-          filtered = filtered.filter((story: any) => {
-            if (!story.created_on) return false;
-            const created = new Date(story.created_on);
-            const from = formData.fromDate ? new Date(formData.fromDate) : null;
-            const to = formData.toDate ? new Date(formData.toDate) : null;
-            if (from && created < from) return false;
-            if (to && created > to) return false;
-            return true;
-          });
-        }
-        setStories(filtered);
-        if (filtered.length === 0) {
-          toast.info('No stories found matching the description and date range');
-        } else {
-          toast.success(`Found ${filtered.length} matching story${filtered.length > 1 ? 'ies' : ''}`);
-        }
-      } catch (e) {
-        setStories([]);
-        toast.error('Failed to perform similarity search.');
-      }
-      setLoading(false);
-      return;
+        const data = await api.searchStories(formData.storyDescription.trim(), 3)
+        setStories(data.stories || [])
+        if (!(data.stories || []).length) toast.info("No matching stories")
+        else toast.success(`Found ${data.stories.length} match${data.stories.length > 1 ? "es" : ""}`)
+      } catch { toast.error("Similarity search failed") }
+      setLoading(false); return
     }
-
-    // If only date range is set, filter all stories by date
-    if (formData.fromDate || formData.toDate) {
-      let filtered = [...stories].filter((story: any) => {
-        if (!story.created_on) return false;
-        const created = new Date(story.created_on);
-        const from = formData.fromDate ? new Date(formData.fromDate) : null;
-        const to = formData.toDate ? new Date(formData.toDate) : null;
-        if (from && created < from) return false;
-        if (to && created > to) return false;
-        return true;
-      });
-      setStories(filtered);
-      if (filtered.length === 0) {
-        toast.info('No stories found in the specified date range');
-      }
-      setLoading(false);
-      return;
-    }
-
-    // If nothing is entered, fetch all stories
-    fetchStories(currentPage, perPage);
-    setLoading(false);
-  };
-
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    fetchStories(currentPage, perPage)
+    setLoading(false)
   }
-
-  const openTestCasesModal = (count: number) => {
-    const steps = []
-    for (let i = 1; i <= count; i++) {
-      steps.push(`Step ${i}: ${getRandomTestStep()}`)
-    }
-    setSelectedTestCases(steps)
-    setShowModal(true)
-  }
-
-  const getRandomTestStep = () => {
-    const steps = [
-      "Open login page",
-      "Enter valid credentials",
-      "Click submit button",
-      "Verify successful login",
-      "Navigate to dashboard",
-      "Check user profile",
-      "Logout from application",
-      "Verify error messages",
-      "Test input validation",
-      "Check responsive design",
-    ]
-    return steps[Math.floor(Math.random() * steps.length)]
-  }
-
-  const getUserSearchResult = (): TestCase => ({
-    storyId: formData.storyId || "USER-001",
-    storyDescription: formData.storyDescription || "User entered test case",
-    testCaseCount: Math.floor(Math.random() * 10) + 1,
-    processStartTime: new Date().toLocaleString(),
-    processEndTime: new Date(Date.now() + 15 * 60000).toLocaleString(),
-    testCaseCreatedTime: new Date(Date.now() + 20 * 60000).toLocaleString(),
-  })
-
-  const handleSendMessage = async (message: string) => {
-    if (!message.trim() || isGenerating) return
-
-    setApiError(null)
-
-    // Add user message to chat
-    setChatMessages((prev) => [...prev, { role: "user", content: message }])
-    setIsGenerating(true)
-
-    try {
-      const response = await fetch("/api/generate-test-cases", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: message,
-          context: selectedModel === 'rag' ? "Generate comprehensive test cases for the following feature or user story" : "Provide QA support and guidance",
-          model: selectedModel,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate response")
-      }
-
-      if (data.error) {
-        setApiError(data.error)
-      }
-
-      // If RAG, display structured test cases
-      if (selectedModel === 'rag' && data.response) {
-        const { parsed, cleaned } = cleanAndParseLLMResponse(data.response);
-        console.log('RAG backend data.response:', data.response);
-        console.log('RAG cleaned:', cleaned);
-        console.log('RAG parsed:', parsed);
-        if (parsed && Array.isArray(parsed)) {
-          setChatMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: formatRagTestCases(parsed) }
-          ]);
-        } else {
-          setChatMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: cleaned || '[No output from LLM]' }
-          ]);
-        }
-      } else if (selectedModel === 'rag' && data.testCases) {
-        setChatMessages((prev) => [...prev, { role: "assistant", content: formatRagTestCases(data.testCases) }])
-      } else {
-        // For Gemini mode, display the response directly
-        setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }])
-      }
-    } catch (error) {
-      console.error("Error generating response:", error)
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: selectedModel === 'rag'
-            ? "I'm using mock test cases for demonstration. In production, you would connect to the RAG backend."
-            : "I'm using mock QA support for demonstration. In production, you would connect to the Gemini API.",
-        },
-      ])
-      setApiError(selectedModel === 'rag'
-        ? "Using mock test cases. To use RAG backend, ensure the Flask server is running."
-        : "Using mock QA support. To use Gemini API, add GOOGLE_GENERATIVE_AI_API_KEY to your environment.")
-    } finally {
-      setIsGenerating(false)
-    }
-  }
-
-  const handleDownload = async (storyId: string) => {
-    try {
-      const response = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
-
-      if (!response.ok) {
-        throw new Error('Failed to download test cases');
-      }
-
-      // Get the blob from the response
-      const blob = await response.blob();
-
-      // Create a URL for the blob
-      const url = window.URL.createObjectURL(blob);
-
-      // Create a temporary link element
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `test_cases_${storyId}.xlsx`;
-
-      // Append to body, click, and remove
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Clean up the URL
-      window.URL.revokeObjectURL(url);
-
-      toast.success('Test cases downloaded successfully');
-    } catch (error) {
-      console.error('Error downloading test cases:', error);
-      toast.error('Failed to download test cases');
-    }
-  };
 
   const handleDateFilter = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      if (formData.storyDescription.trim()) {
-        // Similarity search, then filter by date
-        const data = await api.searchStories(formData.storyDescription.trim(), 3);
-        let filtered = data.stories || [];
-        if (dateFilter.from || dateFilter.to) {
-          filtered = filtered.filter((story: any) => {
-            if (!story.created_on) return false;
-            const created = new Date(story.created_on);
-            const from = dateFilter.from ? new Date(dateFilter.from) : null;
-            const to = dateFilter.to ? new Date(dateFilter.to) : null;
-            if (from && created < from) return false;
-            if (to && created > to) return false;
-            return true;
-          });
-        }
-        setStories(filtered);
-        setTotalPages(1);
-        setCurrentPage(1);
-      } else {
-        // Paginated endpoint with date filter
-        const data = await api.getStories(currentPage, perPage, dateFilter.from, dateFilter.to);
-        setStories(data.stories || []);
-        setTotalPages(data.total_pages || 1);
-        setCurrentPage(data.current_page || 1);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+      const data = await api.getStories(currentPage, perPage, dateFilter.from, dateFilter.to)
+      setStories(data.stories || []); setTotalPages(data.total_pages || 1)
+    } finally { setLoading(false) }
+  }
 
-  const handleClearFilters = async () => {
-    setDateFilter({ from: '', to: '' });
-    setSelectedProject(''); // Clear project filter
-    setFormData(prev => ({ ...prev, storyId: '', storyDescription: '' }));
-    setLoading(true);
+  const handleClearFilters = () => {
+    setDateFilter({ from: "", to: "" }); setSelectedProject("")
+    setFormData(p => ({ ...p, storyId: "", storyDescription: "" }))
+    fetchStories(1, perPage)
+  }
+
+  /* ── download ── */
+  const handleDownload = async (storyId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
     try {
-      const data = await api.getStories(currentPage, perPage);
-      setStories(data.stories || []);
-      setTotalPages(data.total_pages || 1);
-      setCurrentPage(data.current_page || 1);
-    } finally {
-      setLoading(false);
-    }
-  };
+      const res = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`)
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a"); a.href = url; a.download = `test_cases_${storyId}.xlsx`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+      toast.success("Downloaded")
+    } catch { toast.error("Download failed") }
+  }
 
-  // Pagination controls
+  /* ── upload ── */
+  const handleUploadStory = async () => {
+    const projectId = uploadForm.projectId === "new" ? newProjectName : uploadForm.projectId
+    if (!projectId || !uploadForm.storyId || (!uploadForm.content && !uploadForm.file)) {
+      setUploadStatus({ type: "error", message: "Fill in Project, Story ID and content/file." }); return
+    }
+    setIsUploading(true)
+    setUploadStatus({ type: "info", message: "Uploading and generating test cases…" })
+    try {
+      const fd = new FormData()
+      fd.append("project_id", projectId); fd.append("story_id", uploadForm.storyId); fd.append("content", uploadForm.content)
+      if (uploadForm.file) fd.append("file", uploadForm.file)
+      const res = await fetch("/api/upload-story", { method: "POST", body: fd })
+      const result = await res.json()
+      if (res.ok) {
+        setUploadStatus({ type: "success", message: result.message || "Upload successful!" })
+        setUploadForm({ projectId: "", storyId: "", content: "", file: null }); setNewProjectName("")
+        fetchStories(); fetchProjects()
+      } else setUploadStatus({ type: "error", message: result.error || "Upload failed" })
+    } catch { setUploadStatus({ type: "error", message: "Network error. Try again." }) }
+    finally { setIsUploading(false) }
+  }
+
+  /* ── chatbot ── */
+  const handleSendMessage = async (message: string) => {
+    if (!message.trim() || isGenerating) return
+    setChatMessages(p => [...p, { role: "user", content: message }]); setIsGenerating(true)
+    try {
+      const res = await fetch("/api/generate-test-cases", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, context: selectedModel === "rag" ? "Generate comprehensive test cases" : "QA support", model: selectedModel }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      if (selectedModel === "rag" && data.response) {
+        const { parsed, cleaned } = cleanAndParseLLMResponse(data.response)
+        setChatMessages(p => [...p, { role: "assistant", content: parsed && Array.isArray(parsed) ? formatRagTestCases(parsed) : cleaned || "[No output]" }])
+      } else setChatMessages(p => [...p, { role: "assistant", content: data.response }])
+    } catch {
+      setChatMessages(p => [...p, { role: "assistant", content: "Connection error — check backend." }])
+    } finally { setIsGenerating(false) }
+  }
+
+  /* ── pagination ── */
   const renderPagination = () => {
-    if (totalPages <= 0) return null;
+    if (totalPages <= 0) return null
+    const range = 5
+    let start = Math.max(1, currentPage - Math.floor(range / 2))
+    let end = Math.min(totalPages, start + range - 1)
+    if (end - start + 1 < range) start = Math.max(1, end - range + 1)
+    const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i)
 
-    // Calculate the range of page numbers to display
-    const pageRange = 5; // Number of page buttons to show
-    let startPage = Math.max(1, currentPage - Math.floor(pageRange / 2));
-    let endPage = Math.min(totalPages, startPage + pageRange - 1);
-
-    // Adjust start page if we're near the end
-    if (endPage - startPage + 1 < pageRange) {
-      startPage = Math.max(1, endPage - pageRange + 1);
-    }
-
-    // Generate array of page numbers to display
-    const pages = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
-
-    const handlePageChange = async (newPage: number) => {
-      if (newPage !== currentPage && newPage >= 1 && newPage <= totalPages) {
-        await fetchStories(newPage, perPage);
-      }
-    };
-
-    const handlePerPageChange = async (newPerPage: number) => {
-      setPerPage(newPerPage);
-      await fetchStories(1, newPerPage);
-    };
+    const go = (n: number) => { if (n !== currentPage && n >= 1 && n <= totalPages) fetchStories(n, perPage) }
+    const changePerPage = (n: number) => { setPerPage(n); fetchStories(1, n) }
 
     return (
-      <div className="flex items-center justify-between px-4 py-4 bg-gray-50 border-t border-gray-200">
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[#eef2f8] bg-[#F6F8FB] rounded-b-2xl">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">
-            Showing {((currentPage - 1) * perPage) + 1} to {Math.min(currentPage * perPage, totalStories)} of {totalStories} stories
+          <span className="text-sm text-[#5a7ca0]">
+            {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, totalStories)} of {totalStories}
           </span>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">Per page:</label>
-            <select
-              value={perPage}
-              onChange={(e) => handlePerPageChange(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-200"
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-            </select>
-          </div>
+          <select value={perPage} onChange={e => changePerPage(Number(e.target.value))}
+            className="h-7 rounded-lg px-2 text-xs border border-[#dde6f0] bg-white text-[#1a2540] focus:outline-none focus:ring-2 focus:ring-[#377ACF]/20">
+            {[5, 10, 20, 50].map(v => <option key={v} value={v}>{v} / page</option>)}
+          </select>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-            className="px-3 py-2 border border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Previous
-          </Button>
-
-          <div className="flex items-center gap-1">
-            {/* First page button */}
-            {startPage > 1 && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => handlePageChange(1)}
-                  className="px-3 py-2 border border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded font-medium transition-colors text-sm"
-                >
-                  1
-                </Button>
-                {startPage > 2 && <span className="px-2">...</span>}
-              </>
-            )}
-
-            {/* Page number buttons */}
-            {pages.map((pageNum) => (
-              <Button
-                key={pageNum}
-                variant={currentPage === pageNum ? "default" : "outline"}
-                onClick={() => handlePageChange(pageNum)}
-                className={`px-3 py-2 rounded font-medium transition-colors text-sm ${currentPage === pageNum
-                    ? 'bg-blue-600 text-white'
-                    : 'border border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                  }`}
-              >
-                {pageNum}
-              </Button>
-            ))}
-
-            {/* Last page button */}
-            {endPage < totalPages && (
-              <>
-                {endPage < totalPages - 1 && <span className="px-2">...</span>}
-                <Button
-                  variant="outline"
-                  onClick={() => handlePageChange(totalPages)}
-                  className="px-3 py-2 border border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded font-medium transition-colors text-sm"
-                >
-                  {totalPages}
-                </Button>
-              </>
-            )}
-          </div>
-
-          <Button
-            variant="outline"
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-            className="px-3 py-2 border border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => go(currentPage - 1)} disabled={currentPage === 1}
+            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#dde6f0] bg-white text-[#377ACF] disabled:opacity-30 hover:bg-[#f0f6ff] transition-colors">
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          {start > 1 && <><button onClick={() => go(1)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#dde6f0] bg-white text-[#377ACF] hover:bg-[#f0f6ff]">1</button>{start > 2 && <span className="text-[#b0c4d8] text-xs px-0.5">…</span>}</>}
+          {pages.map(n => (
+            <button key={n} onClick={() => go(n)}
+              className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={currentPage === n ? { background: "#377ACF", color: "#fff", border: "1px solid #377ACF" } : { border: "1px solid #dde6f0", background: "#fff", color: "#377ACF" }}>
+              {n}
+            </button>
+          ))}
+          {end < totalPages && <>{end < totalPages - 1 && <span className="text-[#b0c4d8] text-xs px-0.5">…</span>}<button onClick={() => go(totalPages)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#dde6f0] bg-white text-[#377ACF] hover:bg-[#f0f6ff]">{totalPages}</button></>}
+          <button onClick={() => go(currentPage + 1)} disabled={currentPage === totalPages}
+            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#dde6f0] bg-white text-[#377ACF] disabled:opacity-30 hover:bg-[#f0f6ff] transition-colors">
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
-    );
-  };
+    )
+  }
 
+  /* ─── shared style helpers ──────────────────────────────────── */
+  const labelCls = "block text-[11px] font-semibold uppercase tracking-wide text-[#5a7ca0] mb-1.5"
+  const inputStyle = { borderColor: "#c8d8eb" }
 
-  const handleViewStoryContent = (e: React.MouseEvent, story: Story) => {
-    e.stopPropagation();
-    setSelectedStory(story);
-    setShowStoryContent(true);
-  };
-
-  // Handle file upload
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setUploadForm(prev => ({ ...prev, file }));
-    }
-  };
-
-  // Handle story upload
-  const handleUploadStory = async () => {
-    const projectId = uploadForm.projectId === 'new' ? newProjectName : uploadForm.projectId;
-
-    if (!projectId || !uploadForm.storyId || (!uploadForm.content && !uploadForm.file)) {
-      setUploadStatus({
-        type: 'error',
-        message: 'Please fill in Project, Story ID, and either type content or upload a document'
-      });
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadStatus({
-      type: 'info',
-      message: 'Uploading story and generating test cases...'
-    });
-
-    try {
-      const formData = new FormData();
-      formData.append('project_id', projectId);
-      formData.append('story_id', uploadForm.storyId);
-      formData.append('content', uploadForm.content);
-      if (uploadForm.file) {
-        formData.append('file', uploadForm.file);
-      }
-
-      const response = await fetch('/api/upload-story', {
-        method: 'POST',
-        body: formData
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        setUploadStatus({
-          type: 'success',
-          message: result.message + (result.description ? ` AI Description: "${result.description}"` : '')
-        });
-
-        // Reset form
-        setUploadForm({
-          projectId: '',
-          storyId: '',
-          content: '',
-          file: null
-        });
-        setNewProjectName('');
-
-        // Refresh stories list and projects
-        fetchStories();
-        fetchProjects();
-      } else {
-        setUploadStatus({
-          type: 'error',
-          message: result.error || 'Upload failed'
-        });
-      }
-    } catch (error) {
-      setUploadStatus({
-        type: 'error',
-        message: 'Network error. Please try again.'
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
+  /* ═══════════════════════ RENDER ═══════════════════════════════ */
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="fixed top-0 left-0 w-full z-50 bg-background shadow-sm border-b border-border px-4 md:px-8 py-4">
-        <div className="flex justify-between items-center">
-          <div className="flex-shrink-0">
-            <img src="" alt="" className="h-12 w-auto" />
-          </div>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-primary">Test Case Generation</h1>
-            <p className="text-sm text-muted-foreground font-semibold mt-1">Powered by Gen AI</p>
-          </div>
-          <div className="flex-shrink-0 flex items-center space-x-4">
-            <div className="text-right">
-              <div className="text-lg font-bold text-foreground">
-                {currentTime || 'Loading...'}
-              </div>
-              <div className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</div>
-            </div>
+    <SidebarProvider>
+      <AppSidebar
+        projects={projects}
+        selectedProject={selectedProject}
+        onProjectChange={setSelectedProject}
+        onUploadClick={() => setShowUpload(true)}
+      />
 
-          </div>
-        </div>
-      </header>
-
-      <div className="w-full py-6 pt-28 px-2">
-        {/* Search Section */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-              {showUploadForm ? 'Upload User Story' : 'Search User Stories'}
-            </h2>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => setShowUploadForm(!showUploadForm)}
-                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl px-4 py-2 shadow-lg transform transition-all duration-200 hover:scale-105 flex items-center gap-2"
-              >
-                {showUploadForm ? (
-                  <>
-                    <Search className="w-4 h-4" />
-                    Search Stories
-                  </>
-                ) : (
-                  <>
-                    <FileText className="w-4 h-4" />
-                    Upload Document
-                  </>
-                )}
-              </Button>
+      <SidebarInset>
+        {/* ── Top bar ─────────────────────────────────────────── */}
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] bg-white sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <SidebarTrigger className="text-[#5a7ca0] hover:text-[#0F162B]" />
+            <Separator orientation="vertical" className="h-5" />
+            <div className="flex items-center gap-2 text-sm text-[#5a7ca0]">
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="font-semibold text-[#0F162B]">Dashboard</span>
             </div>
           </div>
+          <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
+            <Clock className="w-4 h-4 text-[#377ACF]" />
+            {currentTime || "—"}
+          </div>
+        </header>
 
-          <Card className="shadow-xl border-0 bg-gradient-to-r from-white to-slate-50/50 overflow-hidden">
-            <CardContent className="space-y-6 px-2 py-6 bg-white">
-              {!showUploadForm ? (
-                <>
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                        Story ID
-                      </label>
-                      <Input
-                        placeholder="Enter Story ID"
-                        value={formData.storyId}
-                        onChange={(e) => handleInputChange("storyId", e.target.value)}
-                        className="w-full border-2 border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 h-10 rounded-xl shadow-sm"
-                      />
-                    </div>
+        {/* ── Main content ────────────────────────────────────── */}
+        <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "#F6F8FB" }}>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        Story Description
-                      </label>
-                      <Textarea
-                        placeholder="Enter story description..."
-                        rows={2}
-                        value={formData.storyDescription}
-                        onChange={(e) => handleInputChange("storyDescription", e.target.value)}
-                        className="w-full border-2 border-gray-200 focus:border-green-400 focus:ring-2 focus:ring-green-100 resize-none rounded-xl shadow-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-4">
-                    <Button
-                      onClick={handleSearch}
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl px-8 py-3 shadow-lg transform transition-all duration-200 hover:scale-105 flex items-center gap-2"
-                    >
-                      <Search className="w-5 h-5" />
-                      Search Stories
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                        Project *
-                      </label>
-                      <select
-                        value={uploadForm.projectId}
-                        onChange={(e) => setUploadForm(prev => ({ ...prev, projectId: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-400 focus:ring-1 focus:ring-blue-200 transition-colors bg-white h-10"
-                      >
-                        <option value="">Select a project</option>
-                        {projects.map((project) => (
-                          <option key={project} value={project}>
-                            {project}
-                          </option>
-                        ))}
-                        <option value="new">+ Create New Project</option>
-                      </select>
-                      {uploadForm.projectId === 'new' && (
-                        <Input
-                          placeholder="Enter new project name"
-                          value={newProjectName}
-                          onChange={(e) => setNewProjectName(e.target.value)}
-                          className="mt-2 w-full"
-                        />
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                        Story ID *
-                      </label>
-                      <Input
-                        placeholder="Enter Story ID"
-                        value={uploadForm.storyId}
-                        onChange={(e) => setUploadForm(prev => ({ ...prev, storyId: e.target.value }))}
-                        className="w-full border border-gray-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 h-10 rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 md:col-span-4">
-                    <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      User Story Content *
-                    </label>
-                    <div className="relative">
-                      <div className="flex items-end gap-2">
-                        <div className="flex-1 relative max-w-[1600px]">
-                          <Textarea
-                            placeholder="Type your user story here or upload a document..."
-                            rows={3}
-                            value={uploadForm.content}
-                            onChange={(e) => setUploadForm(prev => ({ ...prev, content: e.target.value }))}
-                            className="border border-gray-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 resize-none rounded-lg pr-12 w-[1500px]"
-                          />
-                          <div className="absolute bottom-2 right-2 flex items-center gap-1">
-                            <input
-                              type="file"
-                              accept=".pdf,.docx,.txt"
-                              onChange={(e) => setUploadForm(prev => ({ ...prev, file: e.target.files?.[0] || null }))}
-                              className="hidden"
-                              id="file-upload-chat"
-                            />
-                            <label htmlFor="file-upload-chat" className="cursor-pointer p-1 hover:bg-gray-100 rounded transition-colors">
-                              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                              </svg>
-                            </label>
-                          </div>
-                        </div>
-                        <Button
-                          onClick={handleUploadStory}
-                          disabled={isUploading ||
-                            (uploadForm.projectId === 'new' ? !newProjectName : !uploadForm.projectId) ||
-                            !uploadForm.storyId ||
-                            (!uploadForm.content && !uploadForm.file)}
-                          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold rounded-lg px-4 py-2 h-10 shadow-lg transform transition-all duration-200 hover:scale-105 whitespace-nowrap"
-                        >
-                          {isUploading ? (
-                            <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                              <span>Processing...</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                              </svg>
-                              <span>Generate</span>
-                            </div>
-                          )}
-                        </Button>
-                      </div>
-
-                      {/* File Upload Status */}
-                      {uploadForm.file && (
-                        <div className="mt-2 flex items-center gap-2 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
-                          <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                          </div>
-                          <span className="text-sm font-medium text-gray-800 flex-1">{uploadForm.file.name}</span>
-                          <button
-                            onClick={() => setUploadForm(prev => ({ ...prev, file: null }))}
-                            className="text-gray-500 hover:text-gray-700 p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Upload Status */}
-                  {uploadStatus && (
-                    <div className={`p-4 rounded-xl border-2 ${uploadStatus.type === 'success' ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 text-green-800' :
-                        uploadStatus.type === 'error' ? 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200 text-red-800' :
-                          'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 text-blue-800'
-                      }`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          {uploadStatus.type === 'success' && (
-                            <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            </div>
-                          )}
-                          {uploadStatus.type === 'error' && (
-                            <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </div>
-                          )}
-                          {uploadStatus.type === 'info' && (
-                            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </div>
-                          )}
-                          <span className="font-semibold">{uploadStatus.message}</span>
-                        </div>
-                        <button
-                          onClick={() => setUploadStatus(null)}
-                          className="text-gray-500 hover:text-gray-700 p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Enhanced Date Filter Section */}
-        <div className="mb-8">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-            {/* Date filter controls - left side */}
-            <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-blue-500" />
-                  From Date
-                </label>
-                <Input
-                  type="date"
-                  value={dateFilter.from}
-                  onChange={e => setDateFilter(df => ({ ...df, from: e.target.value }))}
-                  className="border-2 border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 h-12 rounded-xl shadow-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-green-500" />
-                  To Date
-                </label>
-                <Input
-                  type="date"
-                  value={dateFilter.to}
-                  onChange={e => setDateFilter(df => ({ ...df, to: e.target.value }))}
-                  className="border-2 border-gray-200 focus:border-green-400 focus:ring-2 focus:ring-green-100 h-12 rounded-xl shadow-sm"
-                />
-              </div>
-              <Button
-                onClick={handleDateFilter}
-                className="bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white font-semibold rounded-xl shadow-lg h-12 px-6 transition-all duration-200 transform hover:scale-105"
-              >
-                <Calendar className="mr-2 h-4 w-4" />
-                Filter by Date
-              </Button>
-            </div>
-
-            {/* Project filter and sort controls - right side */}
-            <div className="flex flex-col lg:flex-row items-start lg:items-end gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                  Project
-                </label>
-                <select
-                  value={selectedProject}
-                  onChange={(e) => setSelectedProject(e.target.value)}
-                  className="border-2 border-gray-200 focus:border-orange-400 focus:ring-2 focus:ring-orange-100 h-12 rounded-xl px-4 py-2 bg-white shadow-sm"
-                >
-                  <option value="">All Projects</option>
-                  {projects.map((project) => (
-                    <option key={project} value={project}>
-                      {project}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {/* ── Search panel ──────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
+            {/* panel header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#eef2f8]">
               <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => fetchStories(currentPage, perPage)}
-                  variant="outline"
-                  className="h-12 px-4 border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh
-                </Button>
+                <Search className="w-4 h-4 text-[#377ACF]" />
+                <span className="font-semibold text-sm text-[#0F162B]">Search User Stories</span>
               </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={handleClearFilters}
-                  variant="outline"
-                  className="h-12 px-6 border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded-xl font-semibold transition-all duration-200"
-                >
-                  Clear All Filters
-                </Button>
-                <NextReloadBanner />
+              <button
+                onClick={() => { setFormData(p => ({ ...p, storyId: "", storyDescription: "" })); fetchStories(1, perPage) }}
+                className="text-xs text-[#5a7ca0] hover:text-[#377ACF] transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="p-5 grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Story ID</label>
+                <Input placeholder="e.g. PROJ-123" value={formData.storyId}
+                  onChange={e => setFormData(p => ({ ...p, storyId: e.target.value }))}
+                  onKeyDown={e => e.key === "Enter" && handleSearch()}
+                  className="h-9 rounded-xl text-sm" style={inputStyle} />
+              </div>
+              <div>
+                <label className={labelCls}>Story Description</label>
+                <Textarea placeholder="Search by description similarity…" rows={1} value={formData.storyDescription}
+                  onChange={e => setFormData(p => ({ ...p, storyDescription: e.target.value }))}
+                  className="rounded-xl text-sm resize-none" style={inputStyle} />
               </div>
             </div>
+            <div className="flex items-center gap-3 px-5 pb-4 pt-0">
+              <button onClick={handleSearch}
+                className="h-9 px-5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 hover:opacity-90 transition-opacity"
+                style={{ background: "#377ACF" }}>
+                <Search className="w-3.5 h-3.5" /> Search
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Enhanced Results Table Section */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-800">Test Cases Results</h2>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg shadow-sm border border-gray-200">
-                <label className="text-sm font-semibold text-gray-700">Sort by:</label>
-                <select
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value as 'desc' | 'asc')}
-                  className="border-0 focus:ring-0 bg-transparent text-sm font-medium text-blue-600"
-                >
+          {/* ── Filter bar ─────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm px-5 py-4">
+            <div className="flex items-end flex-wrap gap-4">
+              <div>
+                <label className={labelCls}>From Date</label>
+                <Input type="date" value={dateFilter.from}
+                  onChange={e => setDateFilter(d => ({ ...d, from: e.target.value }))}
+                  className="h-9 rounded-xl text-sm w-40" style={inputStyle} />
+              </div>
+              <div>
+                <label className={labelCls}>To Date</label>
+                <Input type="date" value={dateFilter.to}
+                  onChange={e => setDateFilter(d => ({ ...d, to: e.target.value }))}
+                  className="h-9 rounded-xl text-sm w-40" style={inputStyle} />
+              </div>
+              <button onClick={handleDateFilter}
+                className="h-9 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-2 hover:opacity-90 transition-opacity"
+                style={{ background: "#377ACF" }}>
+                <Calendar className="w-3.5 h-3.5" /> Apply
+              </button>
+
+              <div className="w-px h-8 bg-[#eef2f8] self-end" />
+
+              <div>
+                <label className={labelCls}>Sort</label>
+                <select value={sortOrder} onChange={e => setSortOrder(e.target.value as "desc" | "asc")}
+                  className="h-9 rounded-xl px-3 text-sm border border-[#c8d8eb] bg-white text-[#1a2540] focus:outline-none focus:ring-2 focus:ring-[#377ACF]/20">
                   <option value="desc">Newest First</option>
                   <option value="asc">Oldest First</option>
                 </select>
               </div>
+
+              <button onClick={() => fetchStories(currentPage, perPage)}
+                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#c8d8eb] bg-white text-[#377ACF] flex items-center gap-2 hover:bg-[#f0f6ff] transition-colors self-end">
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </button>
+              <button onClick={handleClearFilters}
+                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#c8d8eb] bg-white text-[#5a7ca0] flex items-center gap-2 hover:bg-[#f0f6ff] transition-colors self-end">
+                <X className="w-3.5 h-3.5" /> Clear All
+              </button>
             </div>
           </div>
 
-          <Card className="shadow-lg border border-gray-200 overflow-hidden">
-            <CardContent className="p-0 bg-white">
-              {loading ? (
-                <div className="p-8 text-center">
-                  <div className="inline-flex items-center gap-3 text-blue-600 font-semibold">
-                    <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    Loading stories...
+          {/* ── Results: view-toggle header + Table / Board ─── */}
+          <div>
+            {/* Header row with toggle */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-[#377ACF]" />
+                <span className="font-semibold text-sm text-[#0F162B]">Results</span>
+                {!loading && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f0f6ff] text-[#377ACF]">
+                    {totalStories}
+                  </span>
+                )}
+              </div>
+              {/* View toggle pill */}
+              <div className="flex items-center rounded-xl border border-[#dde6f0] bg-white p-0.5">
+                {([
+                  { mode: "board" as const, icon: <LayoutGrid className="w-3.5 h-3.5" />, label: "Board" },
+                  { mode: "table" as const, icon: <List className="w-3.5 h-3.5" />, label: "Table" },
+                ]).map(v => (
+                  <button key={v.mode} onClick={() => setViewMode(v.mode)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-all"
+                    style={viewMode === v.mode ? { background: "#0F162B", color: "#fff" } : { color: "#5a7ca0" }}>
+                    {v.icon}{v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── TABLE ──────────────────────────────────────── */}
+            {viewMode === "table" && (
+              <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
+                {loading ? (
+                  <div className="py-16 text-center">
+                    <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
+                      <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />
+                      Loading stories…
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-xl border border-blue-100">
-                  <table className="w-full bg-white">
-                    <thead>
-                      <tr className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border-b border-blue-200">
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[100px] max-w-[120px] text-left whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                            <span>Story ID</span>
-                          </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[180px] max-w-[200px] text-left">
-                          <div className="flex flex-col items-start gap-1">
-                            <span>Story Description</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                              <Brain className="w-3 h-3" />
-                              AI Generated Description
+                ) : stories.length === 0 ? (
+                  <div className="py-16 text-center text-sm text-[#9ca3af]">No stories found. Try adjusting your filters.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ background: "#0F162B" }}>
+                          {[
+                            { label: "Story ID", w: 120 },
+                            { label: "Description", w: 200 },
+                            { label: "Content", w: 200 },
+                            { label: "Test Cases", w: 130, center: true },
+                            { label: "Impact Analysis", w: 140, center: true },
+                            { label: "Generated", w: 140, center: true },
+                            { label: "Actions", w: 100, center: true },
+                          ].map(col => (
+                            <th key={col.label} style={{ minWidth: col.w }}
+                              className={`py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-white ${col.center ? "text-center" : "text-left"}`}>
+                              {col.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stories.map((story, i) => (
+                          <tr key={story.id || i}
+                            onClick={() => { setPreviewStory(story); setShowPreview(true) }}
+                            className="cursor-pointer border-b border-[#eef2f8] transition-colors"
+                            style={{ background: i % 2 === 0 ? "#ffffff" : "#fafbfd" }}
+                            onMouseEnter={e => (e.currentTarget.style.background = "#f0f6ff")}
+                            onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? "#ffffff" : "#fafbfd")}
+                          >
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-[#377ACF] flex-shrink-0" />
+                                <span className="text-sm font-semibold text-[#1a2540] truncate max-w-[100px]">{story.id}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 max-w-[200px]">
+                              <p className="text-sm text-[#374151] line-clamp-2">{story.description || "—"}</p>
+                            </td>
+                            <td className="py-3 px-4 max-w-[200px]">
+                              <p className="text-sm text-[#374151] line-clamp-2">{story.doc_content_text || "—"}</p>
+                            </td>
+                            <td className="py-3 px-4 text-center" onClick={e => e.stopPropagation()}>
+                              <button onClick={() => router.push(`/test-cases/${story.id}`)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                                style={{ background: "#f0f6ff", color: "#377ACF", border: "1px solid #c8d8eb" }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#dceeff")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "#f0f6ff")}>
+                                <FileText className="w-3.5 h-3.5" />{story.test_case_count || 0} Cases
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 text-center" onClick={e => e.stopPropagation()}>
+                              {typeof story.impactedTestCases === "number" ? (
+                                <button onClick={() => router.push(`/story-details/${story.id}?project_id=${story.project_id}`)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                                  style={{ background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "#fef3c7")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "#fffbeb")}>
+                                  <Brain className="w-3.5 h-3.5" />{story.impactedTestCases} Impacted
+                                </button>
+                              ) : <span className="text-xs text-[#9ca3af] italic">—</span>}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {story.test_case_created_time ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-xs font-medium text-[#1a2540]">
+                                    {new Date(story.test_case_created_time).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                  </span>
+                                  <span className="text-[11px] text-[#9ca3af]">
+                                    {new Date(story.test_case_created_time).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                  </span>
+                                </div>
+                              ) : <span className="text-xs text-[#9ca3af]">—</span>}
+                            </td>
+                            <td className="py-3 px-4 text-center" onClick={e => e.stopPropagation()}>
+                              <button onClick={e => handleDownload(story.id, e)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                                style={{ background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0" }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#dcfce7")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "#f0fdf4")}>
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {renderPagination()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── KANBAN BOARD ───────────────────────────────── */}
+            {viewMode === "board" && (
+              <>
+                {loading ? (
+                  <div className="py-16 text-center">
+                    <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
+                      <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />
+                      Loading stories…
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4 items-start">
+                    {COLS.map(col => {
+                      const colStories = stories.filter(s => (storyColumns[s.id] || "generated") === col.id)
+                      return (
+                        <div key={col.id}
+                          onDragOver={e => { e.preventDefault(); dragOverCol.current = col.id }}
+                          onDrop={() => {
+                            if (dragStoryId.current && dragOverCol.current) {
+                              moveCard(dragStoryId.current, dragOverCol.current)
+                              dragStoryId.current = null; dragOverCol.current = null
+                            }
+                          }}
+                          className="rounded-2xl flex flex-col min-h-[180px]"
+                          style={{ background: col.bg, border: `1.5px solid ${col.border}` }}
+                        >
+                          {/* Column header */}
+                          <div className="flex items-center justify-between px-4 py-3 rounded-t-xl"
+                            style={{ borderBottom: `1px solid ${col.border}` }}>
+                            <div className="flex items-center gap-2" style={{ color: col.color }}>
+                              {col.icon}
+                              <span className="font-bold text-sm">{col.label}</span>
                             </div>
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                              style={{ background: "white", color: col.color, border: `1px solid ${col.border}` }}>
+                              {colStories.length}
+                            </span>
                           </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[200px] max-w-[220px] text-left">
-                          <div className="flex flex-col items-start gap-1">
-                            <span>Story Content</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                              <FileText className="w-3 h-3" />
-                              Content
-                            </div>
-                          </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[140px] max-w-[160px] text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span>Test Cases</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                              <FileText className="w-3 h-3" />
-                              Generated by AI
-                            </div>
-                          </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[140px] max-w-[160px] text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span>Impacted Test Cases</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-medium">
-                              <Brain className="w-3 h-3" />
-                              Impact Analysis by AI
-                            </div>
-                          </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[140px] max-w-[160px] text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span>Generated Time</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-800 rounded-full text-xs font-medium">
-                              <Calendar className="w-3 h-3" />
-                              Date
-                            </div>
-                          </div>
-                        </th>
-                        <th className="font-semibold text-blue-900 py-3 px-3 min-w-[100px] max-w-[120px] text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span>Actions</span>
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                              <Download className="w-3 h-3" />
-                              Download
-                            </div>
-                          </div>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stories.map((story, index) => (
-                        <tr key={story.id || index} className="group hover:bg-gray-50 transition-colors border-b border-gray-100">
-                          <td className="font-semibold text-gray-800 py-2 px-3 min-w-[100px] max-w-[120px] relative group">
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                              <span className="text-sm truncate cursor-default">{story.id}</span>
-                              <div className="absolute left-3 top-full mt-1 z-10 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                <div className="bg-white border border-gray-200 shadow-lg rounded-lg px-3 py-2 text-sm whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                                    {story.id}
+
+                          {/* Cards */}
+                          <div className="flex flex-col gap-2.5 p-3 flex-1">
+                            {colStories.length === 0 && (
+                              <div className="flex items-center justify-center py-10 text-xs font-medium rounded-xl"
+                                style={{ color: col.color, opacity: 0.5, border: `1.5px dashed ${col.border}` }}>
+                                Drop stories here
+                              </div>
+                            )}
+                            {colStories.map(story => (
+                              <div key={story.id}
+                                draggable
+                                onDragStart={() => { dragStoryId.current = story.id }}
+                                onDragEnd={() => { dragStoryId.current = null }}
+                                onClick={() => { setPreviewStory(story); setShowPreview(true) }}
+                                className="group rounded-xl bg-white cursor-grab active:cursor-grabbing select-none transition-all hover:shadow-md"
+                                style={{ border: "1px solid #dde6f0", boxShadow: "0 1px 3px rgba(15,22,43,0.06)" }}
+                              >
+                                {/* Card header: ID + project + grip */}
+                                <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: col.color }} />
+                                    <span className="text-xs font-bold text-[#1a2540] truncate">{story.id}</span>
+                                    {story.project_id && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
+                                        style={{ background: "#F6F8FB", color: "#5a7ca0", border: "1px solid #eef2f8" }}>
+                                        {story.project_id}
+                                      </span>
+                                    )}
                                   </div>
+                                  <GripVertical className="w-3.5 h-3.5 text-[#d1d9e4] flex-shrink-0" />
+                                </div>
+
+                                {/* Description */}
+                                <div className="px-3.5 pb-2.5">
+                                  <p className="text-xs text-[#374151] line-clamp-2 leading-relaxed">
+                                    {story.description || "No description."}
+                                  </p>
+                                </div>
+
+                                {/* Stats */}
+                                <div className="flex items-center gap-1.5 px-3.5 pb-2.5">
+                                  <button onClick={e => { e.stopPropagation(); router.push(`/test-cases/${story.id}`) }}
+                                    className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold hover:opacity-80 transition-opacity"
+                                    style={{ background: "#f0f6ff", color: "#377ACF", border: "1px solid #c8d8eb" }}>
+                                    <FileText className="w-2.5 h-2.5" />{story.test_case_count || 0}
+                                  </button>
+                                  {typeof story.impactedTestCases === "number" && story.impactedTestCases > 0 && (
+                                    <button onClick={e => { e.stopPropagation(); router.push(`/story-details/${story.id}?project_id=${story.project_id}`) }}
+                                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold hover:opacity-80 transition-opacity"
+                                      style={{ background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}>
+                                      <Brain className="w-2.5 h-2.5" />{story.impactedTestCases}↑
+                                    </button>
+                                  )}
+                                  {story.test_case_created_time && (
+                                    <span className="text-[10px] text-[#9ca3af] ml-auto">
+                                      {new Date(story.test_case_created_time).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Move to + Download — revealed on hover */}
+                                <div className="hidden group-hover:flex items-center gap-1.5 px-3.5 pb-3 pt-2"
+                                  style={{ borderTop: "1px solid #eef2f8" }}>
+                                  <span className="text-[10px] text-[#9ca3af]">Move:</span>
+                                  {COLS.filter(c => c.id !== col.id).map(c => (
+                                    <button key={c.id}
+                                      onClick={e => { e.stopPropagation(); moveCard(story.id, c.id) }}
+                                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all hover:scale-105 active:scale-95"
+                                      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                                      {c.label}
+                                    </button>
+                                  ))}
+                                  <button onClick={e => { e.stopPropagation(); handleDownload(story.id, e) }}
+                                    className="ml-auto w-5 h-5 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+                                    style={{ background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0" }}>
+                                    <Download className="w-2.5 h-2.5" />
+                                  </button>
                                 </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="text-gray-700 py-2 px-3 min-w-[180px] max-w-[200px]">
-                            <div className="relative group cursor-pointer">
-                              <div className="description-content line-clamp-2 text-sm">
-                                {story.description || 'No description available'}
-                              </div>
-                              {story.description && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedStory(story);
-                                    setShowStoryContent(true);
-                                  }}
-                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                                >
-                                  Read More
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          <td className="text-gray-700 py-2 px-3 min-w-[200px] max-w-[220px]">
-                            <div className="relative group cursor-pointer">
-                              <div className="line-clamp-2 text-sm">
-                                {story.doc_content_text || 'No content available'}
-                              </div>
-                              {story.doc_content_text && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedStory(story);
-                                    setShowStoryContent(true);
-                                  }}
-                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                                >
-                                  Read More
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2 px-3 text-center min-w-[140px] max-w-[160px]">
-                            <button
-                              onClick={() => router.push(`/test-cases/${story.id}`)}
-                              className="inline-flex items-center justify-center px-2.5 py-1.5 rounded bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors border border-blue-200 text-sm"
-                            >
-                              <FileText className="w-3 h-3 mr-1" />
-                              {story.test_case_count || 0} Test Cases
-                            </button>
-                          </td>
-                          <td className="py-2 px-3 text-center min-w-[140px] max-w-[160px]">
-                            {typeof story.impactedTestCases === 'number' ? (
-                              <button
-                                onClick={() => router.push(`/story-details/${story.id}?project_id=${story.project_id}`)}
-                                className="inline-flex items-center justify-center px-2.5 py-1.5 rounded bg-amber-50 text-amber-700 font-medium hover:bg-amber-100 transition-colors border border-amber-200 text-sm"
-                              >
-                                <Brain className="w-3 h-3 mr-1" />
-                                {story.impactedTestCases} Impacted
-                              </button>
-                            ) : (
-                              <span className="text-gray-400 italic text-sm">N/A</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-center min-w-[140px] max-w-[160px]">
-                            {story.test_case_created_time ? (
-                              <div className="flex flex-col items-center text-sm space-y-1">
-                                <span className="text-gray-800 font-medium">
-                                  {new Date(story.test_case_created_time).toLocaleString('en-US', {
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric'
-                                  })}
-                                </span>
-                                <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-xs">
-                                  {new Date(story.test_case_created_time).toLocaleString('en-US', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    hour12: true
-                                  })}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-400 italic text-sm">-</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-center min-w-[100px] max-w-[120px]">
-                            <button
-                              onClick={() => handleDownload(story.id)}
-                              className="inline-flex items-center justify-center px-2.5 py-1.5 rounded bg-green-50 text-green-700 font-medium hover:bg-green-100 transition-colors border border-green-200 text-sm"
-                            >
-                              <Download className="w-3 h-3 mr-1" />
-                              Download
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {renderPagination()}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Simplified Footer */}
-      <footer className="mt-6">
-        <div className="bg-gray-800 py-3 text-center text-gray-300 text-sm">
-          <div className="w-full">
-
-          </div>
-        </div>
-      </footer>
-
-      {/* Enhanced Modal Popup */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="max-w-3xl rounded-2xl border-0 shadow-2xl">
-          <DialogHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-800 p-6 -m-6 mb-6 rounded-t-2xl border-b border-blue-100">
-            <DialogTitle className="text-xl font-bold flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <FileText className="w-4 h-4 text-white" />
-              </div>
-              Test Case Steps
-            </DialogTitle>
-            <DialogDescription className="text-blue-600 mt-2">
-              AI-generated test cases for your user story
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 max-h-96 overflow-y-auto px-2">
-            {selectedTestCases.map((step, index) => (
-              <div key={index} className="p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border-l-4 border-blue-400 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">
-                    {index + 1}
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <p className="text-sm font-medium text-slate-700 leading-relaxed">{step}</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </SidebarInset>
+
+      {/* ═══════ STORY PREVIEW SHEET ═══════ */}
+      <Sheet open={showPreview} onOpenChange={setShowPreview}>
+        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#dde6f0]">
+          {/* header */}
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F162B" }}>
+            <SheetHeader>
+              <SheetTitle className="text-white text-base font-bold flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(162,210,233,0.18)" }}>
+                  <FileText className="w-3.5 h-3.5" style={{ color: "#A2D2E9" }} />
+                </div>
+                {previewStory?.id}
+              </SheetTitle>
+              <SheetDescription className="text-sm" style={{ color: "#A2D2E9" }}>Story Details</SheetDescription>
+            </SheetHeader>
+          </div>
+
+          {/* body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ background: "#F6F8FB" }}>
+            {/* AI description */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0]">AI-Generated Description</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: "rgba(55,122,207,0.12)", color: "#377ACF" }}>AI</span>
+              </div>
+              <div className="rounded-xl p-4 bg-white border border-[#dde6f0]">
+                <p className="text-sm text-[#374151] leading-relaxed">{previewStory?.description || "No description available."}</p>
+              </div>
+            </div>
+
+            {/* Content */}
+            {previewStory?.doc_content_text && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0] mb-2">Story Content</div>
+                <div className="rounded-xl p-4 bg-white border border-[#dde6f0] max-h-48 overflow-y-auto">
+                  <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{previewStory.doc_content_text}</p>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="flex justify-end pt-6 border-t border-gray-100">
-            <Button
-              onClick={() => setShowModal(false)}
-              className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-8 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 transform hover:scale-105"
-            >
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            )}
 
-      {/* Replace the old chatbot implementation with the new component */}
-      <Chatbot
-        onSendMessage={handleSendMessage}
-        chatMessages={chatMessages}
-        isGenerating={isGenerating}
-        selectedModel={selectedModel}
-        onModelChange={(model) => setSelectedModel(model)}
+            {/* Meta */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl p-3.5 bg-white border border-[#dde6f0]">
+                <div className="text-[11px] font-semibold text-[#5a7ca0] mb-0.5">Test Cases</div>
+                <div className="text-xl font-bold text-[#377ACF]">{previewStory?.test_case_count || 0}</div>
+              </div>
+              <div className="rounded-xl p-3.5 bg-white border border-[#dde6f0]">
+                <div className="text-[11px] font-semibold text-[#5a7ca0] mb-0.5">Impacted</div>
+                <div className="text-xl font-bold text-[#b45309]">
+                  {typeof previewStory?.impactedTestCases === "number" ? previewStory.impactedTestCases : "—"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* footer actions */}
+          <div className="p-5 flex-shrink-0 border-t border-[#dde6f0] bg-white space-y-2.5">
+            <button onClick={() => { setShowPreview(false); router.push(`/test-cases/${previewStory?.id}`) }}
+              className="w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+              style={{ background: "#377ACF" }}>
+              <FileText className="w-4 h-4" /> View Test Cases
+            </button>
+            {typeof previewStory?.impactedTestCases === "number" && (
+              <button onClick={() => { setShowPreview(false); router.push(`/story-details/${previewStory?.id}?project_id=${previewStory?.project_id}`) }}
+                className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#fde68a]"
+                style={{ background: "#fffbeb", color: "#b45309" }}>
+                <Brain className="w-4 h-4" /> View Impact Analysis
+              </button>
+            )}
+            <button onClick={() => { if (previewStory) handleDownload(previewStory.id) }}
+              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#dde6f0]"
+              style={{ background: "#ffffff", color: "#374151" }}>
+              <Download className="w-4 h-4" /> Download Excel
+            </button>
+            <button
+              onClick={() => { if (previewStory) openExportForStory(previewStory) }}
+              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+              style={{ background: "#A2D2E9", color: "#0F162B" }}>
+              <Code2 className="w-4 h-4" />
+              {exportLoading ? "Loading test cases…" : "Export as Test Script"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ═══════ UPLOAD STORY SHEET ═══════ */}
+      <Sheet open={showUpload} onOpenChange={setShowUpload}>
+        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#dde6f0]">
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F162B" }}>
+            <SheetHeader>
+              <SheetTitle className="text-white text-base font-bold flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(162,210,233,0.18)" }}>
+                  <FileText className="w-3.5 h-3.5" style={{ color: "#A2D2E9" }} />
+                </div>
+                Upload User Story
+              </SheetTitle>
+              <SheetDescription className="text-sm" style={{ color: "#A2D2E9" }}>
+                Upload a story to auto-generate test cases via AI
+              </SheetDescription>
+            </SheetHeader>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ background: "#F6F8FB" }}>
+            {/* Project */}
+            <div>
+              <label className={labelCls}>Project *</label>
+              <select value={uploadForm.projectId} onChange={e => setUploadForm(p => ({ ...p, projectId: e.target.value }))}
+                className="w-full h-9 rounded-xl px-3 text-sm border border-[#c8d8eb] bg-white text-[#1a2540] focus:outline-none focus:ring-2 focus:ring-[#377ACF]/20">
+                <option value="">Select a project</option>
+                {projects.map(p => <option key={p} value={p}>{p}</option>)}
+                <option value="new">+ Create New Project</option>
+              </select>
+              {uploadForm.projectId === "new" && (
+                <Input placeholder="New project name" value={newProjectName}
+                  onChange={e => setNewProjectName(e.target.value)}
+                  className="mt-2 h-9 rounded-xl text-sm" style={inputStyle} />
+              )}
+            </div>
+
+            {/* Story ID */}
+            <div>
+              <label className={labelCls}>Story ID *</label>
+              <Input placeholder="e.g. PROJ-456" value={uploadForm.storyId}
+                onChange={e => setUploadForm(p => ({ ...p, storyId: e.target.value }))}
+                className="h-9 rounded-xl text-sm" style={inputStyle} />
+            </div>
+
+            {/* Content */}
+            <div>
+              <label className={labelCls}>Story Content *</label>
+              <Textarea placeholder="Type or paste your user story here…" rows={5} value={uploadForm.content}
+                onChange={e => setUploadForm(p => ({ ...p, content: e.target.value }))}
+                className="rounded-xl text-sm resize-none" style={inputStyle} />
+            </div>
+
+            {/* File upload */}
+            <div>
+              <label className={labelCls}>Or Upload File</label>
+              <label htmlFor="file-upload"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed border-[#c8d8eb] bg-white cursor-pointer hover:border-[#377ACF] hover:bg-[#f0f6ff] transition-colors">
+                <FileText className="w-4 h-4 text-[#377ACF]" />
+                <span className="text-sm text-[#5a7ca0]">
+                  {uploadForm.file ? uploadForm.file.name : "Click to upload PDF, DOCX or TXT"}
+                </span>
+                {uploadForm.file && (
+                  <button onClick={e => { e.preventDefault(); setUploadForm(p => ({ ...p, file: null })) }}
+                    className="ml-auto text-[#9ca3af] hover:text-[#374151]">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </label>
+              <input id="file-upload" type="file" accept=".pdf,.docx,.txt" className="hidden"
+                onChange={e => setUploadForm(p => ({ ...p, file: e.target.files?.[0] || null }))} />
+            </div>
+
+            {/* Status */}
+            {uploadStatus && (
+              <div className="flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium"
+                style={{
+                  background: uploadStatus.type === "success" ? "#f0fdf4" : uploadStatus.type === "error" ? "#fff1f2" : "#f0f6ff",
+                  border: `1px solid ${uploadStatus.type === "success" ? "#bbf7d0" : uploadStatus.type === "error" ? "#fecdd3" : "#c8d8eb"}`,
+                  color: uploadStatus.type === "success" ? "#166534" : uploadStatus.type === "error" ? "#9f1239" : "#1e4f8a",
+                }}>
+                {uploadStatus.message}
+                <button onClick={() => setUploadStatus(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+          </div>
+
+          <div className="p-5 flex-shrink-0 border-t border-[#dde6f0] bg-white">
+            <button onClick={handleUploadStory}
+              disabled={isUploading || (uploadForm.projectId === "new" ? !newProjectName : !uploadForm.projectId) || !uploadForm.storyId || (!uploadForm.content && !uploadForm.file)}
+              className="w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: "#377ACF" }}>
+              {isUploading
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Processing…</>
+                : <><FileText className="w-4 h-4" />Generate Test Cases</>}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Chatbot onSendMessage={handleSendMessage} chatMessages={chatMessages} isGenerating={isGenerating}
+        selectedModel={selectedModel} onModelChange={m => setSelectedModel(m)} />
+
+      <ExportScriptDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        storyId={previewStory?.id || ""}
+        testCases={exportTestCases}
       />
-
-      {/* Story Content Dialog */}
-      <Dialog open={showStoryContent} onOpenChange={setShowStoryContent}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold text-blue-800 flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <FileText className="w-4 h-4 text-white" />
-              </div>
-              Story Details
-            </DialogTitle>
-            <DialogDescription className="text-blue-600 mt-2 font-medium">
-              ID: {selectedStory?.id}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                <span>AI-Generated Description</span>
-                <div className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full text-xs">AI</div>
-              </h3>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-gray-700 text-sm">{selectedStory?.description}</p>
-              </div>
-            </div>
-
-            {selectedStory?.doc_content_text && (
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Full Story Content</h3>
-                <div className="bg-gray-50 rounded-lg p-4 max-h-[400px] overflow-y-auto border border-gray-100">
-                  <p className="text-gray-700 text-sm whitespace-pre-wrap">{selectedStory.doc_content_text}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Enhanced Story Content Dialog */}
-      <Dialog open={showContentDialog} onOpenChange={setShowContentDialog}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border-0 shadow-2xl">
-          <DialogHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 -m-6 mb-6 rounded-t-2xl border-b border-blue-100">
-            <DialogTitle className="text-2xl font-bold text-blue-800 flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <FileText className="w-4 h-4 text-white" />
-              </div>
-              Story Content
-            </DialogTitle>
-            <DialogDescription className="text-blue-600 mt-2 font-medium">
-              Story ID: {selectedStory?.id}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Story Description</h3>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-gray-700">{selectedStory?.description}</p>
-              </div>
-            </div>
-
-            {/* Story Content */}
-            {selectedStory?.doc_content_text && (
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Full Content</h3>
-                <div className="bg-gray-50 rounded-lg p-4 max-h-[400px] overflow-y-auto">
-                  <p className="text-gray-700 whitespace-pre-wrap">{selectedStory.doc_content_text}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </SidebarProvider>
   )
 }
-

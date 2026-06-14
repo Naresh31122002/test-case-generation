@@ -2,496 +2,330 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { api, TestCase, TestCaseResponse } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Download, ArrowLeft, Info, CheckCircle2, AlertCircle, Brain, Triangle, Eye, FileText } from "lucide-react";
+import { api, TestCase } from "@/lib/api";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  ArrowLeft, Download, Brain, FileText, CheckCircle2,
+  Eye, LayoutDashboard, Clock, ChevronRight, Code2,
+} from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
+import { ExportScriptDialog } from "@/components/export-script-dialog";
+
+function cleanAndParseLLMResponse(response: string) {
+  let cleaned = response.trim();
+  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
+  if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
+  cleaned = cleaned.trim();
+  try { return { parsed: JSON.parse(cleaned), cleaned }; }
+  catch { return { parsed: null, cleaned }; }
+}
+function formatRagTestCases(testCases: any[]) {
+  return testCases.map((tc, idx) => {
+    const steps = Array.isArray(tc.steps) ? tc.steps.join("\n") : tc.steps;
+    return `Test Case ${idx + 1}: ${tc.title}\nSteps:\n${steps}\nExpected Result: ${tc.expected_result}\n`;
+  }).join("\n\n");
+}
 
 export default function StoryTestCasesPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const projectId = searchParams.get('project_id');
-  const storyId = typeof params?.storyId === 'string' ? params.storyId : Array.isArray(params?.storyId) ? params.storyId[0] : '';
+  const projectId = searchParams.get("project_id");
+  const storyId = typeof params?.storyId === "string" ? params.storyId : Array.isArray(params?.storyId) ? params.storyId[0] : "";
+
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [storyDescription, setStoryDescription] = useState<string | null>(null);
   const [storyContent, setStoryContent] = useState<string | null>(null);
   const [storyProject, setStoryProject] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState<string>("");
-  const [selectedTestCase, setSelectedTestCase] = useState<TestCase | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [showStoryContent, setShowStoryContent] = useState(false);
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([
-    {
-      role: "assistant",
-      content:
-        "Hello! I'm your AI Test Case Assistant. I can help you analyze and improve the test cases for this story. What would you like to know?",
-    },
-  ]);
+  const [currentTime, setCurrentTime] = useState("");
+
+  /* dialogs */
+  const [selectedTC, setSelectedTC] = useState<TestCase | null>(null);
+  const [showTCDialog, setShowTCDialog] = useState(false);
+  const [showStorySheet, setShowStorySheet] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+
+  /* chatbot */
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
+    role: "assistant",
+    content: "Hello! I can help you analyze the test cases for this story. What would you like to know?",
+  }]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<'gemini' | 'rag'>('rag');
-  const [impactedTestCases, setImpactedTestCases] = useState<any>(null);
+  const [selectedModel, setSelectedModel] = useState<"gemini" | "rag">("rag");
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // Important: always log the raw payload to validate API URL + response shape
-        console.debug("[test-cases page] fetching testcases", { storyId });
-        const response = await api.getTestCases(storyId);
-        console.debug("[test-cases page] getTestCases response", response);
-
-        // Backend is expected to return { testcases: [...] }.
-        // Guard against undefined / wrong shape to avoid rendering silently failing.
-        const rawTestcases = (response as any)?.testcases;
-        const normalizedTestcases = Array.isArray(rawTestcases) ? rawTestcases : [];
-        if (!Array.isArray(rawTestcases)) {
-          console.warn("[test-cases page] response.testcases is not an array", {
-            receivedType: typeof rawTestcases,
-          });
-          if (rawTestcases === undefined) {
-            setError("Invalid API response: 'testcases' field is missing");
-          } else {
-            setError("Invalid API response: 'testcases' field is not an array");
-          }
-        }
-
-        setTestCases(normalizedTestcases);
-        setStoryDescription((response as any)?.storyDescription ?? null);
-
-        if ((response as any)?.error) {
-          setError(String((response as any).error));
-        }
-        // Fetch story content
-        const storyResponse = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}`);
-        if (storyResponse.ok) {
-          const storyData = await storyResponse.json();
-          console.log('Story data response:', storyData); // Debug log
-          setStoryContent(storyData.document_content);
-          setStoryProject(storyData.project_id);
-        } else {
-          console.error('Failed to fetch story:', storyResponse.status);
-        }
-      } catch (err) {
-        console.error("[test-cases page] fetchData failed", err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch test cases');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (storyId) {
-      fetchData();
-    }
-  }, [storyId]);
-
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setCurrentTime(new Date().toLocaleTimeString()), 1000);
+    setCurrentTime(new Date().toLocaleTimeString());
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
-    const loadImpactedTestCases = async () => {
-      if (!projectId) {
-        console.error('Project ID is missing');
-        return;
-      }
-
+    if (!storyId) return;
+    (async () => {
       try {
-        const data = await api.fetchImpactedTestCases(storyId, projectId);
-        if (data) {
-          setImpactedTestCases(data);
+        setLoading(true);
+        const res = await api.getTestCases(storyId);
+        const raw = (res as any)?.testcases;
+        setTestCases(Array.isArray(raw) ? raw : []);
+        setStoryDescription((res as any)?.storyDescription ?? null);
+        if ((res as any)?.error) setError(String((res as any).error));
+
+        try {
+          const sr = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}`);
+          if (sr.ok) {
+            const sd = await sr.json();
+            setStoryContent(sd.document_content);
+            setStoryProject(sd.project_id);
+          }
+        } catch {
+          // backend unreachable — fall back to mock
+          const { MOCK_STORY_MAP } = await import("@/lib/mock-stories");
+          const ms = MOCK_STORY_MAP[storyId];
+          if (ms) { setStoryContent(ms.doc_content_text); setStoryProject(ms.project_id); }
         }
-      } catch (error) {
-        console.error('Error loading impacted test cases:', error);
-      }
-    };
-
-    if (projectId) {
-      loadImpactedTestCases();
-    }
-  }, [storyId, projectId]);
-
-  const handleViewDetails = (testCase: TestCase) => {
-    setSelectedTestCase(testCase);
-    setIsDialogOpen(true);
-  };
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to fetch test cases");
+      } finally { setLoading(false); }
+    })();
+  }, [storyId]);
 
   const handleDownload = async () => {
     try {
-      const response = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
-      if (!response.ok) throw new Error('Download failed');
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `test_cases_${storyId}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Download error:', error);
-    }
-  };
-
-  const toggleCardExpand = (e: React.MouseEvent, cardId: string) => {
-    e.stopPropagation();
-    setExpandedCards(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(cardId)) {
-        newSet.delete(cardId);
-      } else {
-        newSet.add(cardId);
-      }
-      return newSet;
-    });
+      const res = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `test_cases_${storyId}.xlsx`;
+      document.body.appendChild(a); a.click(); URL.revokeObjectURL(url); document.body.removeChild(a);
+    } catch { console.error("Download failed"); }
   };
 
   const handleSendMessage = async (message: string) => {
     if (!message.trim() || isGenerating) return;
-
-    // Add user message to chat
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
+    setChatMessages(p => [...p, { role: "user", content: message }]);
     setIsGenerating(true);
-
     try {
-      const response = await fetch("/api/generate-test-cases", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: message,
-          context: selectedModel === 'rag' ? "Generate comprehensive test cases for the following feature or user story" : "Provide QA support and guidance",
-          model: selectedModel,
-          storyId: params.storyId,
-        }),
+      const res = await fetch("/api/generate-test-cases", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, context: "Generate or analyse test cases", model: selectedModel, storyId }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate response");
-      }
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      // If RAG, display structured test cases
-      if (selectedModel === 'rag' && data.response) {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (selectedModel === "rag" && data.response) {
         const { parsed, cleaned } = cleanAndParseLLMResponse(data.response);
-        if (parsed && Array.isArray(parsed)) {
-          setChatMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: formatRagTestCases(parsed) }
-          ]);
-        } else {
-          setChatMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: cleaned || '[No output from LLM]' }
-          ]);
-        }
-      } else if (selectedModel === 'rag' && data.testCases) {
-        setChatMessages((prev) => [...prev, { role: "assistant", content: formatRagTestCases(data.testCases) }]);
-      } else {
-        // For Gemini mode, display the response directly
-        setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
-      }
-    } catch (error) {
-      console.error("Error generating response:", error);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: selectedModel === 'rag'
-            ? "I'm using mock test cases for demonstration. In production, you would connect to the RAG backend."
-            : "I'm using mock QA support for demonstration. In production, you would connect to the Gemini API.",
-        },
-      ]);
-    } finally {
-      setIsGenerating(false);
-    }
+        setChatMessages(p => [...p, { role: "assistant", content: parsed && Array.isArray(parsed) ? formatRagTestCases(parsed) : cleaned || "[No output]" }]);
+      } else setChatMessages(p => [...p, { role: "assistant", content: data.response }]);
+    } catch { setChatMessages(p => [...p, { role: "assistant", content: "Connection error." }]); }
+    finally { setIsGenerating(false); }
+  };
+
+  const priorityStyle = (p?: string) => {
+    if (p === "high") return { bg: "#fff1f2", color: "#be123c", border: "#fecdd3" };
+    if (p === "medium") return { bg: "#fffbeb", color: "#b45309", border: "#fde68a" };
+    return { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0" };
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="fixed top-0 left-0 w-full z-50 bg-background shadow-sm border-b border-border px-4 md:px-8 py-4">
-        <div className="flex justify-between items-center">
-          <div className="flex-shrink-0">
-            <img src="" alt="" className="h-12 w-auto" />
-          </div>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-primary">Test Case Generation</h1>
-            <p className="text-sm text-muted-foreground font-semibold mt-1">Powered by Gen AI</p>
-          </div>
-          <div className="flex-shrink-0 flex items-center space-x-4">
-            <div className="text-right">
-              <div className="text-lg font-bold text-foreground">
-                {currentTime || 'Loading...'}
-              </div>
-              <div className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        {/* Top bar */}
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] bg-white sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <SidebarTrigger className="text-[#5a7ca0] hover:text-[#0F162B]" />
+            <Separator orientation="vertical" className="h-5" />
+            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-[#5a7ca0] hover:text-[#0F162B] transition-colors">
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+            <Separator orientation="vertical" className="h-5" />
+            <div className="flex items-center gap-1.5 text-sm">
+              <LayoutDashboard className="w-4 h-4 text-[#5a7ca0]" />
+              <span className="text-[#5a7ca0]">Dashboard</span>
+              <ChevronRight className="w-3.5 h-3.5 text-[#b0c4d8]" />
+              <span className="font-semibold text-[#0F162B]">Test Cases</span>
             </div>
-
           </div>
-        </div>
-      </header>
+          <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
+            <Clock className="w-4 h-4 text-[#377ACF]" />
+            {currentTime || "—"}
+          </div>
+        </header>
 
-      <div className="max-w-[95%] mx-auto py-8 pt-32">
-        <Card className="shadow-lg border border-border rounded-xl overflow-hidden">
-          <CardHeader className="bg-gradient-to-r from-muted/50 to-background border-b border-border">
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => router.back()}
-                    className="flex items-center gap-2 border-border hover:bg-muted transition-colors"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to Stories
-                  </Button>
-                  <div className="h-6 w-px bg-border"></div>
-                  <div className="flex items-center gap-2">
-                    <div className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm font-medium flex items-center gap-1">
-                      <CheckCircle2 className="h-4 w-4" />
-                      {testCases.length} Test Cases
-                    </div>
-                    <div className="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full text-sm font-medium flex items-center gap-1">
-                      <Brain className="h-4 w-4" />
-                      AI Generated
-                    </div>
+        <div className="p-6 space-y-5" style={{ background: "#F6F8FB", minHeight: "calc(100vh - 56px)" }}>
+
+          {/* Story header card */}
+          <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
+            <div className="px-6 py-5" style={{ background: "#0F162B" }}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2.5 mb-2 flex-wrap">
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(55,122,207,0.2)", color: "#A2D2E9" }}>
+                      <CheckCircle2 className="w-3.5 h-3.5" />{testCases.length} Test Cases
+                    </span>
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9" }}>
+                      <Brain className="w-3.5 h-3.5" />AI Generated
+                    </span>
                     {storyProject && (
-                      <div className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full text-sm font-medium flex items-center gap-1">
-                        <FileText className="h-4 w-4" />
-                        Project: {storyProject}
-                      </div>
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9" }}>
+                        <FileText className="w-3.5 h-3.5" />{storyProject}
+                      </span>
                     )}
                   </div>
+                  <h1 className="text-lg font-bold text-white">Story {storyId}</h1>
+                  {storyDescription && <p className="text-sm mt-1 leading-relaxed" style={{ color: "#A2D2E9" }}>{storyDescription}</p>}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowStoryContent(true)}
-                    className="flex items-center gap-2 border-border hover:bg-muted transition-colors"
-                  >
-                    <FileText className="h-4 w-4" />
-                    View Story Content
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleDownload}
-                    className="flex items-center gap-2 border-border hover:bg-muted transition-colors"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Test Cases
-                  </Button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => setShowStorySheet(true)}
+                    className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-80"
+                    style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9", border: "1px solid rgba(162,210,233,0.25)" }}>
+                    <Eye className="w-3.5 h-3.5" />View Story
+                  </button>
+                  <button
+                    onClick={() => setShowExportDialog(true)}
+                    disabled={testCases.length === 0}
+                    className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 active:scale-95 disabled:opacity-40"
+                    style={{ background: "#A2D2E9", color: "#0F162B" }}>
+                    <Code2 className="w-3.5 h-3.5" />Export Script
+                  </button>
+                  <button onClick={handleDownload}
+                    className="h-8 px-3 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-all hover:opacity-90"
+                    style={{ background: "#377ACF" }}>
+                    <Download className="w-3.5 h-3.5" />Download
+                  </button>
                 </div>
-              </div>
-
-              <div className="mt-2">
-                <CardTitle className="text-xl font-semibold text-primary mb-3">
-                  Test Cases for Story {storyId}
-                </CardTitle>
-                {storyDescription && (
-                  <p className="text-foreground text-sm leading-relaxed">
-                    {storyDescription}
-                  </p>
-                )}
               </div>
             </div>
-          </CardHeader>
+          </div>
 
-          <CardContent className="p-0 bg-card">
+          {/* Test cases list */}
+          <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[#eef2f8] flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[#377ACF]" />
+              <span className="font-semibold text-sm text-[#0F162B]">Test Cases</span>
+              {!loading && <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f0f6ff] text-[#377ACF]">{testCases.length}</span>}
+            </div>
+
             {loading ? (
-              <div className="p-8 text-center text-blue-600 font-semibold">Loading...</div>
-            ) : error ? (
-              <div className="p-8 text-center text-red-600 font-semibold">{error}</div>
-            ) : testCases.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">No test cases found for this story.</div>
-            ) : (
-              <div className="grid grid-cols-2 gap-6 p-6">
-                {testCases.map((tc, idx) => (
-                  <Card
-                    key={tc.test_case_id || tc.id || idx}
-                    className="border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => handleViewDetails(tc)}
-                  >
-                    <div className="p-4 bg-muted border-b border-border">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-800 dark:text-blue-300 font-semibold">
-                            {idx + 1}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-primary">{tc.title}</div>
-                            <div className="text-muted-foreground text-sm">
-                              ID: <span className="font-mono">{tc.test_case_id || tc.id || "N/A"}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${tc.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
-                              tc.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
-                                'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                            }`}>
-                            {tc.priority || 'low'} priority
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleViewDetails(tc);
-                            }}
-                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Story Content Dialog */}
-      <Dialog open={showStoryContent} onOpenChange={setShowStoryContent}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold text-primary">
-              Story Content
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              ID: {storyId}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground mb-2">Story Description</h3>
-              <div className="bg-muted rounded-lg p-4">
-                <p className="text-foreground">{storyDescription}</p>
-              </div>
-            </div>
-
-            {storyContent && (
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-2">Story Content</h3>
-                <div className="bg-muted rounded-lg p-4">
-                  <p className="text-foreground whitespace-pre-wrap">{storyContent}</p>
+              <div className="py-16 text-center">
+                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
+                  <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />Loading…
                 </div>
+              </div>
+            ) : error ? (
+              <div className="py-12 text-center text-sm font-semibold text-red-600">{error}</div>
+            ) : testCases.length === 0 ? (
+              <div className="py-12 text-center text-sm text-[#9ca3af]">No test cases found for this story.</div>
+            ) : (
+              <div className="divide-y divide-[#eef2f8]">
+                {testCases.map((tc, idx) => {
+                  const ps = priorityStyle(tc.priority);
+                  return (
+                    <div key={tc.test_case_id || tc.id || idx}
+                      onClick={() => { setSelectedTC(tc); setShowTCDialog(true); }}
+                      className="flex items-center gap-4 px-5 py-3.5 cursor-pointer group hover:bg-[#f0f6ff] transition-colors">
+                      {/* number */}
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
+                        style={{ background: "#f0f6ff", color: "#377ACF" }}>
+                        {idx + 1}
+                      </div>
+                      {/* title */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-[#1a2540] truncate">{tc.title}</div>
+                        <div className="text-xs text-[#9ca3af] font-mono mt-0.5">{tc.test_case_id || tc.id || "—"}</div>
+                      </div>
+                      {/* priority */}
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold flex-shrink-0"
+                        style={{ background: ps.bg, color: ps.color, border: `1px solid ${ps.border}` }}>
+                        {tc.priority || "low"}
+                      </span>
+                      {/* steps count */}
+                      {tc.steps?.length ? (
+                        <span className="text-xs text-[#9ca3af] flex-shrink-0">{tc.steps.length} steps</span>
+                      ) : null}
+                      {/* eye icon */}
+                      <Eye className="w-4 h-4 text-[#c8d8eb] group-hover:text-[#377ACF] transition-colors flex-shrink-0" />
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </SidebarInset>
 
-      {/* Test Case Details Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold text-primary">
-              {selectedTestCase?.title}
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              ID: {selectedTestCase?.test_case_id || selectedTestCase?.id || "N/A"}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedTestCase && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground mb-2">Test Steps</h3>
-                    <div className="space-y-2">
-                      {selectedTestCase.steps?.map((step, stepIdx) => (
-                        <div key={stepIdx} className="flex gap-3 p-3 bg-muted rounded-lg">
-                          <div className="w-6 h-6 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-800 dark:text-blue-300 font-semibold flex-shrink-0">
-                            {stepIdx + 1}
-                          </div>
-                          <div className="text-sm text-foreground">{step}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+      {/* ═══════ TEST CASE DETAILS DIALOG ═══════ */}
+      <Dialog open={showTCDialog} onOpenChange={setShowTCDialog}>
+        <DialogContent className="max-w-2xl rounded-2xl border-0 p-0 overflow-hidden" style={{ boxShadow: "0 24px 64px rgba(15,22,43,0.22)" }}>
+          {/* header */}
+          <div className="px-6 py-5" style={{ background: "#0F162B" }}>
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold text-white flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(162,210,233,0.18)" }}>
+                  <FileText className="w-3.5 h-3.5" style={{ color: "#A2D2E9" }} />
                 </div>
+                {selectedTC?.title}
+              </DialogTitle>
+              <DialogDescription className="text-sm font-mono mt-0.5" style={{ color: "#A2D2E9" }}>
+                {selectedTC?.test_case_id || selectedTC?.id || "—"}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground mb-2">Expected Results</h3>
-                    <div className="space-y-2">
-                      {selectedTestCase?.expected_results ? (
-                        // Multiple expected results
-                        selectedTestCase.expected_results.map((result, resultIdx) => (
-                          <div key={resultIdx} className="flex gap-3 p-3 bg-muted rounded-lg">
-                            <div className="w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center text-green-800 dark:text-green-300 font-semibold flex-shrink-0">
-                              {resultIdx + 1}
-                            </div>
-                            <div className="text-sm text-foreground">{result}</div>
-                          </div>
-                        ))
-                      ) : selectedTestCase?.expected_result ? (
-                        // Single expected result
-                        <div className="flex gap-3 p-3 bg-muted rounded-lg">
-                          <div className="w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center text-green-800 dark:text-green-300 font-semibold flex-shrink-0">
-                            1
-                          </div>
-                          <div className="text-sm text-foreground">{selectedTestCase.expected_result}</div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-muted-foreground italic">No expected results defined</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {selectedTC && (
+            <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto" style={{ background: "#F6F8FB" }}>
+              {/* Priority + AI badge */}
+              <div className="flex items-center gap-3">
+                {(() => { const ps = priorityStyle(selectedTC.priority); return (
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold" style={{ background: ps.bg, color: ps.color, border: `1px solid ${ps.border}` }}>
+                    {selectedTC.priority || "low"} priority
+                  </span>
+                ); })()}
+                <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(55,122,207,0.1)", color: "#377ACF" }}>
+                  <Brain className="w-3 h-3" />AI Generated
+                </span>
               </div>
 
-              <div className="pt-4 border-t border-border">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">Priority:</span>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${selectedTestCase.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
-                        selectedTestCase.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
-                          'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                      }`}>
-                      {selectedTestCase.priority || 'low'}
-                    </span>
+              <div className="grid grid-cols-2 gap-5">
+                {/* Steps */}
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0] mb-2">Test Steps</div>
+                  <div className="space-y-2">
+                    {selectedTC.steps?.length ? selectedTC.steps.map((step, i) => (
+                      <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#dde6f0]">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#377ACF" }}>
+                          {i + 1}
+                        </div>
+                        <p className="text-sm text-[#374151]">{step}</p>
+                      </div>
+                    )) : <p className="text-sm text-[#9ca3af] italic">No steps defined.</p>}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">Generated by:</span>
-                    <span className="px-2 py-1 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 flex items-center gap-1">
-                      <Brain className="h-3 w-3" />
-                      AI
-                    </span>
+                </div>
+
+                {/* Expected results */}
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0] mb-2">Expected Results</div>
+                  <div className="space-y-2">
+                    {(selectedTC.expected_results?.length
+                      ? selectedTC.expected_results
+                      : selectedTC.expected_result ? [selectedTC.expected_result] : []
+                    ).map((r, i) => (
+                      <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#dde6f0]">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#15803d" }}>
+                          {i + 1}
+                        </div>
+                        <p className="text-sm text-[#374151]">{r}</p>
+                      </div>
+                    ))}
+                    {!selectedTC.expected_results?.length && !selectedTC.expected_result && (
+                      <p className="text-sm text-[#9ca3af] italic">No expected results defined.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -500,123 +334,45 @@ export default function StoryTestCasesPage() {
         </DialogContent>
       </Dialog>
 
-      {impactedTestCases && (
-        <div className="mt-4">
-          <h3 className="text-lg font-semibold mb-2">Impact Analysis by AI</h3>
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Total Test Cases</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{impactedTestCases.total_test_cases}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Impacted Test Cases</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{impactedTestCases.impacted_test_cases_count}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Impact Percentage</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{impactedTestCases.impact_percentage}%</p>
-              </CardContent>
-            </Card>
+      {/* ═══════ STORY CONTENT SHEET ═══════ */}
+      <Sheet open={showStorySheet} onOpenChange={setShowStorySheet}>
+        <SheetContent side="right" className="w-[440px] p-0 flex flex-col gap-0">
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F162B" }}>
+            <SheetHeader>
+              <SheetTitle className="text-white text-base font-bold">Story Content</SheetTitle>
+              <SheetDescription style={{ color: "#A2D2E9" }}>ID: {storyId}</SheetDescription>
+            </SheetHeader>
           </div>
-
-          <div className="mb-4">
-            <h4 className="text-md font-semibold mb-2">Severity Summary</h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-red-100 p-4 rounded-lg">
-                <p className="text-red-700">High: {impactedTestCases.severity_summary.high}</p>
+          <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ background: "#F6F8FB" }}>
+            {storyDescription && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0] mb-2">AI Description</div>
+                <div className="rounded-xl p-4 bg-white border border-[#dde6f0]">
+                  <p className="text-sm text-[#374151] leading-relaxed">{storyDescription}</p>
+                </div>
               </div>
-              <div className="bg-yellow-100 p-4 rounded-lg">
-                <p className="text-yellow-700">Medium: {impactedTestCases.severity_summary.medium}</p>
+            )}
+            {storyContent && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-[#5a7ca0] mb-2">Full Content</div>
+                <div className="rounded-xl p-4 bg-white border border-[#dde6f0]">
+                  <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{storyContent}</p>
+                </div>
               </div>
-              <div className="bg-green-100 p-4 rounded-lg">
-                <p className="text-green-700">Low: {impactedTestCases.severity_summary.low}</p>
-              </div>
-            </div>
+            )}
           </div>
+        </SheetContent>
+      </Sheet>
 
-          <div>
-            <h4 className="text-md font-semibold mb-2">Impacted Test Cases Details</h4>
-            <div className="space-y-4">
-              {impactedTestCases.impacted_test_cases.map((testCase: any) => (
-                <Card key={testCase.test_case_id}>
-                  <CardHeader>
-                    <CardTitle>{testCase.original_title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <p><strong>Test Case ID:</strong> {testCase.test_case_id}</p>
-                      <p><strong>Expected Result:</strong> {testCase.original_expected_result}</p>
-                      <div>
-                        <strong>Steps:</strong>
-                        <ul className="list-disc pl-6">
-                          {testCase.original_steps.map((step: string, index: number) => (
-                            <li key={index}>{step}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <strong>Impacts:</strong>
-                        <div className="space-y-2 mt-2">
-                          {testCase.impacts.map((impact: any, index: number) => (
-                            <div key={index} className="border p-2 rounded">
-                              <p><strong>Impacting Story:</strong> {impact.impacting_story_description}</p>
-                              <p><strong>Severity:</strong> {impact.impact_severity}</p>
-                              <p><strong>Priority:</strong> {impact.impact_priority}</p>
-                              <p><strong>Impact Details:</strong> {impact.impact_details}</p>
-                              <p><strong>Created On:</strong> {new Date(impact.impact_created_on).toLocaleString()}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <Chatbot onSendMessage={handleSendMessage} chatMessages={chatMessages} isGenerating={isGenerating}
+        selectedModel={selectedModel} onModelChange={m => setSelectedModel(m)} />
 
-      <Chatbot
-        onSendMessage={handleSendMessage}
-        chatMessages={chatMessages}
-        isGenerating={isGenerating}
-        selectedModel={selectedModel}
-        onModelChange={(model) => setSelectedModel(model)}
+      <ExportScriptDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        storyId={storyId}
+        testCases={testCases}
       />
-    </div>
+    </SidebarProvider>
   );
 }
-
-function cleanAndParseLLMResponse(response: string) {
-  // Remove triple backticks and ```json if present
-  let cleaned = response.trim()
-  if (cleaned.startsWith('```json')) cleaned = cleaned.slice(7)
-  if (cleaned.startsWith('```')) cleaned = cleaned.slice(3)
-  if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3)
-  cleaned = cleaned.trim()
-  try {
-    const parsed = JSON.parse(cleaned)
-    return { parsed, cleaned }
-  } catch {
-    return { parsed: null, cleaned }
-  }
-}
-
-function formatRagTestCases(testCases: any[]) {
-  return testCases.map((tc, idx) => {
-    const steps = Array.isArray(tc.steps) ? tc.steps.join('\n') : tc.steps
-    return `Test Case ${idx + 1}: ${tc.title}\nSteps:\n${steps}\nExpected Result: ${tc.expected_result}\n`
-  }).join('\n\n')
-} 
