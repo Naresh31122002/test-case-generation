@@ -10,10 +10,11 @@ import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Download, Brain, FileText, CheckCircle2,
   Eye, LayoutDashboard, Clock, ChevronRight, Code2,
-  ListChecks, AlertTriangle, Info,
+  ListChecks, AlertTriangle, Info, Play,
 } from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
 import { ExportScriptDialog } from "@/components/export-script-dialog";
+import { RunMode } from "@/components/run-mode";
 
 function cleanAndParseLLMResponse(response: string) {
   let cleaned = response.trim();
@@ -48,6 +49,9 @@ export default function StoryTestCasesPage() {
 
   /* split pane — selected test case (no dialog) */
   const [activeIdx, setActiveIdx] = useState(0);
+
+  /* run mode */
+  const [runMode, setRunMode] = useState(false);
 
   /* sheets / export */
   const [showStorySheet, setShowStorySheet] = useState(false);
@@ -199,6 +203,13 @@ export default function StoryTestCasesPage() {
                   style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9", border: "1px solid rgba(162,210,233,0.25)" }}>
                   <Eye className="w-3.5 h-3.5" />View Story
                 </button>
+                <button
+                  onClick={() => setRunMode(true)}
+                  disabled={testCases.length === 0}
+                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
+                  style={{ background: "rgba(162,210,233,0.25)", color: "#ffffff", border: "1px solid rgba(162,210,233,0.3)" }}>
+                  <Play className="w-3.5 h-3.5" />Run Tests
+                </button>
                 <button onClick={() => setShowExportDialog(true)} disabled={testCases.length === 0}
                   className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
                   style={{ background: "#A2D2E9", color: "#0F162B" }}>
@@ -217,7 +228,9 @@ export default function StoryTestCasesPage() {
           <div className="flex-1 flex gap-0 mx-6 mt-4 mb-6 rounded-2xl overflow-hidden border border-[#dde6f0] shadow-sm"
             style={{ background: "#ffffff", minHeight: 0 }}>
 
-            {loading ? (
+            {runMode ? (
+              <RunMode storyId={storyId} testCases={testCases} onExit={() => setRunMode(false)} />
+            ) : loading ? (
               <div className="flex-1 flex items-center justify-center py-16">
                 <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
                   <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />

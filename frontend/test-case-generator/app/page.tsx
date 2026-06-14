@@ -7,7 +7,9 @@ import {
   RefreshCw, ChevronLeft, ChevronRight, X, Eye,
   Clock, SlidersHorizontal, LayoutDashboard,
   LayoutGrid, List, GripVertical, CheckCircle2,
-  AlertCircle, Circle, Code2,
+  AlertCircle, Circle, Code2, Command, Printer,
+  ArrowLeftRight, Filter, BarChart2, Layers,
+  TrendingUp, AlertTriangle, Users,
 } from "lucide-react"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -21,6 +23,8 @@ import { toast } from "sonner"
 import { Chatbot } from "@/components/chatbot"
 import { ExportScriptDialog } from "@/components/export-script-dialog"
 import { TestCase } from "@/lib/api"
+import { CommandPalette } from "@/components/command-palette"
+import { StoryCompareDialog } from "@/components/story-compare-dialog"
 
 /* ─── types ─────────────────────────────────────────────────── */
 interface FormData {
@@ -115,6 +119,15 @@ export default function TestCaseGenerator() {
   /* ── view toggle ── */
   const [viewMode, setViewMode] = useState<"table" | "board">("board")
 
+  /* ── feature states ── */
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const [showCompare, setShowCompare] = useState(false)
+  const [compareStoryId, setCompareStoryId] = useState("")
+  const [filterNoTC, setFilterNoTC] = useState(false)
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
+  const [showBulkBar, setShowBulkBar] = useState(false)
+
   /* ── kanban column state (persisted to localStorage) ── */
   type KanbanCol = "generated" | "review" | "approved"
   const COLS: { id: KanbanCol; label: string; icon: React.ReactNode; color: string; bg: string; border: string }[] = [
@@ -166,6 +179,14 @@ export default function TestCaseGenerator() {
     return () => clearInterval(t)
   }, [])
 
+  /* load recent searches */
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("recent-searches")
+      if (saved) setRecentSearches(JSON.parse(saved).slice(0, 5))
+    } catch {}
+  }, [])
+
   useEffect(() => {
     if (uploadStatus?.type === "success") {
       const t = setTimeout(() => setUploadStatus(null), 5000)
@@ -196,15 +217,25 @@ export default function TestCaseGenerator() {
   }
 
   /* ── search ── */
+  const saveRecentSearch = (q: string) => {
+    try {
+      const updated = [q, ...recentSearches.filter(r => r !== q)].slice(0, 5)
+      setRecentSearches(updated)
+      localStorage.setItem("recent-searches", JSON.stringify(updated))
+    } catch {}
+  }
+
   const handleSearch = async () => {
     setLoading(true)
     if (formData.storyId.trim()) {
+      saveRecentSearch(formData.storyId.trim())
       const filtered = stories.filter(s => s.id.toLowerCase() === formData.storyId.trim().toLowerCase())
       setStories(filtered)
       if (!filtered.length) toast.info("No stories found with that ID")
       setLoading(false); return
     }
     if (formData.storyDescription.trim()) {
+      saveRecentSearch(formData.storyDescription.trim())
       try {
         const data = await api.searchStories(formData.storyDescription.trim(), 3)
         setStories(data.stories || [])
@@ -334,6 +365,27 @@ export default function TestCaseGenerator() {
     )
   }
 
+  /* ── bulk move ── */
+  const bulkMove = (col: KanbanCol) => {
+    selectedCards.forEach(id => moveCard(id, col))
+    setSelectedCards(new Set())
+    setShowBulkBar(false)
+    toast.success(`Moved ${selectedCards.size} stories to ${col}`)
+  }
+
+  const toggleCardSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedCards(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      setShowBulkBar(next.size > 0)
+      return next
+    })
+  }
+
+  /* ── print ── */
+  const handlePrint = () => { window.print() }
+
   /* ─── shared style helpers ──────────────────────────────────── */
   const labelCls = "block text-[11px] font-semibold uppercase tracking-wide text-[#5a7ca0] mb-1.5"
   const inputStyle = { borderColor: "#c8d8eb" }
@@ -359,9 +411,38 @@ export default function TestCaseGenerator() {
               <span className="font-semibold text-[#0F162B]">Dashboard</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
-            <Clock className="w-4 h-4 text-[#377ACF]" />
-            {currentTime || "—"}
+          <div className="flex items-center gap-2">
+            {/* Ctrl+K button */}
+            <button
+              onClick={() => setShowCommandPalette(true)}
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#dde6f0] hover:bg-[#f0f6ff] transition-colors"
+              style={{ color: "#5a7ca0" }}
+            >
+              <Command className="w-3.5 h-3.5" />
+              <span>Search</span>
+              <kbd className="text-[10px] px-1 py-0.5 rounded font-mono ml-1" style={{ background: "#F6F8FB", border: "1px solid #dde6f0" }}>⌘K</kbd>
+            </button>
+            {/* Compare button */}
+            <button
+              onClick={() => setShowCompare(true)}
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#dde6f0] hover:bg-[#f0f6ff] transition-colors"
+              style={{ color: "#5a7ca0" }}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />Compare
+            </button>
+            {/* Print */}
+            <button
+              onClick={handlePrint}
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#dde6f0] hover:bg-[#f0f6ff] transition-colors"
+              style={{ color: "#5a7ca0" }}
+            >
+              <Printer className="w-3.5 h-3.5" />Print
+            </button>
+            <Separator orientation="vertical" className="h-5" />
+            <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
+              <Clock className="w-4 h-4 text-[#377ACF]" />
+              {currentTime || "—"}
+            </div>
           </div>
         </header>
 
@@ -437,6 +518,89 @@ export default function TestCaseGenerator() {
             </button>
           </div>
 
+          {/* ── Recent searches ──────────────────────────────── */}
+          {recentSearches.length > 0 && !formData.storyId && !formData.storyDescription && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide">Recent:</span>
+              {recentSearches.map(q => (
+                <button
+                  key={q}
+                  onClick={() => {
+                    const looksLikeId = /^[A-Za-z]+-?\d*$/.test(q.trim()) && !q.includes(" ")
+                    setFormData(p => looksLikeId
+                      ? { ...p, storyId: q, storyDescription: "" }
+                      : { ...p, storyDescription: q, storyId: "" })
+                    setTimeout(handleSearch, 0)
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-full border transition-colors hover:bg-[#f0f6ff]"
+                  style={{ color: "#5a7ca0", border: "1px solid #dde6f0", background: "#ffffff" }}
+                >
+                  {q}
+                </button>
+              ))}
+              <button
+                onClick={() => { setRecentSearches([]); localStorage.removeItem("recent-searches") }}
+                className="text-[11px] text-[#9ca3af] hover:text-[#374151] transition-colors ml-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* ── Stats strip ──────────────────────────────────── */}
+          {!loading && stories.length > 0 && (
+            <div className="grid grid-cols-4 gap-4">
+              {[
+                {
+                  label: "Total Stories",
+                  value: totalStories,
+                  icon: <Layers className="w-4 h-4" />,
+                  color: "#377ACF", bg: "#f0f6ff", border: "#c8d8eb",
+                },
+                {
+                  label: "Total Test Cases",
+                  value: stories.reduce((a, s) => a + (s.test_case_count || 0), 0),
+                  icon: <FileText className="w-4 h-4" />,
+                  color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0",
+                },
+                {
+                  label: "Projects",
+                  value: projects.length,
+                  icon: <Users className="w-4 h-4" />,
+                  color: "#7e22ce", bg: "#fdf4ff", border: "#e9d5ff",
+                },
+                {
+                  label: "No Test Cases",
+                  value: stories.filter(s => !s.test_case_count).length,
+                  icon: <AlertTriangle className="w-4 h-4" />,
+                  color: "#b45309", bg: "#fffbeb", border: "#fde68a",
+                  clickable: true,
+                },
+              ].map(stat => (
+                <div
+                  key={stat.label}
+                  onClick={stat.clickable ? () => setFilterNoTC(f => !f) : undefined}
+                  className={`rounded-2xl px-5 py-4 flex items-center gap-3 border transition-all ${stat.clickable ? "cursor-pointer hover:shadow-md" : ""} ${stat.clickable && filterNoTC ? "ring-2 ring-offset-1" : ""}`}
+                  style={{
+                    background: stat.bg,
+                    border: `1px solid ${filterNoTC && stat.clickable ? stat.color : stat.border}`,
+                    boxShadow: "0 1px 4px rgba(15,22,43,0.05)",
+                  }}
+                >
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(255,255,255,0.7)", color: stat.color }}>
+                    {stat.icon}
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold leading-tight" style={{ color: stat.color }}>{stat.value}</div>
+                    <div className="text-[11px] font-medium text-[#5a7ca0] leading-tight mt-0.5">{stat.label}</div>
+                    {stat.clickable && <div className="text-[10px] mt-0.5" style={{ color: stat.color }}>{filterNoTC ? "● Filtering active" : "Click to filter"}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* ── Filter bar ─────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm px-5 py-4">
             <div className="flex items-end flex-wrap gap-4">
@@ -484,13 +648,40 @@ export default function TestCaseGenerator() {
           <div>
             {/* Header row with toggle */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SlidersHorizontal className="w-4 h-4 text-[#377ACF]" />
                 <span className="font-semibold text-sm text-[#0F162B]">Results</span>
                 {!loading && (
                   <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f0f6ff] text-[#377ACF]">
-                    {totalStories}
+                    {filterNoTC ? stories.filter(s => !s.test_case_count).length : totalStories}
                   </span>
+                )}
+                {/* No-TC filter active chip */}
+                {filterNoTC && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold cursor-pointer"
+                    style={{ background: "#fffbeb", color: "#b45309", border: "1px solid #fde68a" }}
+                    onClick={() => setFilterNoTC(false)}>
+                    <AlertTriangle className="w-3 h-3" />No test cases only
+                    <X className="w-3 h-3 ml-0.5" />
+                  </span>
+                )}
+                {/* Bulk bar */}
+                {showBulkBar && selectedCards.size > 0 && (
+                  <div className="flex items-center gap-2 ml-2 px-3 py-1 rounded-xl" style={{ background: "#0F162B" }}>
+                    <span className="text-[11px] font-semibold text-white">{selectedCards.size} selected</span>
+                    <span className="text-[#5a7ca0] text-[11px]">Move to:</span>
+                    {COLS.map(c => (
+                      <button key={c.id} onClick={() => bulkMove(c.id)}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-colors hover:opacity-80"
+                        style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                        {c.label}
+                      </button>
+                    ))}
+                    <button onClick={() => { setSelectedCards(new Set()); setShowBulkBar(false) }}
+                      className="text-[#9ca3af] hover:text-white ml-1">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
               </div>
               {/* View toggle pill */}
@@ -542,7 +733,7 @@ export default function TestCaseGenerator() {
                         </tr>
                       </thead>
                       <tbody>
-                        {stories.map((story, i) => (
+                        {(filterNoTC ? stories.filter(s => !s.test_case_count) : stories).map((story, i) => (
                           <tr key={story.id || i}
                             onClick={() => { setPreviewStory(story); setShowPreview(true) }}
                             className="cursor-pointer border-b border-[#eef2f8] transition-colors"
@@ -626,7 +817,8 @@ export default function TestCaseGenerator() {
                 ) : (
                   <div className="grid grid-cols-3 gap-4 items-start">
                     {COLS.map(col => {
-                      const colStories = stories.filter(s => (storyColumns[s.id] || "generated") === col.id)
+                      const colStories = (filterNoTC ? stories.filter(s => !s.test_case_count) : stories)
+                        .filter(s => (storyColumns[s.id] || "generated") === col.id)
                       return (
                         <div key={col.id}
                           onDragOver={e => { e.preventDefault(); dragOverCol.current = col.id }}
@@ -667,11 +859,26 @@ export default function TestCaseGenerator() {
                                 onDragEnd={() => { dragStoryId.current = null }}
                                 onClick={() => { setPreviewStory(story); setShowPreview(true) }}
                                 className="group rounded-xl bg-white cursor-grab active:cursor-grabbing select-none transition-all hover:shadow-md"
-                                style={{ border: "1px solid #dde6f0", boxShadow: "0 1px 3px rgba(15,22,43,0.06)" }}
+                                style={{
+                                  border: selectedCards.has(story.id) ? `2px solid #377ACF` : "1px solid #dde6f0",
+                                  boxShadow: selectedCards.has(story.id) ? "0 0 0 3px rgba(55,122,207,0.15)" : "0 1px 3px rgba(15,22,43,0.06)"
+                                }}
                               >
                                 {/* Card header: ID + project + grip */}
                                 <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
                                   <div className="flex items-center gap-1.5 min-w-0">
+                                    {/* select checkbox */}
+                                    <div
+                                      onClick={e => toggleCardSelect(story.id, e)}
+                                      className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border-2 transition-colors cursor-pointer"
+                                      style={selectedCards.has(story.id)
+                                        ? { background: "#377ACF", borderColor: "#377ACF" }
+                                        : { background: "#ffffff", borderColor: "#c8d8eb" }}
+                                    >
+                                      {selectedCards.has(story.id) && (
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+                                      )}
+                                    </div>
                                     <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: col.color }} />
                                     <span className="text-xs font-bold text-[#1a2540] truncate">{story.id}</span>
                                     {story.project_id && (
@@ -824,6 +1031,12 @@ export default function TestCaseGenerator() {
               <Code2 className="w-4 h-4" />
               {exportLoading ? "Loading test cases…" : "Export as Test Script"}
             </button>
+            <button
+              onClick={() => { if (previewStory) { setCompareStoryId(previewStory.id); setShowPreview(false); setShowCompare(true) } }}
+              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#dde6f0]"
+              style={{ background: "#fafbfd", color: "#5a7ca0" }}>
+              <ArrowLeftRight className="w-4 h-4" /> Compare with Another Story
+            </button>
           </div>
         </SheetContent>
       </Sheet>
@@ -933,6 +1146,20 @@ export default function TestCaseGenerator() {
         onOpenChange={setShowExportDialog}
         storyId={previewStory?.id || ""}
         testCases={exportTestCases}
+      />
+
+      <CommandPalette
+        open={showCommandPalette}
+        onOpenChange={setShowCommandPalette}
+        stories={stories}
+        onSelectStory={s => { setPreviewStory(s); setShowPreview(true) }}
+      />
+
+      <StoryCompareDialog
+        open={showCompare}
+        onOpenChange={setShowCompare}
+        stories={stories}
+        initialStoryId={compareStoryId}
       />
     </SidebarProvider>
   )
