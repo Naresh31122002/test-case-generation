@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
 import { ExportScriptDialog } from "@/components/export-script-dialog";
+import { Btn } from "@/components/ui/btn";
+import { StatusPill } from "@/components/ui/pill";
 
 function cleanAndParseLLMResponse(response: string) {
   let cleaned = response.trim();
@@ -134,7 +136,8 @@ export default function StoryTestCasesPage() {
     return                     { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0", dot: "#15803d" };
   };
 
-  const activeTC = testCases[activeIdx] ?? null;
+  const visibleTestCases = testCases;
+  const activeTC = visibleTestCases[activeIdx] ?? null;
 
   return (
     <SidebarProvider>
@@ -142,7 +145,7 @@ export default function StoryTestCasesPage() {
       <SidebarInset>
 
         {/* ── Top bar ──────────────────────────────────────── */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] bg-white sticky top-0 z-30">
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] sticky top-0 z-50" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#5a7ca0] hover:text-[#0F162B]" />
             <Separator orientation="vertical" className="h-5" />
@@ -151,14 +154,16 @@ export default function StoryTestCasesPage() {
             </button>
             <Separator orientation="vertical" className="h-5" />
             <div className="flex items-center gap-1.5 text-sm">
-              <LayoutDashboard className="w-4 h-4 text-[#5a7ca0]" />
-              <span className="text-[#5a7ca0]">Dashboard</span>
+              <button onClick={() => router.push("/")} className="flex items-center gap-1.5 text-[#1A9FB5] hover:text-[#178fa3] cursor-pointer hover:underline transition-colors">
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Dashboard</span>
+              </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#b0c4d8]" />
               <span className="font-semibold text-[#0F162B]">Test Cases</span>
             </div>
           </div>
           <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
-            <Clock className="w-4 h-4 text-[#377ACF]" />
+            <Clock className="w-4 h-4 text-[#1A9FB5]" />
             {currentTime || "—"}
           </div>
         </header>
@@ -171,20 +176,9 @@ export default function StoryTestCasesPage() {
             <div className="px-6 py-4 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                    style={{ background: "rgba(55,122,207,0.25)", color: "#A2D2E9" }}>
-                    <CheckCircle2 className="w-3 h-3" />{testCases.length} Test Cases
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                    style={{ background: "rgba(162,210,233,0.12)", color: "#A2D2E9" }}>
-                    <Brain className="w-3 h-3" />AI Generated
-                  </span>
-                  {storyProject && (
-                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
-                      style={{ background: "rgba(162,210,233,0.12)", color: "#A2D2E9" }}>
-                      {storyProject}
-                    </span>
-                  )}
+                  <StatusPill kind="navy"><CheckCircle2 className="w-3 h-3" />{testCases.length} Test Cases</StatusPill>
+                  <StatusPill kind="teal"><Brain className="w-3 h-3" />AI Generated</StatusPill>
+                  {storyProject && <StatusPill kind="project">{storyProject}</StatusPill>}
                 </div>
                 <h1 className="text-base font-bold text-white leading-tight">Story {storyId}</h1>
                 {storyDescription && (
@@ -194,21 +188,19 @@ export default function StoryTestCasesPage() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => setShowStorySheet(true)}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-80"
-                  style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9", border: "1px solid rgba(162,210,233,0.25)" }}>
+                <Btn variant="dark-ghost"
+                  onClick={() => router.push(`/story-details/${storyId}${storyProject ? `?project_id=${storyProject}` : ""}`)}>
+                  <Brain className="w-3.5 h-3.5" />View Impact Analysis
+                </Btn>
+                <Btn variant="dark-ghost" onClick={() => setShowStorySheet(true)}>
                   <Eye className="w-3.5 h-3.5" />View Story
-                </button>
-                <button onClick={() => setShowExportDialog(true)} disabled={testCases.length === 0}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-                  style={{ background: "#A2D2E9", color: "#0F162B" }}>
+                </Btn>
+                <Btn variant="dark-ghost" onClick={() => setShowExportDialog(true)} disabled={testCases.length === 0}>
                   <Code2 className="w-3.5 h-3.5" />Export Script
-                </button>
-                <button onClick={handleDownload}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 hover:opacity-90 transition-opacity"
-                  style={{ background: "#377ACF" }}>
+                </Btn>
+                <Btn variant="dark-ghost" onClick={handleDownload}>
                   <Download className="w-3.5 h-3.5" />Download
-                </button>
+                </Btn>
               </div>
             </div>
           </div>
@@ -219,15 +211,17 @@ export default function StoryTestCasesPage() {
 
             {loading ? (
               <div className="flex-1 flex items-center justify-center py-16">
-                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
-                  <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />
+                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#1A9FB5]">
+                  <div className="w-5 h-5 border-2 border-[#1A9FB5] border-t-transparent rounded-full animate-spin" />
                   Loading test cases…
                 </div>
               </div>
             ) : error ? (
               <div className="flex-1 flex items-center justify-center py-16 text-sm font-semibold text-red-500">{error}</div>
-            ) : testCases.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center py-16 text-sm text-[#9ca3af]">No test cases found.</div>
+            ) : visibleTestCases.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center py-16 text-sm text-[#9ca3af]">
+                No test cases found.
+              </div>
             ) : (
               <>
                 {/* ── LEFT: numbered list ──────────────────── */}
@@ -236,18 +230,18 @@ export default function StoryTestCasesPage() {
                   <div className="px-4 py-3 border-b border-[#eef2f8] flex items-center justify-between flex-shrink-0"
                     style={{ background: "#fafbfd" }}>
                     <div className="flex items-center gap-2">
-                      <ListChecks className="w-3.5 h-3.5 text-[#377ACF]" />
+                      <ListChecks className="w-3.5 h-3.5 text-[#1A9FB5]" />
                       <span className="text-xs font-bold uppercase tracking-widest text-[#5a7ca0]">Test Cases</span>
                     </div>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-                      style={{ background: "#f0f6ff", color: "#377ACF" }}>
-                      {testCases.length}
+                      style={{ background: "#E1F5F8", color: "#1A9FB5" }}>
+                      {visibleTestCases.length}
                     </span>
                   </div>
 
                   {/* list rows */}
                   <div className="flex-1 overflow-y-auto">
-                    {testCases.map((tc, idx) => {
+                    {visibleTestCases.map((tc, idx) => {
                       const ps = priorityStyle(tc.priority);
                       const isActive = activeIdx === idx;
                       return (
@@ -256,21 +250,21 @@ export default function StoryTestCasesPage() {
                           onClick={() => setActiveIdx(idx)}
                           className="w-full text-left flex items-center gap-3 px-4 py-3 transition-all relative"
                           style={{
-                            background: isActive ? "#f0f6ff" : "transparent",
+                            background: isActive ? "#E1F5F8" : "transparent",
                             borderBottom: "1px solid #eef2f8",
                           }}
                         >
                           {/* active indicator bar */}
                           {isActive && (
                             <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-r"
-                              style={{ background: "#377ACF" }} />
+                              style={{ background: "#1A9FB5" }} />
                           )}
 
                           {/* number badge */}
                           <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors"
                             style={{
-                              background: isActive ? "#377ACF" : "#f0f6ff",
-                              color: isActive ? "#ffffff" : "#377ACF",
+                              background: isActive ? "#1A9FB5" : "#E1F5F8",
+                              color: isActive ? "#ffffff" : "#1A9FB5",
                             }}>
                             {idx + 1}
                           </div>
@@ -331,7 +325,7 @@ export default function StoryTestCasesPage() {
                               );
                             })()}
                             <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                              style={{ background: "rgba(55,122,207,0.08)", color: "#377ACF" }}>
+                              style={{ background: "rgba(26,159,181,0.10)", color: "#1A9FB5" }}>
                               <Brain className="w-2.5 h-2.5" />AI
                             </span>
                           </div>
@@ -341,15 +335,15 @@ export default function StoryTestCasesPage() {
                           <button
                             onClick={() => setActiveIdx(i => Math.max(0, i - 1))}
                             disabled={activeIdx === 0}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#dde6f0] transition-colors hover:bg-[#f0f6ff] disabled:opacity-30"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#dde6f0] transition-colors hover:bg-[#E1F5F8] disabled:opacity-30"
                             style={{ color: "#5a7ca0" }}>
                             <ChevronRight className="w-3.5 h-3.5 rotate-180" />
                           </button>
-                          <span className="text-xs text-[#9ca3af] px-1">{activeIdx + 1}/{testCases.length}</span>
+                          <span className="text-xs text-[#9ca3af] px-1">{activeIdx + 1}/{visibleTestCases.length}</span>
                           <button
-                            onClick={() => setActiveIdx(i => Math.min(testCases.length - 1, i + 1))}
-                            disabled={activeIdx === testCases.length - 1}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#dde6f0] transition-colors hover:bg-[#f0f6ff] disabled:opacity-30"
+                            onClick={() => setActiveIdx(i => Math.min(visibleTestCases.length - 1, i + 1))}
+                            disabled={activeIdx === visibleTestCases.length - 1}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#dde6f0] transition-colors hover:bg-[#E1F5F8] disabled:opacity-30"
                             style={{ color: "#5a7ca0" }}>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
@@ -365,14 +359,14 @@ export default function StoryTestCasesPage() {
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-2">
                             <div className="w-5 h-5 rounded-lg flex items-center justify-center"
-                              style={{ background: "#f0f6ff" }}>
-                              <ListChecks className="w-3 h-3 text-[#377ACF]" />
+                              style={{ background: "#E1F5F8" }}>
+                              <ListChecks className="w-3 h-3 text-[#1A9FB5]" />
                             </div>
                             <span className="text-[11px] font-bold uppercase tracking-widest text-[#5a7ca0]">
                               Test Steps
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                              style={{ background: "#f0f6ff", color: "#377ACF" }}>
+                              style={{ background: "#E1F5F8", color: "#1A9FB5" }}>
                               {activeTC.steps?.length || 0}
                             </span>
                           </div>
@@ -383,7 +377,7 @@ export default function StoryTestCasesPage() {
                                 {/* step number with connecting line */}
                                 <div className="flex flex-col items-center flex-shrink-0">
                                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
-                                    style={{ background: "#377ACF" }}>
+                                    style={{ background: "#1A9FB5" }}>
                                     {i + 1}
                                   </div>
                                   {i < (activeTC.steps?.length ?? 0) - 1 && (

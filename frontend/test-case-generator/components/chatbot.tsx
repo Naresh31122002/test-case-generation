@@ -77,7 +77,9 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
         <button
           onClick={() => setShowChatbot(true)}
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-5 h-12 rounded-2xl shadow-2xl transition-all duration-200 hover:shadow-3xl hover:scale-105 active:scale-95"
-          style={{ background: '#377ACF' }}
+          style={{ background: '#1A9FB5' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#178fa3')}
+          onMouseLeave={e => (e.currentTarget.style.background = '#1A9FB5')}
         >
           <Brain className="h-5 w-5 text-white flex-shrink-0" />
           <span className="text-white font-semibold text-sm whitespace-nowrap">AI Assistant</span>
@@ -113,7 +115,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   <Brain className="h-4 w-4" style={{ color: '#A2D2E9' }} />
                 </div>
                 <div>
-                  <div className="text-white font-semibold text-sm leading-tight">AI Test Case Assistant</div>
+                  <div className="text-white font-semibold text-sm leading-tight">CoverLoop Assistant</div>
                   <div className="text-xs leading-tight" style={{ color: '#A2D2E9' }}>
                     {isGenerating ? 'Generating…' : 'Ready'}
                   </div>
@@ -142,7 +144,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] text-sm font-medium transition-all duration-150"
                   style={
                     selectedModel === mode
-                      ? { background: '#377ACF', color: '#ffffff' }
+                      ? { background: '#1A9FB5', color: '#ffffff' }
                       : { color: '#A2D2E9' }
                   }
                 >
@@ -164,7 +166,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="px-4 py-2.5 rounded-2xl max-w-[82%] text-sm shadow-sm"
                   style={
                     message.role === "user"
-                      ? { background: '#377ACF', color: '#ffffff', borderBottomRightRadius: 4 }
+                      ? { background: '#1A9FB5', color: '#ffffff', borderBottomRightRadius: 4 }
                       : { background: '#ffffff', color: '#1a2540', border: '1px solid #dde6f0', borderBottomLeftRadius: 4 }
                   }
                 >
@@ -190,7 +192,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                       <div
                         key={i}
                         className="w-1.5 h-1.5 rounded-full animate-bounce"
-                        style={{ background: '#377ACF', animationDelay: `${-0.3 + i * 0.15}s` }}
+                        style={{ background: '#1A9FB5', animationDelay: `${-0.3 + i * 0.15}s` }}
                       />
                     ))}
                   </div>
@@ -208,7 +210,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           >
             <div className="flex gap-2 items-center">
               <Input
-                placeholder={selectedModel === 'rag' ? "Describe your user story…" : "Ask anything about testing…"}
+                placeholder={selectedModel === 'rag' ? "Ask about this story…" : "Ask anything about testing…"}
                 value={chatMessage}
                 onChange={e => setChatMessage(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && !isGenerating && handleSendMessage()}
@@ -220,7 +222,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                 onClick={handleSendMessage}
                 disabled={isGenerating || !chatMessage.trim()}
                 className="h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                style={{ background: '#377ACF' }}
+                style={{ background: '#1A9FB5' }}
               >
                 <Send className="h-4 w-4 text-white" />
               </button>

@@ -15,9 +15,10 @@ interface AppSidebarProps {
   selectedProject?: string
   onProjectChange?: (p: string) => void
   onUploadClick?: () => void
+  onCreateProject?: () => void
 }
 
-export function AppSidebar({ projects = [], selectedProject = '', onProjectChange, onUploadClick }: AppSidebarProps) {
+export function AppSidebar({ projects = [], selectedProject = '', onProjectChange, onUploadClick, onCreateProject }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [nextReload, setNextReload] = useState<Date | null>(null)
@@ -77,19 +78,25 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
   const isDashboard = pathname === "/"
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      style={{
+        // Kynetropo brand navy
+        background: "#0D1B2A",
+      }}
+    >
       {/* Brand */}
-      <SidebarHeader className="px-4 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+      <SidebarHeader className="px-4 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="flex items-center gap-3 overflow-hidden">
           <div
             className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: "#377ACF" }}
+            style={{ background: "#1A9FB5" }}
           >
             <FlaskConical className="w-4 h-4 text-white" />
           </div>
           <div className="group-data-[collapsible=icon]:hidden min-w-0">
-            <div className="font-bold text-sm text-white leading-tight truncate">Test Forge AI</div>
-            <div className="text-[11px] leading-tight truncate" style={{ color: "#A2D2E9" }}>Powered by Gen AI</div>
+            <div className="font-bold text-sm text-white leading-tight truncate">CoverLoop</div>
+            <div className="text-[11px] leading-tight truncate" style={{ color: "#1A9FB5" }}>Powered by Gen AI</div>
           </div>
         </div>
       </SidebarHeader>
@@ -97,7 +104,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
       <SidebarContent className="py-3">
         {/* Nav */}
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-1" style={{ color: "rgba(162,210,233,0.5)" }}>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-1" style={{ color: "rgba(225,245,248,0.5)" }}>
             Navigation
           </SidebarGroupLabel>
           <SidebarMenu>
@@ -129,38 +136,49 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
 
         {/* Project filter */}
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-2" style={{ color: "rgba(162,210,233,0.5)" }}>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-2" style={{ color: "rgba(225,245,248,0.5)" }}>
             Project
           </SidebarGroupLabel>
           <div className="px-3">
             <select
               value={selectedProject}
-              onChange={e => onProjectChange?.(e.target.value)}
-              className="w-full h-8 rounded-lg px-2.5 text-xs font-medium border-0 focus:outline-none focus:ring-2 focus:ring-[#377ACF]/40"
-              style={{ background: "rgba(255,255,255,0.07)", color: "#A2D2E9" }}
+              onChange={e => {
+                const v = e.target.value
+                if (v === "__create__") {
+                  // reset selection back (don't treat the sentinel as a filter)
+                  e.target.value = selectedProject
+                  if (onCreateProject) onCreateProject()
+                  else router.push("/")  // create flow lives on the dashboard
+                  return
+                }
+                onProjectChange?.(v)
+              }}
+              className="w-full h-8 rounded-lg px-2.5 text-xs font-medium border-0 focus:outline-none focus:ring-2 focus:ring-[#1A9FB5]/40"
+              style={{ background: "rgba(255,255,255,0.07)", color: "#E1F5F8" }}
             >
-              <option value="" style={{ background: "#1a2540", color: "#fff" }}>All Projects</option>
+              <option value="" style={{ background: "#0D1B2A", color: "#fff" }}>All Projects</option>
               {projects.map(p => (
-                <option key={p} value={p} style={{ background: "#1a2540", color: "#fff" }}>{p}</option>
+                <option key={p} value={p} style={{ background: "#0D1B2A", color: "#fff" }}>{p}</option>
               ))}
+              <option value="__create__" style={{ background: "#0D1B2A", color: "#1A9FB5" }}>+ Create New Project</option>
             </select>
           </div>
         </SidebarGroup>
       </SidebarContent>
 
       {/* Scheduler footer */}
-      <SidebarFooter className="group-data-[collapsible=icon]:hidden p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+      <SidebarFooter className="group-data-[collapsible=icon]:hidden p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#A2D2E9" }} />
-            <span className="text-[11px]" style={{ color: "rgba(162,210,233,0.7)" }}>Next scheduler run</span>
+            <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#1A9FB5" }} />
+            <span className="text-[11px]" style={{ color: "rgba(225,245,248,0.7)" }}>Next scheduler run</span>
           </div>
           <div className="font-mono text-sm font-bold text-white">{timeLeft || "—"}</div>
           <button
             onClick={triggerReload}
             disabled={isTriggering}
             className="w-full h-8 rounded-lg text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-            style={{ background: "#377ACF" }}
+            style={{ background: "#1A9FB5" }}
           >
             {isTriggering
               ? <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Triggering…</>

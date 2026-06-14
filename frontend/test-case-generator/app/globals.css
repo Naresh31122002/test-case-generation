@@ -4,45 +4,46 @@
 
 @layer base {
   :root {
+    /* Kynetropo palette — faint lavender-white bg, navy headline, cyan-blue primary */
     --background: 220 30% 98%;
-    --foreground: 220 47% 11%;
+    --foreground: 211 51% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 47% 11%;
+    --card-foreground: 211 51% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 47% 11%;
+    --popover-foreground: 211 51% 12%;
 
-    --primary: 214 58% 51%;
+    --primary: 200 89% 47%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 207 54% 90%;
-    --secondary-foreground: 220 47% 11%;
+    --secondary: 202 71% 87%;
+    --secondary-foreground: 211 51% 12%;
 
-    --muted: 220 20% 94%;
-    --muted-foreground: 220 15% 46%;
+    --muted: 205 25% 94%;
+    --muted-foreground: 207 14% 42%;
 
-    --accent: 207 54% 93%;
-    --accent-foreground: 214 58% 35%;
+    --accent: 202 71% 93%;
+    --accent-foreground: 200 89% 35%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 25% 88%;
-    --input: 214 25% 88%;
-    --ring: 214 58% 51%;
+    --border: 205 30% 88%;
+    --input: 205 30% 88%;
+    --ring: 200 89% 47%;
 
     --radius: 0.75rem;
 
-    /* Sidebar — navy */
-    --sidebar-background: 220 47% 11%;
-    --sidebar-foreground: 207 40% 85%;
-    --sidebar-primary: 214 58% 51%;
+    /* Sidebar — Kynetropo brand navy #0D1B2A, light-teal text, teal active */
+    --sidebar-background: 209 53% 11%;
+    --sidebar-foreground: 190 40% 85%;
+    --sidebar-primary: 188 75% 41%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 35% 18%;
-    --sidebar-accent-foreground: 207 54% 87%;
-    --sidebar-border: 220 30% 20%;
-    --sidebar-ring: 214 58% 51%;
+    --sidebar-accent: 209 40% 18%;
+    --sidebar-accent-foreground: 190 56% 92%;
+    --sidebar-border: 209 30% 20%;
+    --sidebar-ring: 188 75% 41%;
   }
 }
 
@@ -64,5 +65,5 @@
 /* Thin scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #c8d8eb; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #377ACF; }
+::-webkit-scrollbar-thumb { background: #b3dde4; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #1A9FB5; }
