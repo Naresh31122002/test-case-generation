@@ -368,43 +368,73 @@ export default function TestCaseGenerator() {
         {/* ── Main content ────────────────────────────────────── */}
         <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "#F6F8FB" }}>
 
-          {/* ── Search panel ──────────────────────────────────── */}
-          <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
-            {/* panel header */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#eef2f8]">
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-[#377ACF]" />
-                <span className="font-semibold text-sm text-[#0F162B]">Search User Stories</span>
-              </div>
+          {/* ── Smart single search bar ───────────────────────── */}
+          <div
+            className="flex items-center gap-3 px-4 rounded-2xl transition-shadow"
+            style={{
+              background: "#ffffff",
+              border: "1.5px solid #dde6f0",
+              boxShadow: "0 1px 6px rgba(15,22,43,0.06)",
+              height: 52,
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = "#377ACF")}
+            onBlur={e => (e.currentTarget.style.borderColor = "#dde6f0")}
+          >
+            {/* icon — changes based on detected mode */}
+            <Search className="w-4 h-4 flex-shrink-0" style={{
+              color: formData.storyId || formData.storyDescription ? "#377ACF" : "#9ca3af"
+            }} />
+
+            {/* single input */}
+            <input
+              className="flex-1 text-sm bg-transparent outline-none placeholder:text-[#b0c4d8] text-[#1a2540]"
+              placeholder="Search by Story ID (e.g. PROJ-123) or describe a story…"
+              value={formData.storyId || formData.storyDescription}
+              onChange={e => {
+                const v = e.target.value
+                // auto-detect: if starts with letters+dash+digits pattern → ID mode
+                const looksLikeId = /^[A-Za-z]+-?\d*$/.test(v.trim()) && !v.includes(" ")
+                if (looksLikeId || v === "") {
+                  setFormData(p => ({ ...p, storyId: v, storyDescription: "" }))
+                } else {
+                  setFormData(p => ({ ...p, storyDescription: v, storyId: "" }))
+                }
+              }}
+              onKeyDown={e => e.key === "Enter" && handleSearch()}
+            />
+
+            {/* mode hint pill */}
+            {(formData.storyId || formData.storyDescription) && (
+              <span
+                className="text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                style={formData.storyId
+                  ? { background: "#f0f6ff", color: "#377ACF" }
+                  : { background: "#fdf4ff", color: "#7e22ce" }
+                }
+              >
+                {formData.storyId ? "ID match" : "Similarity"}
+              </span>
+            )}
+
+            {/* clear */}
+            {(formData.storyId || formData.storyDescription) && (
               <button
                 onClick={() => { setFormData(p => ({ ...p, storyId: "", storyDescription: "" })); fetchStories(1, perPage) }}
-                className="text-xs text-[#5a7ca0] hover:text-[#377ACF] transition-colors"
+                className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors hover:bg-[#f0f6ff]"
+                style={{ color: "#9ca3af" }}
               >
-                Clear
+                <X className="w-3.5 h-3.5" />
               </button>
-            </div>
-            <div className="p-5 grid grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Story ID</label>
-                <Input placeholder="e.g. PROJ-123" value={formData.storyId}
-                  onChange={e => setFormData(p => ({ ...p, storyId: e.target.value }))}
-                  onKeyDown={e => e.key === "Enter" && handleSearch()}
-                  className="h-9 rounded-xl text-sm" style={inputStyle} />
-              </div>
-              <div>
-                <label className={labelCls}>Story Description</label>
-                <Textarea placeholder="Search by description similarity…" rows={1} value={formData.storyDescription}
-                  onChange={e => setFormData(p => ({ ...p, storyDescription: e.target.value }))}
-                  className="rounded-xl text-sm resize-none" style={inputStyle} />
-              </div>
-            </div>
-            <div className="flex items-center gap-3 px-5 pb-4 pt-0">
-              <button onClick={handleSearch}
-                className="h-9 px-5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 hover:opacity-90 transition-opacity"
-                style={{ background: "#377ACF" }}>
-                <Search className="w-3.5 h-3.5" /> Search
-              </button>
-            </div>
+            )}
+
+            {/* search button */}
+            <button
+              onClick={handleSearch}
+              className="h-8 px-4 rounded-xl text-xs font-semibold text-white flex-shrink-0 transition-opacity hover:opacity-90 active:scale-95"
+              style={{ background: "#377ACF" }}
+            >
+              Search
+            </button>
           </div>
 
           {/* ── Filter bar ─────────────────────────────────────── */}
