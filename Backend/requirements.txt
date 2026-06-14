@@ -13,4 +13,5 @@ xlsxwriter==3.2.0
 apscheduler==3.10.4
 langchain-groq==0.1.6
 PyMuPDF==1.23.21
-docx2python==2.12.1
+docx2python==2.10.1
+gunicorn==21.2.0
