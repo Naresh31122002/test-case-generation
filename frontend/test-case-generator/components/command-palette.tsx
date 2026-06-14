@@ -31,7 +31,6 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); onOpenChange(true) }
       if (e.key === "Escape") onOpenChange(false)
     }
     window.addEventListener("keydown", handler)
