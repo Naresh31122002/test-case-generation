@@ -38,8 +38,10 @@ def summarize_in_chunks(text, chunk_size=4000):
     
 def story_id_exists(table, story_id):
     try:
-        result = table.to_pandas().query(f"storyID == '{story_id}'")
-        return not result.empty
+        df = table.to_pandas()
+        # Use a boolean mask instead of an f-string query so story IDs
+        # containing quotes or other special characters are handled safely.
+        return bool((df["storyID"] == story_id).any())
     except Exception:
         return False
 

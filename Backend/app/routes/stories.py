@@ -902,20 +902,20 @@ def get_project_impact_summary(project_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/analyze', methods=['POST'])
-async def trigger_impact_analysis():
+def trigger_impact_analysis():
     """Manually trigger impact analysis for a story"""
     try:
         data = request.get_json()
         story_id = data.get('story_id')
         project_id = data.get('project_id')
-        
+
         if not story_id or not project_id:
             return jsonify({
                 'error': 'Both story_id and project_id are required'
             }), 400
-            
-        # Run impact analysis
-        await analyze_test_case_impacts(story_id, project_id)
+
+        # Run impact analysis (analyze_test_case_impacts is synchronous)
+        analyze_test_case_impacts(story_id, project_id)
         
         return jsonify({
             'message': 'Impact analysis triggered successfully',

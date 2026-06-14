@@ -118,9 +118,9 @@ def scheduled_job():
         print("🔍 [Scheduler] Step 3: Running impact analysis...")
 
         from app.LLM.impact_analyzer import analyze_test_case_impacts
-        from app.models.db_service import DatabaseService
+        from app.models.db_service import get_db_service
 
-        db_service = DatabaseService._instance
+        db_service = get_db_service()
 
         stories = db_service.get_all_stories()
 

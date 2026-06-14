@@ -10,7 +10,7 @@ A comprehensive test case generation and impact analysis system that processes u
   - Direct file uploads (PDF, DOCX, TXT)
   - Manual story input through UI
 - ✅ **Smart Test Case Generation**:
-  - Uses Google's Gemini LLM
+  - Uses Groq-hosted Llama 3.1 LLM (configurable in `app/config.py`)
   - Context-aware test case creation
   - Multiple test case types (positive, negative, boundary, security, performance)
 - ✅ **Impact Analysis**:
@@ -186,9 +186,9 @@ POSTGRES_PASSWORD=your_password
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 
-# Google AI Configuration
-GOOGLE_API_KEY=your_google_api_key
-GOOGLE_API_KEY_IMPACT=your_google_api_key  # Can be same as GOOGLE_API_KEY
+# LLM Configuration (Groq + Llama 3.1 — see app/config.py)
+GROQ_API_KEY=your_groq_api_key
+GROQ_API_KEY_IMPACT=your_groq_api_key  # Optional; falls back to GROQ_API_KEY
 
 # Jira Configuration (Optional)
 JIRA_BASE_URL=https://your-company.atlassian.net
@@ -365,38 +365,42 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 
 
-++++++++++++++++++++++++++++++++++++++++
-   FLASK_APP=run.py
-   FLASK_ENV=development
-   POSTGRES_DB=my_postgres_db_demo
-   POSTGRES_USER=postgres
-   POSTGRES_PASSWORD=0000
-   POSTGRES_HOST=localhost
-   POSTGRES_PORT=5432
+## 🔐 Example `.env` (use placeholders — never commit real secrets)
 
-   LANCE_DB_PATH=Backend\data\lance_db
-   TABLE_NAME_LANCE=user_stories_demo
+> ⚠️ Do NOT commit real API keys, tokens, or passwords. Keep them in a local
+> `.env` file (already git-ignored). If a secret was ever committed, rotate it.
 
-   GOOGLE_API_KEY=AIzaSyBBID891dTdhAU8B51E8N6-DY_xqpMSJvo
-   GOOGLE_GENERATIVE_AI_API_KEY=AIzaSyA0TmMF5MQ18oCljPTVZmo8TxS1zlOHg6M
-   GEMINI_API_KEY_IMPACT=AIzaSyAVPLTlPw2e0vPJHZp7a71V1IYOe72xMw0
-   optional_api_keys=[AIzaSyBHMUZMB1SwBtWUJOGCkkqbyu2FRst9RB8,AIzaSyDlHeKwQ5qHLr5hV1_1Zkzctl1W5b5oE6Q]
+```env
+FLASK_APP=run.py
+FLASK_ENV=development
 
-   UPLOAD_FOLDER=Backend\data\uploaded_docs
-   SUCCESS_FOLDER=Backend\data\success
-   FAILURE_FOLDER=Backend\data\failure
+POSTGRES_DB=test_case_generator
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
 
+LANCE_DB_PATH=Backend\data\lance_db
+TABLE_NAME_LANCE=user_stories
 
-JIRA_BASE_URL=https://team-delta-innovasolutions.atlassian.net/
-JIRA_EMAIL=kaushik24062004@gmail.com
-JIRA_API_TOKEN=ATATT3xFfGF0a4KtL9RUftnvMUUAY3JaXH37_pl71TR9i-gOjycj7NoIfmZdVY0N3e3fQJFXZz7FlHToV70yHh8H_Vjpqk5-8ylbzNp6n8LgpK0JsVQTXFFvnvCgU-u_jEwHLQNpfx5os07dRQD2BZ9WLqiBJypvAMQ-yhICh_jQmWrk-fXVbO8=86642574
-JIRA_PROJECT_KEYS=TIC,CICD
+# LLM provider (Groq + Llama 3.1 — see app/config.py)
+GROQ_API_KEY=your_groq_api_key
+GROQ_API_KEY_IMPACT=your_groq_api_key   # optional; falls back to GROQ_API_KEY
+
+UPLOAD_FOLDER=Backend\data\uploaded_docs
+SUCCESS_FOLDER=Backend\data\success
+FAILURE_FOLDER=Backend\data\failure
+
+# Jira integration (optional)
+JIRA_BASE_URL=https://your-company.atlassian.net/
+JIRA_EMAIL=your-email@company.com
+JIRA_API_TOKEN=your_jira_api_token
+JIRA_PROJECT_KEYS=PROJ1,PROJ2
 JIRA_MAX_RESULTS=100
 JIRA_BATCH_SIZE=50
 JIRA_RATE_LIMIT_DELAY=1.0
 JIRA_RETRY_ATTEMPTS=3
 JIRA_RETRY_BACKOFF_FACTOR=2.0
-JIRA_SYNC_ENABLED=true
+JIRA_SYNC_ENABLED=false
 JIRA_SYNC_ALL_PROJECTS=false
-
-   ==============================================
+```

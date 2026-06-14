@@ -185,6 +185,29 @@ class DatabaseService:
             print(f"Error getting story {story_id}: {str(e)}")
             return None
         
+    def get_all_stories(self) -> List[Dict[str, Any]]:
+        """Return all stories that have test cases generated.
+
+        Each item contains at least 'id' and 'project_id', which is what the
+        scheduler's impact-analysis step expects.
+        """
+        try:
+            with psycopg2.connect(**self.postgres_config) as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                    cur.execute("""
+                        SELECT story_id, project_id
+                        FROM test_cases
+                        WHERE test_case_generated = TRUE
+                        ORDER BY created_on DESC NULLS LAST
+                    """)
+                    return [
+                        {'id': row['story_id'], 'project_id': row['project_id']}
+                        for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            print(f"Error getting all stories: {str(e)}")
+            return []
+
     def search_similar_stories(self, query: str, limit: int = 3) -> Dict[str, Any]:
         """
         Search for similar stories using vector similarity

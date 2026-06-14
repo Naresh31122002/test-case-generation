@@ -1,6 +1,4 @@
 import json
-from urllib import response
-from urllib import response
 import uuid
 from datetime import datetime, timedelta
 import lancedb

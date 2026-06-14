@@ -142,7 +142,7 @@ export default function StoryTestCasesPage() {
     try {
       const response = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
       if (!response.ok) throw new Error('Download failed');
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -227,7 +227,7 @@ export default function StoryTestCasesPage() {
         ...prev,
         {
           role: "assistant",
-          content: selectedModel === 'rag' 
+          content: selectedModel === 'rag'
             ? "I'm using mock test cases for demonstration. In production, you would connect to the RAG backend."
             : "I'm using mock QA support for demonstration. In production, you would connect to the Gemini API.",
         },
@@ -255,7 +255,7 @@ export default function StoryTestCasesPage() {
               </div>
               <div className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</div>
             </div>
-            
+
           </div>
         </div>
       </header>
@@ -311,7 +311,7 @@ export default function StoryTestCasesPage() {
                   </Button>
                 </div>
               </div>
-              
+
               <div className="mt-2">
                 <CardTitle className="text-xl font-semibold text-primary mb-3">
                   Test Cases for Story {storyId}
@@ -335,8 +335,8 @@ export default function StoryTestCasesPage() {
             ) : (
               <div className="grid grid-cols-2 gap-6 p-6">
                 {testCases.map((tc, idx) => (
-                  <Card 
-                    key={tc.test_case_id || tc.id || idx} 
+                  <Card
+                    key={tc.test_case_id || tc.id || idx}
                     className="border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                     onClick={() => handleViewDetails(tc)}
                   >
@@ -354,11 +354,10 @@ export default function StoryTestCasesPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            tc.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
-                            tc.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
-                            'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                          }`}>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${tc.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
+                              tc.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
+                                'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                            }`}>
                             {tc.priority || 'low'} priority
                           </span>
                           <Button
@@ -394,7 +393,7 @@ export default function StoryTestCasesPage() {
               ID: {storyId}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-2">Story Description</h3>
@@ -402,7 +401,7 @@ export default function StoryTestCasesPage() {
                 <p className="text-foreground">{storyDescription}</p>
               </div>
             </div>
-            
+
             {storyContent && (
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">Story Content</h3>
@@ -426,7 +425,7 @@ export default function StoryTestCasesPage() {
               ID: {selectedTestCase?.test_case_id || selectedTestCase?.id || "N/A"}
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedTestCase && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-6">
@@ -445,7 +444,7 @@ export default function StoryTestCasesPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground mb-2">Expected Results</h3>
@@ -480,11 +479,10 @@ export default function StoryTestCasesPage() {
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">Priority:</span>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      selectedTestCase.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
-                      selectedTestCase.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
-                      'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                    }`}>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${selectedTestCase.priority === 'high' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' :
+                        selectedTestCase.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' :
+                          'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                      }`}>
                       {selectedTestCase.priority || 'low'}
                     </span>
                   </div>

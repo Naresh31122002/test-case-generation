@@ -88,7 +88,7 @@ export default function StoryImpactAnalysisPage() {
         const response = await fetch(`http://127.0.0.1:5000/api/stories/impacts/story-test-cases/${storyId}?project_id=${projectId}`);
         if (!response.ok) throw new Error('Failed to fetch impacted test cases');
         const data = await response.json();
-        
+
         // Transform the data to match our interface and filter only impacted test cases
         const transformedTestCases = data.impacted_test_cases
           .filter((tc: any) => tc.impacts && tc.impacts.length > 0) // Only keep test cases with impacts
@@ -105,9 +105,9 @@ export default function StoryImpactAnalysisPage() {
             original_steps: [],
             original_expected_result: ''
           }));
-        
+
         setImpactedTestCases(transformedTestCases);
-        
+
         // Set summary data
         setSummaryData({
           total_test_cases: parseInt(data.total_test_cases),
@@ -119,7 +119,7 @@ export default function StoryImpactAnalysisPage() {
             low: parseInt(data.severity_summary.low)
           }
         });
-        
+
         // Fetch story details
         const storyResponse = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}`);
         if (storyResponse.ok) {
@@ -162,12 +162,12 @@ export default function StoryImpactAnalysisPage() {
         original_test_case_id: testCase.id,
         original_story_id: storyId
       });
-      
+
       // Updated endpoint to include story ID
       const response = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}/test-cases/${testCase.id}`);
       if (!response.ok) throw new Error('Failed to fetch original test case');
       const data = await response.json();
-      
+
       console.log('Original test case data:', data);
 
       // Update the selected test case with original data
@@ -248,7 +248,7 @@ export default function StoryImpactAnalysisPage() {
         ...prev,
         {
           role: "assistant",
-          content: selectedModel === 'rag' 
+          content: selectedModel === 'rag'
             ? "I'm using mock test cases for demonstration. In production, you would connect to the RAG backend."
             : "I'm using mock QA support for demonstration. In production, you would connect to the Gemini API.",
         },
@@ -312,12 +312,12 @@ export default function StoryImpactAnalysisPage() {
                   </div>
                 </div>
               </div>
-                {storyDescription && (
+              {storyDescription && (
                 <div className="text-muted-foreground">
                   <span className="font-medium text-foreground">Story Description: </span>
-                    {storyDescription}
+                  {storyDescription}
                 </div>
-                )}
+              )}
             </div>
           </CardHeader>
 
@@ -372,55 +372,52 @@ export default function StoryImpactAnalysisPage() {
 
                 {/* Test Cases Grid - Only showing modified test cases */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {impactedTestCases.map((testCase, idx) => (
-                  <Card 
-                    key={testCase.id || idx}
-                    className="border border-border hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => handleViewDetails(testCase)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold flex-shrink-0 ${
-                            testCase.impacts[0]?.impact_severity === 'high' ? 'bg-red-100 text-red-800' :
-                            testCase.impacts[0]?.impact_severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-green-100 text-green-800'
-                          }`}>
-                          {idx + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            {/* Modified Title */}
-                          <div className="font-medium text-foreground text-base break-words mb-2">
-                              {testCase.modified_title}
+                  {impactedTestCases.map((testCase, idx) => (
+                    <Card
+                      key={testCase.id || idx}
+                      className="border border-border hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => handleViewDetails(testCase)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold flex-shrink-0 ${testCase.impacts[0]?.impact_severity === 'high' ? 'bg-red-100 text-red-800' :
+                              testCase.impacts[0]?.impact_severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-green-100 text-green-800'
+                            }`}>
+                            {idx + 1}
                           </div>
+                          <div className="flex-1 min-w-0">
+                            {/* Modified Title */}
+                            <div className="font-medium text-foreground text-base break-words mb-2">
+                              {testCase.modified_title}
+                            </div>
                             {/* Modified Test Case ID */}
                             <div className="text-sm text-muted-foreground mb-2">
                               <span className="font-medium">Modified ID: </span>
-                            <span className="font-mono bg-muted/50 px-2 py-0.5 rounded">
+                              <span className="font-mono bg-muted/50 px-2 py-0.5 rounded">
                                 {`${testCase.id}-MOD-${testCase.impacts.length}`}
                               </span>
                             </div>
                             {/* Impact Summary */}
                             <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                testCase.impacts[0]?.impact_severity === 'high' ? 'bg-red-100 text-red-700' :
-                                testCase.impacts[0]?.impact_severity === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-green-100 text-green-700'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${testCase.impacts[0]?.impact_severity === 'high' ? 'bg-red-100 text-red-700' :
+                                  testCase.impacts[0]?.impact_severity === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-green-100 text-green-700'
+                                }`}>
                                 Severity: {testCase.impacts[0]?.impact_severity || 'low'}
                               </span>
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                testCase.impacts[0]?.impact_priority === 'high' ? 'bg-purple-100 text-purple-700' :
-                                testCase.impacts[0]?.impact_priority === 'medium' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-700'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${testCase.impacts[0]?.impact_priority === 'high' ? 'bg-purple-100 text-purple-700' :
+                                  testCase.impacts[0]?.impact_priority === 'medium' ? 'bg-blue-100 text-blue-700' :
+                                    'bg-gray-100 text-gray-700'
+                                }`}>
                                 Priority: {testCase.impacts[0]?.impact_priority || 'low'}
-                            </span>
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               </div>
             )}
@@ -439,7 +436,7 @@ export default function StoryImpactAnalysisPage() {
               ID: {storyId}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-2">Story Description</h3>
@@ -447,7 +444,7 @@ export default function StoryImpactAnalysisPage() {
                 <p className="text-foreground">{storyDescription}</p>
               </div>
             </div>
-            
+
             {storyContent && (
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">Story Content</h3>
@@ -469,7 +466,7 @@ export default function StoryImpactAnalysisPage() {
               Page {selectedTestCase?.pageNumber} Content
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div className="bg-purple-50 rounded-lg p-6 border border-purple-100">
               <p className="text-foreground whitespace-pre-wrap">
@@ -492,7 +489,7 @@ export default function StoryImpactAnalysisPage() {
               Original ID: {selectedTestCase?.id} | Modified ID: {selectedTestCase ? `${selectedTestCase.id}-MOD-${selectedTestCase.impacts.length}` : 'N/A'}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6 py-4">
             {/* Modified Title */}
             <div className="space-y-2">
@@ -506,8 +503,8 @@ export default function StoryImpactAnalysisPage() {
             <div className="space-y-2">
               <div className="text-sm font-medium text-amber-600">Impact Reason</div>
               <p className="text-base bg-amber-50 p-3 rounded-lg">
-                {selectedTestCase?.impacts[0]?.impact_analysis_json ? 
-                  JSON.parse(selectedTestCase.impacts[0].impact_analysis_json)?.modification_reason || 'No reason provided' 
+                {selectedTestCase?.impacts[0]?.impact_analysis_json ?
+                  JSON.parse(selectedTestCase.impacts[0].impact_analysis_json)?.modification_reason || 'No reason provided'
                   : 'No reason provided'}
               </p>
             </div>
@@ -523,7 +520,7 @@ export default function StoryImpactAnalysisPage() {
               <div className="space-y-2">
                 <div className="text-sm font-medium text-emerald-600">Modified Test Steps</div>
                 <div className="space-y-2">
-                  {selectedTestCase?.impacts[0]?.impact_analysis_json ? 
+                  {selectedTestCase?.impacts[0]?.impact_analysis_json ?
                     JSON.parse(selectedTestCase.impacts[0].impact_analysis_json)?.modified_test_case?.steps?.map((step: string, index: number) => (
                       <div key={index} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-emerald-100">
                         <div className="flex-shrink-0 w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 text-sm font-medium">
@@ -531,7 +528,7 @@ export default function StoryImpactAnalysisPage() {
                         </div>
                         <div className="text-sm">{step}</div>
                       </div>
-                    )) : 
+                    )) :
                     <div className="text-sm text-muted-foreground italic">No modified steps available</div>
                   }
                 </div>
@@ -541,7 +538,7 @@ export default function StoryImpactAnalysisPage() {
               <div className="space-y-2">
                 <div className="text-sm font-medium text-emerald-600">Modified Expected Result</div>
                 <div className="text-sm leading-relaxed bg-white p-4 rounded-lg border border-emerald-100">
-                  {selectedTestCase?.impacts[0]?.impact_analysis_json ? 
+                  {selectedTestCase?.impacts[0]?.impact_analysis_json ?
                     JSON.parse(selectedTestCase.impacts[0].impact_analysis_json)?.modified_test_case?.expected_result || 'No modified expected result available'
                     : 'No modified expected result available'}
                 </div>
@@ -605,7 +602,7 @@ export default function StoryImpactAnalysisPage() {
                   <div className="flex items-center gap-2 bg-emerald-50 p-2 rounded-lg mt-1 border border-emerald-100">
                     <AlertCircle className="h-4 w-4 text-emerald-600" />
                     <span className="font-medium">
-                      {selectedTestCase?.impacts[0]?.impact_analysis_json ? 
+                      {selectedTestCase?.impacts[0]?.impact_analysis_json ?
                         JSON.parse(selectedTestCase.impacts[0].impact_analysis_json)?.modified_test_case?.priority || 'Medium'
                         : 'Medium'}
                     </span>
@@ -615,21 +612,21 @@ export default function StoryImpactAnalysisPage() {
             </div>
 
             {/* Original Test Case Section */}
-              {showOriginalTestCase && (
-                <div className="space-y-4 border border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 to-purple-50/50 p-4 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-blue-600">
-                      <FileText className="h-4 w-4" />
-                      <h3 className="font-medium">Original Test Case</h3>
-                    </div>
+            {showOriginalTestCase && (
+              <div className="space-y-4 border border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 to-purple-50/50 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <FileText className="h-4 w-4" />
+                    <h3 className="font-medium">Original Test Case</h3>
                   </div>
+                </div>
 
-                  {loadingOriginal ? (
-                    <div className="text-sm text-blue-600 text-center py-4">
-                      Loading original test case...
-                    </div>
-                  ) : (
-                    <>
+                {loadingOriginal ? (
+                  <div className="text-sm text-blue-600 text-center py-4">
+                    Loading original test case...
+                  </div>
+                ) : (
+                  <>
                     {/* Original Title */}
                     <div className="space-y-2">
                       <div className="text-sm font-medium text-purple-600">Original Title</div>
@@ -638,30 +635,30 @@ export default function StoryImpactAnalysisPage() {
                       </div>
                     </div>
 
-                      {/* Original Steps */}
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium text-purple-600">Test Steps</div>
-                          <div className="space-y-2">
+                    {/* Original Steps */}
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium text-purple-600">Test Steps</div>
+                      <div className="space-y-2">
                         {selectedTestCase?.original_steps?.map((step, index) => (
-                              <div key={index} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-purple-100">
-                                <div className="flex-shrink-0 w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 text-sm font-medium">
-                                  {index + 1}
-                                </div>
-                                <div className="text-sm">{step}</div>
-                              </div>
-                            ))}
+                          <div key={index} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-purple-100">
+                            <div className="flex-shrink-0 w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 text-sm font-medium">
+                              {index + 1}
+                            </div>
+                            <div className="text-sm">{step}</div>
                           </div>
-                        </div>
+                        ))}
+                      </div>
+                    </div>
 
-                      {/* Original Expected Result */}
-                        <div className="space-y-2 mt-4">
-                          <div className="text-sm font-medium text-purple-600">Expected Result</div>
-                          <div className="text-sm leading-relaxed bg-white p-4 rounded-lg border border-purple-100">
+                    {/* Original Expected Result */}
+                    <div className="space-y-2 mt-4">
+                      <div className="text-sm font-medium text-purple-600">Expected Result</div>
+                      <div className="text-sm leading-relaxed bg-white p-4 rounded-lg border border-purple-100">
                         {selectedTestCase?.original_expected_result || 'No expected result available'}
                       </div>
                     </div>
                   </>
-            )}
+                )}
               </div>
             )}
 
@@ -680,8 +677,8 @@ export default function StoryImpactAnalysisPage() {
               <div className="flex items-center gap-1.5 text-sm">
                 <span className="font-medium text-violet-600">Last Modified:</span>
                 <span className="text-violet-700">
-                  {selectedTestCase?.impacts[0]?.impact_created_on ? 
-                    new Date(selectedTestCase.impacts[0].impact_created_on).toLocaleString() : 
+                  {selectedTestCase?.impacts[0]?.impact_created_on ?
+                    new Date(selectedTestCase.impacts[0].impact_created_on).toLocaleString() :
                     'N/A'
                   }
                 </span>

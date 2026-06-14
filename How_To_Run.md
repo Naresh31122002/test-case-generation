@@ -58,9 +58,9 @@ POSTGRES_PASSWORD=your_password
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 
-# Google AI Configuration
-GOOGLE_API_KEY=your_google_api_key
-GOOGLE_API_KEY_IMPACT=your_google_api_key  # Can be same as GOOGLE_API_KEY
+# LLM Configuration (Groq + Llama 3.1 — see app/config.py)
+GROQ_API_KEY=your_groq_api_key
+GROQ_API_KEY_IMPACT=your_groq_api_key  # Optional; falls back to GROQ_API_KEY
 
 # Jira Configuration (Optional)
 JIRA_BASE_URL=https://your-company.atlassian.net

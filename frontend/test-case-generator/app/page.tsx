@@ -73,15 +73,15 @@ interface DashboardStats {
 
 function calculateDuration(embeddingTime: string | null, testCaseTime: string | null): string {
   if (!embeddingTime || !testCaseTime) return 'N/A';
-  
+
   const embedding = new Date(embeddingTime);
   const testCase = new Date(testCaseTime);
   const diffMs = testCase.getTime() - embedding.getTime();
-  
+
   // Convert to minutes and seconds
   const minutes = Math.floor(diffMs / 60000);
   const seconds = Math.floor((diffMs % 60000) / 1000);
-  
+
   if (minutes > 0) {
     return `${minutes}m ${seconds}s`;
   }
@@ -122,7 +122,7 @@ function NextReloadBanner() {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (response.ok) {
         toast.success('Scheduler triggered successfully!');
         setTimeout(fetchNextReload, 2000);
@@ -145,16 +145,16 @@ function NextReloadBanner() {
 
   useEffect(() => {
     if (!nextReload) return;
-    
+
     const updateCountdown = () => {
       const now = new Date();
       const diff = Math.max(0, nextReload.getTime() - now.getTime());
-      
+
       if (diff <= 0) {
         setTimeLeft("Reloading...");
         return;
       }
-      
+
       const hours = String(Math.floor(diff / 3600000)).padStart(2, '0');
       const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
       const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
@@ -257,7 +257,7 @@ export default function TestCaseGenerator() {
   const [totalPages, setTotalPages] = useState(1)
   const [perPage, setPerPage] = useState(10)
   const [totalStories, setTotalStories] = useState(0)
-  const [dateFilter, setDateFilter] = useState<{from: string, to: string}>({from: '', to: ''});
+  const [dateFilter, setDateFilter] = useState<{ from: string, to: string }>({ from: '', to: '' });
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [showStoryContent, setShowStoryContent] = useState(false);
@@ -296,13 +296,13 @@ export default function TestCaseGenerator() {
     const updateTime = () => {
       setCurrentTime(new Date().toLocaleTimeString());
     };
-    
+
     // Initial update
     updateTime();
-    
+
     // Update every second
     const interval = setInterval(updateTime, 1000);
-    
+
     // Cleanup
     return () => clearInterval(interval);
   }, []);
@@ -312,7 +312,7 @@ export default function TestCaseGenerator() {
     try {
       setLoading(true);
       const response = await api.getStories(page, perPage, dateFilter.from, dateFilter.to, selectedProject, sortOrder);
-      
+
       if (response.stories && Array.isArray(response.stories)) {
         setStories(response.stories);
         setTotalPages(Math.ceil(response.pagination.total / response.pagination.per_page));
@@ -398,14 +398,14 @@ export default function TestCaseGenerator() {
       try {
         const data = await api.searchStories(formData.storyDescription.trim(), 3); // fetch up to 3 similar stories
         let filtered = data.stories || [];
-        
+
         if (filtered.length === 0) {
           setStories([]);
           toast.info('No matching stories found');
           setLoading(false);
           return;
         }
-        
+
         // Further filter by date range if set
         if (formData.fromDate || formData.toDate) {
           filtered = filtered.filter((story: any) => {
@@ -555,12 +555,12 @@ export default function TestCaseGenerator() {
         ...prev,
         {
           role: "assistant",
-          content: selectedModel === 'rag' 
+          content: selectedModel === 'rag'
             ? "I'm using mock test cases for demonstration. In production, you would connect to the RAG backend."
             : "I'm using mock QA support for demonstration. In production, you would connect to the Gemini API.",
         },
       ])
-      setApiError(selectedModel === 'rag' 
+      setApiError(selectedModel === 'rag'
         ? "Using mock test cases. To use RAG backend, ensure the Flask server is running."
         : "Using mock QA support. To use Gemini API, add GOOGLE_GENERATIVE_AI_API_KEY to your environment.")
     } finally {
@@ -571,30 +571,30 @@ export default function TestCaseGenerator() {
   const handleDownload = async (storyId: string) => {
     try {
       const response = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to download test cases');
       }
 
       // Get the blob from the response
       const blob = await response.blob();
-      
+
       // Create a URL for the blob
       const url = window.URL.createObjectURL(blob);
-      
+
       // Create a temporary link element
       const link = document.createElement('a');
       link.href = url;
       link.download = `test_cases_${storyId}.xlsx`;
-      
+
       // Append to body, click, and remove
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       // Clean up the URL
       window.URL.revokeObjectURL(url);
-      
+
       toast.success('Test cases downloaded successfully');
     } catch (error) {
       console.error('Error downloading test cases:', error);
@@ -636,7 +636,7 @@ export default function TestCaseGenerator() {
   };
 
   const handleClearFilters = async () => {
-    setDateFilter({from: '', to: ''});
+    setDateFilter({ from: '', to: '' });
     setSelectedProject(''); // Clear project filter
     setFormData(prev => ({ ...prev, storyId: '', storyDescription: '' }));
     setLoading(true);
@@ -698,7 +698,7 @@ export default function TestCaseGenerator() {
             </select>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -709,7 +709,7 @@ export default function TestCaseGenerator() {
             <ChevronLeft className="h-4 w-4" />
             Previous
           </Button>
-          
+
           <div className="flex items-center gap-1">
             {/* First page button */}
             {startPage > 1 && (
@@ -731,11 +731,10 @@ export default function TestCaseGenerator() {
                 key={pageNum}
                 variant={currentPage === pageNum ? "default" : "outline"}
                 onClick={() => handlePageChange(pageNum)}
-                className={`px-3 py-2 rounded font-medium transition-colors text-sm ${
-                  currentPage === pageNum 
-                    ? 'bg-blue-600 text-white' 
+                className={`px-3 py-2 rounded font-medium transition-colors text-sm ${currentPage === pageNum
+                    ? 'bg-blue-600 text-white'
                     : 'border border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                }`}
+                  }`}
               >
                 {pageNum}
               </Button>
@@ -755,7 +754,7 @@ export default function TestCaseGenerator() {
               </>
             )}
           </div>
-          
+
           <Button
             variant="outline"
             onClick={() => handlePageChange(currentPage + 1)}
@@ -788,7 +787,7 @@ export default function TestCaseGenerator() {
   // Handle story upload
   const handleUploadStory = async () => {
     const projectId = uploadForm.projectId === 'new' ? newProjectName : uploadForm.projectId;
-    
+
     if (!projectId || !uploadForm.storyId || (!uploadForm.content && !uploadForm.file)) {
       setUploadStatus({
         type: 'error',
@@ -824,7 +823,7 @@ export default function TestCaseGenerator() {
           type: 'success',
           message: result.message + (result.description ? ` AI Description: "${result.description}"` : '')
         });
-        
+
         // Reset form
         setUploadForm({
           projectId: '',
@@ -833,7 +832,7 @@ export default function TestCaseGenerator() {
           file: null
         });
         setNewProjectName('');
-        
+
         // Refresh stories list and projects
         fetchStories();
         fetchProjects();
@@ -872,7 +871,7 @@ export default function TestCaseGenerator() {
               </div>
               <div className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</div>
             </div>
-            
+
           </div>
         </div>
       </header>
@@ -1024,9 +1023,9 @@ export default function TestCaseGenerator() {
                         </div>
                         <Button
                           onClick={handleUploadStory}
-                          disabled={isUploading || 
-                            (uploadForm.projectId === 'new' ? !newProjectName : !uploadForm.projectId) || 
-                            !uploadForm.storyId || 
+                          disabled={isUploading ||
+                            (uploadForm.projectId === 'new' ? !newProjectName : !uploadForm.projectId) ||
+                            !uploadForm.storyId ||
                             (!uploadForm.content && !uploadForm.file)}
                           className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold rounded-lg px-4 py-2 h-10 shadow-lg transform transition-all duration-200 hover:scale-105 whitespace-nowrap"
                         >
@@ -1045,7 +1044,7 @@ export default function TestCaseGenerator() {
                           )}
                         </Button>
                       </div>
-                      
+
                       {/* File Upload Status */}
                       {uploadForm.file && (
                         <div className="mt-2 flex items-center gap-2 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
@@ -1070,11 +1069,10 @@ export default function TestCaseGenerator() {
 
                   {/* Upload Status */}
                   {uploadStatus && (
-                    <div className={`p-4 rounded-xl border-2 ${
-                      uploadStatus.type === 'success' ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 text-green-800' :
-                      uploadStatus.type === 'error' ? 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200 text-red-800' :
-                      'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 text-blue-800'
-                    }`}>
+                    <div className={`p-4 rounded-xl border-2 ${uploadStatus.type === 'success' ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 text-green-800' :
+                        uploadStatus.type === 'error' ? 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200 text-red-800' :
+                          'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 text-blue-800'
+                      }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           {uploadStatus.type === 'success' && (
@@ -1130,7 +1128,7 @@ export default function TestCaseGenerator() {
                 <Input
                   type="date"
                   value={dateFilter.from}
-                  onChange={e => setDateFilter(df => ({...df, from: e.target.value}))}
+                  onChange={e => setDateFilter(df => ({ ...df, from: e.target.value }))}
                   className="border-2 border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 h-12 rounded-xl shadow-sm"
                 />
               </div>
@@ -1142,7 +1140,7 @@ export default function TestCaseGenerator() {
                 <Input
                   type="date"
                   value={dateFilter.to}
-                  onChange={e => setDateFilter(df => ({...df, to: e.target.value}))}
+                  onChange={e => setDateFilter(df => ({ ...df, to: e.target.value }))}
                   className="border-2 border-gray-200 focus:border-green-400 focus:ring-2 focus:ring-green-100 h-12 rounded-xl shadow-sm"
                 />
               </div>
@@ -1217,7 +1215,7 @@ export default function TestCaseGenerator() {
               </div>
             </div>
           </div>
-          
+
           <Card className="shadow-lg border border-gray-200 overflow-hidden">
             <CardContent className="p-0 bg-white">
               {loading ? (
@@ -1416,7 +1414,7 @@ export default function TestCaseGenerator() {
       <footer className="mt-6">
         <div className="bg-gray-800 py-3 text-center text-gray-300 text-sm">
           <div className="w-full">
-            
+
           </div>
         </div>
       </footer>
@@ -1481,7 +1479,7 @@ export default function TestCaseGenerator() {
               ID: {selectedStory?.id}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
@@ -1492,7 +1490,7 @@ export default function TestCaseGenerator() {
                 <p className="text-gray-700 text-sm">{selectedStory?.description}</p>
               </div>
             </div>
-            
+
             {selectedStory?.doc_content_text && (
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Full Story Content</h3>
@@ -1519,7 +1517,7 @@ export default function TestCaseGenerator() {
               Story ID: {selectedStory?.id}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Story Description</h3>
@@ -1527,7 +1525,7 @@ export default function TestCaseGenerator() {
                 <p className="text-gray-700">{selectedStory?.description}</p>
               </div>
             </div>
-            
+
             {/* Story Content */}
             {selectedStory?.doc_content_text && (
               <div>
