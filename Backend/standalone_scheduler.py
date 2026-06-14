@@ -11,13 +11,16 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 app = Flask(__name__)
 
+# Allow frontend origins from env
+_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+_frontend = os.getenv("FRONTEND_URL")
+if _frontend:
+    _origins.append(_frontend)
+
 # Configure CORS with proper settings
 CORS(app, resources={
     r"/api/*": {
-        "origins": [
-            "http://localhost:3000",  # Next.js development server
-            "http://127.0.0.1:3000",  # Alternative local address
-        ],
+        "origins": _origins,
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }
