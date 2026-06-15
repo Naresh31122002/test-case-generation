@@ -3,8 +3,12 @@ import './globals.css'
 import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
-  title: 'Test Forge AI',
+  title: 'CoverLoop',
   description: 'AI-powered test case generation',
+  openGraph: {
+    title: 'CoverLoop',
+    description: 'AI-powered test case generation',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

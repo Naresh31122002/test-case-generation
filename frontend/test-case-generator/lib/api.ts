@@ -56,8 +56,8 @@ const MOCK_STORIES: Story[] = [
 
 const MOCK_TEST_CASES: Record<string, TestCase[]> = {
   "PROJ-101": [
-    { test_case_id: "TC-101-01", title: "Login with valid credentials", priority: "high", steps: ["Navigate to /login", "Enter valid email: test@example.com", "Enter valid password: Pass@123", "Click Login button"], expected_result: "User is redirected to the dashboard. Welcome message displayed." },
-    { test_case_id: "TC-101-02", title: "Login with invalid password", priority: "high", steps: ["Navigate to /login", "Enter valid email: test@example.com", "Enter wrong password: wrongpass", "Click Login button"], expected_result: "Error message shown: 'Invalid email or password'. User stays on login page." },
+    { test_case_id: "TC-101-01", title: "Login with valid credentials", priority: "high", isImpacted: true, steps: ["Navigate to /login", "Enter valid email: test@example.com", "Enter valid password: Pass@123", "Click Login button"], expected_result: "User is redirected to the dashboard. Welcome message displayed." },
+    { test_case_id: "TC-101-02", title: "Login with invalid password", priority: "high", isImpacted: true, steps: ["Navigate to /login", "Enter valid email: test@example.com", "Enter wrong password: wrongpass", "Click Login button"], expected_result: "Error message shown: 'Invalid email or password'. User stays on login page." },
     { test_case_id: "TC-101-03", title: "Login with empty fields", priority: "medium", steps: ["Navigate to /login", "Leave email and password empty", "Click Login button"], expected_result: "Validation errors shown for both fields. Form not submitted." },
     { test_case_id: "TC-101-04", title: "Account lockout after 5 failed attempts", priority: "high", steps: ["Navigate to /login", "Enter valid email", "Enter wrong password 5 times consecutively", "Attempt 6th login"], expected_result: "Account locked message shown. User cannot log in until unlocked." },
     { test_case_id: "TC-101-05", title: "Login with invalid email format", priority: "low", steps: ["Navigate to /login", "Enter malformed email: notanemail", "Enter any password", "Click Login button"], expected_result: "Email validation error shown. Form not submitted." },
@@ -217,6 +217,8 @@ export interface TestCase {
   created_at?: string;
   updated_at?: string;
   original_version?: TestCase;
+  isImpacted?: boolean;
+  impacted?: boolean;
 }
 
 export interface ImpactedTestCase extends TestCase {

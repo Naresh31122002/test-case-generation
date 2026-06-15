@@ -9,9 +9,30 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Brain, FileText, Eye, AlertCircle,
-  LayoutDashboard, Clock, ChevronRight,
+  LayoutDashboard, Clock, ChevronRight, ShieldCheck, Code2, Download,
 } from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
+import { Btn } from "@/components/ui/btn";
+import { Toggle } from "@/components/ui/toggle-switch";
+import { ExportScriptDialog } from "@/components/export-script-dialog";
+import { api, TestCase } from "@/lib/api";
+
+function EmptyImpactState({ highOnly }: { highOnly: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-16 px-6">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+        style={{ background: "#E1F5F8" }}>
+        <ShieldCheck className="w-7 h-7" style={{ color: "#1A9FB5" }} />
+      </div>
+      <h3 className="text-sm" style={{ color: "#0D1B2A", fontWeight: 500 }}>No impacted test cases</h3>
+      <p className="text-sm mt-1 max-w-xs" style={{ color: "#5F5E5A" }}>
+        {highOnly
+          ? "No high-severity modifications were found for this story."
+          : "This story did not modify any existing test cases."}
+      </p>
+    </div>
+  );
+}
 
 interface ImpactedTestCase {
   id: string;
@@ -63,6 +84,39 @@ export default function StoryImpactAnalysisPage() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [showStorySheet, setShowStorySheet] = useState(false);
   const [summary, setSummary] = useState({ total: 0, impacted: 0, pct: 0, high: 0, medium: 0, low: 0 });
+  const [highOnly, setHighOnly] = useState(false);
+
+  /* export script — lazy-loaded story test cases */
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportTestCases, setExportTestCases] = useState<TestCase[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const openExport = async () => {
+    setExportLoading(true);
+    setShowExportDialog(true);
+    try {
+      const res = await api.getTestCases(storyId);
+      const raw = (res as any)?.testcases;
+      setExportTestCases(Array.isArray(raw) ? raw : []);
+    } catch { setExportTestCases([]); }
+    finally { setExportLoading(false); }
+  };
+
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `test_cases_${storyId}.xlsx`;
+      document.body.appendChild(a); a.click(); URL.revokeObjectURL(url); document.body.removeChild(a);
+    } catch { console.error("Download failed"); }
+  };
+
+  const highToggleDisabled = impacted.length === 0;
+  const visibleImpacted = highOnly && !highToggleDisabled
+    ? impacted.filter(tc => (tc.impacts[0]?.impact_severity || tc.severity) === "high")
+    : impacted;
 
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
     role: "assistant",
@@ -149,7 +203,7 @@ export default function StoryImpactAnalysisPage() {
         setLoadingOriginal(true);
         const res = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}/test-cases/${selectedTC.id}`)
           .catch(() => null);
-        if (!res.ok) throw new Error();
+        if (!res || !res.ok) throw new Error();
         const d = await res.json();
         setSelectedTC(p => p ? { ...p, original_steps: d.test_steps || d.steps || [], original_expected_result: d.expected_result || "", original_title: d.title || d.test_title || p.original_title } : null);
       } catch {} finally { setLoadingOriginal(false); }
@@ -196,7 +250,7 @@ export default function StoryImpactAnalysisPage() {
       <AppSidebar />
       <SidebarInset>
         {/* Top bar */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] bg-white sticky top-0 z-30">
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#eef2f8] sticky top-0 z-50" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#5a7ca0] hover:text-[#0F162B]" />
             <Separator orientation="vertical" className="h-5" />
@@ -205,14 +259,16 @@ export default function StoryImpactAnalysisPage() {
             </button>
             <Separator orientation="vertical" className="h-5" />
             <div className="flex items-center gap-1.5 text-sm">
-              <LayoutDashboard className="w-4 h-4 text-[#5a7ca0]" />
-              <span className="text-[#5a7ca0]">Dashboard</span>
+              <button onClick={() => router.push("/")} className="flex items-center gap-1.5 text-[#1A9FB5] hover:text-[#178fa3] cursor-pointer hover:underline transition-colors">
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Dashboard</span>
+              </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#b0c4d8]" />
               <span className="font-semibold text-[#0F162B]">Impact Analysis</span>
             </div>
           </div>
           <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#0F162B]">
-            <Clock className="w-4 h-4 text-[#377ACF]" />
+            <Clock className="w-4 h-4 text-[#1A9FB5]" />
             {currentTime || "—"}
           </div>
         </header>
@@ -239,11 +295,20 @@ export default function StoryImpactAnalysisPage() {
                     <p className="text-sm mt-1 leading-relaxed" style={{ color: "#A2D2E9" }}>{storyDescription}</p>
                   )}
                 </div>
-                <button onClick={() => setShowStorySheet(true)}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 flex-shrink-0 transition-all hover:opacity-80"
-                  style={{ background: "rgba(162,210,233,0.15)", color: "#A2D2E9", border: "1px solid rgba(162,210,233,0.25)" }}>
-                  <Eye className="w-3.5 h-3.5" />View Story
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Btn variant="dark-ghost" onClick={() => router.push(`/test-cases/${storyId}`)}>
+                    <FileText className="w-3.5 h-3.5" />View Test Cases
+                  </Btn>
+                  <Btn variant="dark-ghost" onClick={() => setShowStorySheet(true)}>
+                    <Eye className="w-3.5 h-3.5" />View Story
+                  </Btn>
+                  <Btn variant="dark-ghost" onClick={openExport}>
+                    <Code2 className="w-3.5 h-3.5" />Export Script
+                  </Btn>
+                  <Btn variant="dark-ghost" onClick={handleDownload}>
+                    <Download className="w-3.5 h-3.5" />Download
+                  </Btn>
+                </div>
               </div>
             </div>
           </div>
@@ -253,14 +318,17 @@ export default function StoryImpactAnalysisPage() {
             <div className="grid grid-cols-4 gap-4">
               {[
                 { label: "Total Test Cases", value: summary.total, color: "#1a2540" },
-                { label: "Modified", value: summary.impacted, color: "#b45309" },
-                { label: "Modification %", value: `${summary.pct}%`, color: "#377ACF" },
+                { label: "Modified", value: summary.impacted, color: "#0F7A8A" },
+                { label: "Modification %", value: `${summary.pct}%`, color: "#1A9FB5" },
                 {
                   label: "Severity Breakdown",
                   custom: (
                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                       {[["H", summary.high, "high"], ["M", summary.medium, "medium"], ["L", summary.low, "low"]].map(([l, v, s]) => {
-                        const st = sevStyle(s as string);
+                        // H stays red (danger), L stays green (safe); M becomes neutral teal (not amber)
+                        const st = s === "medium"
+                          ? { bg: "#E1F5F8", color: "#0F7A8A", border: "#1A9FB5" }
+                          : sevStyle(s as string);
                         return <span key={l as string} className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{l}: {v}</span>;
                       })}
                     </div>
@@ -278,30 +346,39 @@ export default function StoryImpactAnalysisPage() {
           {/* Impact cards list */}
           <div className="bg-white rounded-2xl border border-[#dde6f0] shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#eef2f8] flex items-center gap-2">
-              <Brain className="w-4 h-4 text-[#377ACF]" />
+              <Brain className="w-4 h-4 text-[#1A9FB5]" />
               <span className="font-semibold text-sm text-[#0F162B]">Modified Test Cases</span>
-              {!loading && <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f0f6ff] text-[#377ACF]">{impacted.length}</span>}
+              {!loading && <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#E1F5F8] text-[#1A9FB5]">{visibleImpacted.length}</span>}
+              {/* High-severity-only unified toggle */}
+              <span className="ml-auto">
+                <Toggle
+                  checked={highOnly}
+                  onChange={() => setHighOnly(p => !p)}
+                  disabled={highToggleDisabled}
+                  label="High severity only"
+                />
+              </span>
             </div>
 
             {loading ? (
               <div className="py-16 text-center">
-                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#377ACF]">
-                  <div className="w-5 h-5 border-2 border-[#377ACF] border-t-transparent rounded-full animate-spin" />Loading…
+                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#1A9FB5]">
+                  <div className="w-5 h-5 border-2 border-[#1A9FB5] border-t-transparent rounded-full animate-spin" />Loading…
                 </div>
               </div>
             ) : error ? (
               <div className="py-12 text-center text-sm font-semibold text-red-600">{error}</div>
-            ) : impacted.length === 0 ? (
-              <div className="py-12 text-center text-sm text-[#9ca3af]">No modified test cases found.</div>
+            ) : visibleImpacted.length === 0 ? (
+              <EmptyImpactState highOnly={highOnly} />
             ) : (
               <div className="divide-y divide-[#eef2f8]">
-                {impacted.map((tc, idx) => {
+                {visibleImpacted.map((tc, idx) => {
                   const sev = sevStyle(tc.impacts[0]?.impact_severity);
                   const pri = priStyle(tc.impacts[0]?.impact_priority);
                   return (
                     <div key={tc.id || idx}
                       onClick={() => { setSelectedTC(tc); setShowOriginal(false); setShowDetail(true); }}
-                      className="flex items-center gap-4 px-5 py-4 cursor-pointer group hover:bg-[#f0f6ff] transition-colors">
+                      className="flex items-center gap-4 px-5 py-4 cursor-pointer group hover:bg-[#E1F5F8] transition-colors">
                       {/* severity bar + number */}
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <div className="w-1 h-10 rounded-full flex-shrink-0" style={{ background: sev.bar }} />
@@ -324,7 +401,7 @@ export default function StoryImpactAnalysisPage() {
                           {tc.impacts[0]?.impact_priority || "low"}
                         </span>
                       </div>
-                      <Eye className="w-4 h-4 text-[#c8d8eb] group-hover:text-[#377ACF] transition-colors flex-shrink-0" />
+                      <Eye className="w-4 h-4 text-[#c8d8eb] group-hover:text-[#1A9FB5] transition-colors flex-shrink-0" />
                     </div>
                   );
                 })}
@@ -547,6 +624,13 @@ export default function StoryImpactAnalysisPage() {
 
       <Chatbot onSendMessage={handleSendMessage} chatMessages={chatMessages} isGenerating={isGenerating}
         selectedModel={selectedModel} onModelChange={m => setSelectedModel(m)} />
+
+      <ExportScriptDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        storyId={storyId}
+        testCases={exportTestCases}
+      />
     </SidebarProvider>
   );
 }

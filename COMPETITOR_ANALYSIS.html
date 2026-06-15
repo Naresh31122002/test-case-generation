@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test-Forge-AI — Competitive Analysis & Pre-Build Recommendations</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.55; font-size: 11pt; margin: 0;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 22pt; color: #0f2d4a; margin: 0 0 4px; line-height: 1.2; }
+  .sub { color: #5a6b7b; font-size: 9.5pt; margin: 0 0 18px; border-bottom: 2px solid #0f2d4a; padding-bottom: 12px; }
+  h2 { font-size: 14pt; color: #0f2d4a; margin: 26px 0 8px; border-left: 4px solid #2b7de9; padding-left: 10px; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #14406b; margin: 16px 0 6px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 6px 4px; padding-left: 20px; }
+  li { margin: 3px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 9.5pt; page-break-inside: avoid; }
+  th { background: #0f2d4a; color: #fff; text-align: left; padding: 7px 9px; font-weight: 600; }
+  td { border: 1px solid #d7dee5; padding: 6px 9px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7fa; }
+  .tag { display: inline-block; background: #eaf2fd; color: #14406b; border-radius: 4px; padding: 1px 6px; font-size: 8.5pt; font-weight: 600; }
+  .callout { background: #fff7e6; border: 1px solid #f0d690; border-left: 4px solid #e0a800; padding: 10px 14px; margin: 14px 0; border-radius: 4px; }
+  .win { background: #eafaf0; border: 1px solid #b6e6c7; border-left: 4px solid #1f9d55; padding: 10px 14px; margin: 14px 0; border-radius: 4px; }
+  a { color: #2b7de9; text-decoration: none; word-break: break-word; }
+  code { background: #f0f2f5; padding: 1px 5px; border-radius: 3px; font-size: 9.5pt; }
+  .src { font-size: 8.5pt; color: #44525f; }
+  .src li { margin: 5px 0; }
+  .pb { page-break-before: always; }
+  strong { color: #0f2d4a; }
+  @media print { .wrap { padding: 0; } a { color: #14406b; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Test-Forge-AI — Competitive Analysis &amp; Pre-Build Recommendations</h1>
+<p class="sub">Prepared June 14, 2026 &nbsp;·&nbsp; Competitor ratings &amp; review counts are live from G2 (connected G2 connector); pros/cons themes from G2, Capterra, TrustRadius &amp; PeerSpot public review pages. G2's per-product review API is gated for buyer accounts, so review <em>themes</em> were gathered from public review pages rather than raw G2 review text.</p>
+
+<h2>1. What Test-Forge-AI actually is</h2>
+<p>Based on the codebase, Test-Forge-AI is an <strong>AI test-case <em>authoring</em> + change-impact tool</strong>, not a test <em>execution</em> tool:</p>
+<ul>
+  <li>Pulls user stories from <strong>Jira</strong> (sync) or file/text upload (PDF/DOCX/TXT).</li>
+  <li>Generates <strong>written test cases</strong> (id, title, steps, expected result, priority) across 5 categories: positive, negative, boundary, security, performance.</li>
+  <li><strong>Impact analysis:</strong> when a new story arrives, finds semantically-related existing stories and flags which existing test cases are affected.</li>
+  <li><strong>RAG retrieval:</strong> uses your own historical test cases as context for consistency.</li>
+  <li>Outputs to Excel; stores in PostgreSQL + LanceDB; runs on Groq <code>llama-3.1-8b-instant</code>.</li>
+</ul>
+<div class="callout"><strong>Positioning fact:</strong> it produces <em>manual test cases for humans to read/run</em>, not self-healing automation scripts that execute against an app. That places it in <strong>Test Management / AI test-design</strong> — competing with TestRail and Qase — <strong>not</strong> in browser-automation execution (Katalon, Testsigma, mabl, ACCELQ), even though those tools now overlap by adding AI generation.</div>
+
+<h2>2. The competitive landscape (live G2 data)</h2>
+<table>
+  <thead><tr><th>Product</th><th>G2 rating</th><th>G2 reviews</th><th>What it really is</th></tr></thead>
+  <tbody>
+    <tr><td><strong>TestRail</strong></td><td>4.4</td><td><strong>592</strong></td><td>Market-leading test <em>management</em>; the incumbent your buyers already use</td></tr>
+    <tr><td><strong>Qase</strong></td><td>4.7</td><td>303</td><td>Modern test management + "AIDEN" AI that generates cases from Jira/GitHub — <em>your closest threat</em></td></tr>
+    <tr><td>Katalon True Platform</td><td>4.4</td><td>212</td><td>Automation execution + AI authoring</td></tr>
+    <tr><td>Testsigma</td><td>4.4</td><td>114</td><td>Codeless/NLP automation + AI generation</td></tr>
+    <tr><td>ACCELQ</td><td>4.8</td><td>107</td><td>Codeless AI automation (highest-rated)</td></tr>
+    <tr><td>Tricentis qTest</td><td>4.3</td><td>103</td><td>Enterprise test management</td></tr>
+    <tr><td>QA Touch</td><td>4.2</td><td>78</td><td>Test management + AI multi-test-case gen from Jira</td></tr>
+    <tr><td>mabl</td><td>4.4</td><td>39</td><td>Low-code AI automation, auto-healing</td></tr>
+    <tr><td>TestCollab</td><td>4.4</td><td>37</td><td>Test management + AI generation from requirements</td></tr>
+    <tr><td>testRigor</td><td>4.7</td><td>19</td><td>Plain-English AI test generation + execution</td></tr>
+  </tbody>
+</table>
+<p>Plus two threats not on G2 as comparable products: <strong>Atlassian Rovo</strong> (AI agent <strong>native inside Jira</strong> that drafts test cases) and <strong>Xray</strong> (Jira-native test management, the compliance / "data-stays-in-Atlassian" default).</p>
+<p class="src">Saved as a live G2 Research Board you can re-open: <a href="https://www.g2.com/assistant/b85476fa-d45f-40cb-a658-3c014cb9fde2">g2.com/assistant/b85476fa-d45f-40cb-a658-3c014cb9fde2</a></p>
+
+<h2>3. What users LOVE (do these or lose)</h2>
+<p>Across all competitors, the praise clusters tightly:</p>
+<ol>
+  <li><strong>Plain-English / codeless authoring</strong> — non-technical QA can create tests (testRigor, Testsigma). <em>Test-Forge-AI already does this.</em></li>
+  <li><strong>Speed</strong> — cuts manual test-design time dramatically. <em>Test-Forge-AI's core promise — good.</em></li>
+  <li><strong>Clean, intuitive UI</strong> — Qase wins specifically on this. <em>Your frontend is an MVP; this is table stakes.</em></li>
+  <li><strong>Fast, human customer support</strong> — cited for testRigor/Testsigma; TestRail criticized for the opposite. <em>Cheap to win as a startup.</em></li>
+  <li><strong>Human-in-the-loop</strong> — Qase, TestCollab, Rovo all emphasize <em>"review, edit, approve before saving."</em> Buyers want AI as a draft, not an unsupervised author.</li>
+  <li><strong>Strong Jira/Confluence integration + traceability</strong> — universally valued.</li>
+</ol>
+
+<h2>4. What users HATE (the gaps = your openings)</h2>
+<table>
+  <thead><tr><th>Complaint</th><th>Who gets hit</th><th>Opportunity for Test-Forge-AI</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Opaque pricing / forced sales call</strong></td><td>Testsigma, testRigor, Tricentis</td><td>Ship <strong>transparent, self-serve pricing</strong>. The #1 repeated complaint.</td></tr>
+    <tr><td>Expensive</td><td>TestRail, Katalon, testRigor</td><td>Undercut on price for SMB/mid-market.</td></tr>
+    <tr><td><strong>TestRail "lacks AI features"</strong></td><td>TestRail (592 reviews!)</td><td>The biggest installed base has <em>no</em> AI test design. Be the <strong>AI layer on top of TestRail</strong>, not a replacement.</td></tr>
+    <tr><td>Flaky / false test runs, reliability</td><td>Testsigma, testRigor, Katalon</td><td>You generate <em>cases</em>, not runs — you sidestep flakiness (but deliver less; see §6).</td></tr>
+    <tr><td>Limited customization &amp; integrations</td><td>Qase, Katalon</td><td>Open API + deep integrations.</td></tr>
+    <tr><td>Steep learning curve</td><td>Testsigma, TestRail, Katalon</td><td>Keep onboarding trivial.</td></tr>
+    <tr><td>Weak reporting</td><td>Testsigma, Katalon</td><td>Reporting / coverage dashboards.</td></tr>
+    <tr><td>AI quality depends on requirement clarity</td><td><em>Every</em> AI generator</td><td><strong>Critique the user story first</strong> (flag missing acceptance criteria) before generating — almost nobody does this well.</td></tr>
+  </tbody>
+</table>
+
+<h2 class="pb">5. Where Test-Forge-AI is genuinely differentiated</h2>
+<p>Two things in your codebase that competitors largely <strong>do not</strong> offer:</p>
+<div class="win">
+<ol>
+  <li><strong>Change-impact analysis</strong> — "a new story landed; here are the existing test cases it ripples into, ranked by severity." Competitors offer <em>traceability</em> (link test↔requirement) but <strong>not automated impact/ripple detection</strong>. This is your strongest, most ownable wedge. <strong>Lead with it.</strong></li>
+  <li><strong>RAG over your org's own historical test cases</strong> — enforces house style/consistency and reuse. A real "gets smarter with your data" story that incumbents' generic LLM features lack.</li>
+</ol>
+</div>
+
+<h2>6. The hard truths (risks to face before building)</h2>
+<ol>
+  <li><strong>Your core "generate test cases from a Jira story" feature is being commoditized — fast.</strong> Qase AIDEN, TestCollab, QA Touch, Xray, and especially <strong>Atlassian Rovo (native in Jira)</strong> already ship it. A standalone tool whose headline is "Jira story → test cases" will be undercut by a feature buyers get for free inside Jira. <strong>Generation alone is not a product.</strong></li>
+  <li><strong>You don't execute tests.</strong> The hot G2 category ("AI Software Testing Tools") rewards <em>self-healing automation that runs</em>. You produce manual cases — so you compete in <strong>test management</strong>, where TestRail + Qase are entrenched (590+ and 300+ reviews, real UIs).</li>
+  <li><strong>Model quality.</strong> <code>llama-3.1-8b-instant</code> is weak vs GPT-4-class models competitors use; case quality &amp; hallucination will be judged harshly. Plan for human-in-the-loop review and a stronger model.</li>
+  <li><strong>Productization gap</strong> (from the earlier code review): single-tenant, no auth, debug-mode Flask, hardcoded keys, no tests/Docker. A working MVP, not yet a multi-customer product.</li>
+</ol>
+
+<h2>7. Recommendations — before you build the product</h2>
+<h3>Positioning</h3>
+<ol>
+  <li><strong>Do not</strong> position as "AI that writes test cases from Jira." Position as <strong>"AI test-coverage + change-impact intelligence for your existing test suite."</strong> Make <em>impact analysis</em> the headline, generation the supporting act.</li>
+  <li><strong>Be a layer, not a replacement.</strong> Integrate <em>into</em> TestRail / Qase / Jira / Xray. The TestRail base (592 reviews, "no AI") is your beachhead: "Add AI test design + impact analysis to the TestRail you already have."</li>
+</ol>
+<h3>Product</h3>
+<ol start="3">
+  <li>Ship <strong>human-in-the-loop review</strong> (draft → edit → approve) — buyers explicitly want this.</li>
+  <li>Add a <strong>"story quality check"</strong> that flags missing acceptance criteria <em>before</em> generating — turns "garbage in, garbage out" into a selling point.</li>
+  <li>Upgrade the LLM and add a coverage/impact <strong>dashboard</strong> (reporting is a common competitor weakness).</li>
+  <li>Offer an <strong>on-prem / "data never leaves your infra"</strong> option — Xray wins compliance buyers this way; a clean wedge vs cloud-only rivals.</li>
+</ol>
+<h3>Go-to-market</h3>
+<ol start="7">
+  <li><strong>Transparent, self-serve pricing</strong> from day one — the single most common competitor complaint.</li>
+  <li>Compete on <strong>support responsiveness</strong> while small — TestRail/Tricentis are criticized here.</li>
+  <li>Pick one <strong>ICP</strong> (e.g., mid-market regulated teams already on Jira+TestRail who need impact analysis for change-heavy releases) rather than fighting the whole category.</li>
+</ol>
+<div class="callout"><strong>Bottom line:</strong> The market is crowded for <em>generation</em>, wide open for <em>impact analysis + AI-on-top-of-existing-TMS + honest pricing</em>. Build toward the second; don't ship the first as your headline.</div>
+
+<h2>Sources</h2>
+<ul class="src">
+  <li>Testsigma — <a href="https://www.g2.com/products/testsigma/reviews?qs=pros-and-cons">G2 pros &amp; cons</a> · <a href="https://thectoclub.com/tools/testsigma-review/">The CTO Club</a></li>
+  <li>testRigor — <a href="https://www.g2.com/products/testrigor/reviews?qs=pros-and-cons">G2 pros &amp; cons</a> · <a href="https://www.trustradius.com/products/testrigor/reviews?qs=pros-and-cons">TrustRadius</a> · <a href="https://www.capterra.com/p/197020/testRigor/reviews/">Capterra</a></li>
+  <li>Katalon — <a href="https://www.g2.com/products/katalon-platform/reviews?qs=pros-and-cons">G2 pros &amp; cons</a> · <a href="https://www.trustradius.com/products/katalon/reviews/all">TrustRadius</a> · <a href="https://www.peerspot.com/products/katalon-studio-reviews">PeerSpot</a></li>
+  <li>TestRail — <a href="https://www.capterra.com/p/128204/TestRail/reviews/">Capterra</a> · <a href="https://www.peerspot.com/products/testrail-pros-and-cons">PeerSpot pros &amp; cons</a> · <a href="https://aqua-cloud.io/testrail-review/">aqua-cloud review</a></li>
+  <li>Qase — <a href="https://www.g2.com/products/qase/reviews?qs=pros-and-cons">G2 pros &amp; cons</a> · <a href="https://www.practitest.com/resource-center/blog/qase-review/">PractiTest review</a></li>
+  <li>AI test-case generation from Jira — <a href="https://testcollab.com/blog/generate-test-cases-from-user-stories-requirements-ai">TestCollab</a> · <a href="https://community.atlassian.com/forums/App-Central-articles/Atlassian-Rovo-in-QA-Instantly-Designing-Test-Cases-in-Jira-with/ba-p/3144170">Atlassian Rovo in QA</a> · <a href="https://deviniti.com/blog/devops/6-ai-tools-for-software-testing-in-jira-a-guide-for-qa-teams/">Deviniti</a> · <a href="https://www.qatouch.com/blog/introducing-ai-powered-multi-test-case-generation-from-jira-stories-epics/">QA Touch</a></li>
+  <li>G2 Research Board (live): <a href="https://www.g2.com/assistant/b85476fa-d45f-40cb-a658-3c014cb9fde2">g2.com/assistant/b85476fa-d45f-40cb-a658-3c014cb9fde2</a></li>
+</ul>
+
+</div>
+</body>
+</html>

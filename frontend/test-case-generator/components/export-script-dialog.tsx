@@ -73,19 +73,19 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
                   onClick={() => setSelected(fmt.id)}
                   className="w-full text-left px-3 py-2.5 rounded-xl transition-all"
                   style={selected === fmt.id
-                    ? { background: "#0F162B", color: "#ffffff" }
+                    ? { background: "#1A9FB5", color: "#ffffff" }
                     : { color: "#374151" }
                   }
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold">{fmt.label}</span>
                     {selected === fmt.id
-                      ? <Check className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#A2D2E9" }} />
+                      ? <Check className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#ffffff" }} />
                       : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 opacity-30" />
                     }
                   </div>
                   <div className="text-[11px] mt-0.5 leading-tight"
-                    style={{ color: selected === fmt.id ? "#A2D2E9" : "#9ca3af" }}>
+                    style={{ color: selected === fmt.id ? "#E1F5F8" : "#9ca3af" }}>
                     .{fmt.ext}
                   </div>
                 </button>
@@ -99,7 +99,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
                 <div className="text-[11px] text-[#5a7ca0] leading-relaxed">{selectedMeta.description}</div>
                 <div className="mt-2 flex items-center gap-1.5">
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold"
-                    style={{ background: "#f0f6ff", color: "#377ACF" }}>
+                    style={{ background: "#E1F5F8", color: "#0F7A8A" }}>
                     .{selectedMeta.ext}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
@@ -131,7 +131,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
                 className="text-xs font-semibold px-3 py-1 rounded-lg transition-all"
                 style={copied
                   ? { background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0" }
-                  : { background: "#f0f6ff", color: "#377ACF", border: "1px solid #c8d8eb" }
+                  : { background: "#E1F5F8", color: "#0F7A8A", border: "1px solid #1A9FB5" }
                 }
               >
                 {copied ? "✓ Copied!" : "Copy"}
@@ -139,7 +139,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
             </div>
 
             {/* Code */}
-            <div className="flex-1 overflow-auto" style={{ background: "#0d1117" }}>
+            <div className="flex-1 overflow-auto" style={{ background: "#0F1117" }}>
               <pre
                 className="text-xs leading-relaxed p-5 font-mono h-full"
                 style={{ color: "#e6edf3", whiteSpace: "pre", minHeight: "100%" }}
@@ -165,7 +165,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
             <button
               onClick={handleDownload}
               className="h-9 px-5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 hover:opacity-90 transition-opacity"
-              style={{ background: "#377ACF" }}
+              style={{ background: "#1A9FB5" }}
             >
               <Download className="w-4 h-4" />
               Download .{selectedMeta.ext}
