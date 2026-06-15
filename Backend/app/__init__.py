@@ -36,9 +36,8 @@ def create_app():
         }
     })
 
-    # Configure app
-    config = Config()
-    app.config.from_object(config)
+    # Configure app — Config is already a singleton instance, not a class
+    app.config.from_object(Config)
 
     # Initialize database service
     db_service = get_db_service()
