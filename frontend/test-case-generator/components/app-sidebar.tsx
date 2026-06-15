@@ -51,7 +51,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
 
   const fetchNextReload = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:5001/api/scheduler/next-reload")
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SCHEDULER_API_URL || "http://127.0.0.1:5001"}/api/scheduler/next-reload`)
       const ct = res.headers.get("content-type") || ""
       if (ct.includes("application/json")) {
         const data = await res.json()
@@ -69,7 +69,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
   const triggerReload = async () => {
     try {
       setIsTriggering(true)
-      const res = await fetch("http://127.0.0.1:5001/api/scheduler/trigger", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SCHEDULER_API_URL || "http://127.0.0.1:5001"}/api/scheduler/trigger`, {
         method: "POST", headers: { "Content-Type": "application/json" },
       })
       if (res.ok) { toast.success("Scheduler triggered!"); setTimeout(fetchNextReload, 2000) }

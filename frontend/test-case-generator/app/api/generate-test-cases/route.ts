@@ -239,7 +239,7 @@ export async function POST(request: Request) {
 
     if (modelType === 'rag') {
       // Call Flask backend RAG endpoint for test case generation
-      const flaskRes = await fetch('http://127.0.0.1:5000/api/stories/rag-chat', {
+      const flaskRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/rag-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: message })

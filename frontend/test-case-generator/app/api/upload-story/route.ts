@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     
     // Forward the request to the backend
-    const backendResponse = await fetch('http://127.0.0.1:5000/api/stories/upload', {
+    const backendResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/upload`, {
       method: 'POST',
       body: formData
     });
