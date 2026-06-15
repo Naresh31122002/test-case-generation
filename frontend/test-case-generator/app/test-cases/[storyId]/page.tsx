@@ -85,7 +85,7 @@ export default function StoryTestCasesPage() {
         if ((res as any)?.error) setError(String((res as any).error));
 
         try {
-          const sr = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}`);
+          const sr = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}`);
           if (sr.ok) {
             const sd = await sr.json();
             setStoryContent(sd.document_content);
@@ -104,7 +104,7 @@ export default function StoryTestCasesPage() {
 
   const handleDownload = async () => {
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/testcases/download/${storyId}`);
       if (!res.ok) throw new Error();
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

@@ -104,7 +104,7 @@ export default function StoryImpactAnalysisPage() {
 
   const handleDownload = async () => {
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/stories/testcases/download/${storyId}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/testcases/download/${storyId}`);
       if (!res.ok) throw new Error();
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -138,7 +138,7 @@ export default function StoryImpactAnalysisPage() {
         setLoading(true);
         let data: any;
         try {
-          const res = await fetch(`http://127.0.0.1:5000/api/stories/impacts/story-test-cases/${storyId}?project_id=${projectId}`);
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/impacts/story-test-cases/${storyId}?project_id=${projectId}`);
           if (!res.ok) throw new Error("Failed to fetch impact analysis");
           data = await res.json();
         } catch {
@@ -182,7 +182,7 @@ export default function StoryImpactAnalysisPage() {
         // Only fetch story from backend if not already set by mock above
         if (!storyDescription) {
           try {
-            const sr = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}`);
+            const sr = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}`);
             if (sr.ok) {
               const sd = await sr.json();
               setStoryDescription(sd.description);
@@ -201,7 +201,7 @@ export default function StoryImpactAnalysisPage() {
     (async () => {
       try {
         setLoadingOriginal(true);
-        const res = await fetch(`http://127.0.0.1:5000/api/stories/${storyId}/test-cases/${selectedTC.id}`)
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}/test-cases/${selectedTC.id}`)
           .catch(() => null);
         if (!res || !res.ok) throw new Error();
         const d = await res.json();

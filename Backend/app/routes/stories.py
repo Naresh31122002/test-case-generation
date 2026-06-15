@@ -642,15 +642,15 @@ def upload_story():
 
         # Add to LanceDB
         try:
-            from app.config import EMBEDDING_MODEL
+            from app.config import get_embedding_model
             from datetime import datetime
             import lancedb
-            
+
             db = lancedb.connect(Config.LANCE_DB_PATH)
             table = db.open_table(Config.TABLE_NAME_LANCE)
-            
+
             # Generate embedding
-            embedding = EMBEDDING_MODEL.encode(story_content).tolist()
+            embedding = get_embedding_model().encode(story_content).tolist()
             
             # Add to LanceDB
             table.add([{
