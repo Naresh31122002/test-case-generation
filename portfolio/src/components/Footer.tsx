@@ -27,7 +27,7 @@ const SOCIALS = [
 
 export default function Footer() {
   return (
-    <footer className="bg-[#2D1B69] px-6 pt-16 pb-8">
+    <footer className="bg-text-primary px-6 pt-16 pb-8">
       <div className="mx-auto max-w-7xl">
         <div className="grid grid-cols-2 gap-10 md:grid-cols-6">
           {/* Logo + tagline */}

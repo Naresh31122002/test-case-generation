@@ -9,6 +9,7 @@ const NAV_LINKS = ["Features", "Pricing", "Integrations", "Blog"];
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeLink, setActiveLink] = useState(NAV_LINKS[0]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -22,30 +23,56 @@ export default function Navbar() {
       initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
+      style={
         scrolled
-          ? "bg-white/70 backdrop-blur-md shadow-sm"
-          : "bg-transparent"
-      }`}
+          ? {
+              background: "rgba(255, 255, 255, 0.85)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              boxShadow: "0 1px 12px rgba(26, 26, 46, 0.06)",
+            }
+          : { background: "transparent" }
+      }
     >
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+      <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
         {/* Logo */}
         <a href="/" className="font-heading font-bold text-[28px] leading-none">
           <span className="text-text-primary">Test</span>
           <span className="text-secondary">Surge</span>
         </a>
 
-        {/* Desktop nav links */}
-        <div className="hidden items-center gap-8 md:flex">
-          {NAV_LINKS.map((link) => (
-            <a
-              key={link}
-              href={`#${link.toLowerCase()}`}
-              className="text-text-secondary transition-colors duration-200 hover:text-secondary"
-            >
-              {link}
-            </a>
-          ))}
+        {/* Desktop nav links — glassmorphic floating pill */}
+        <div
+          className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border p-2 md:flex"
+          style={{
+            background: "rgba(255, 255, 255, 0.7)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            borderColor: "rgba(255, 255, 255, 0.8)",
+            boxShadow: "0 4px 24px rgba(255, 77, 109, 0.08)",
+          }}
+        >
+          {NAV_LINKS.map((link) => {
+            const isActive = link === activeLink;
+            return (
+              <motion.a
+                key={link}
+                href={`#${link.toLowerCase()}`}
+                onClick={() => setActiveLink(link)}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition-colors duration-200 ${
+                  isActive
+                    ? "bg-white text-secondary shadow-[0_2px_8px_rgba(26,26,46,0.08)]"
+                    : "text-text-secondary hover:bg-secondary/[0.08] hover:text-secondary"
+                }`}
+              >
+                {link}
+              </motion.a>
+            );
+          })}
         </div>
 
         {/* Right side buttons (desktop) */}
