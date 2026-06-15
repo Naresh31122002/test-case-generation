@@ -14,6 +14,7 @@ from app.config import Config
 db = lancedb.connect(Config.LANCE_DB_PATH)
 TABLE_NAME = Config.TABLE_NAME_LANCE
 schema = pa.schema([
+    ("user_id", pa.string()),
     ("project_id", pa.string()),
     ("vector", pa.list_(pa.float32(), 768)),
     ("storyID", pa.string()),
@@ -64,7 +65,20 @@ def create_postgres_db():
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         """)
         print("✅ Extension 'uuid-ossp' is ready.")
-        
+
+        # Create users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_on TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP WITHOUT TIME ZONE
+            );
+            CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        """)
+        print("✅ Table 'users' is ready.")
+
         # Create test_cases table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_cases (
@@ -84,7 +98,8 @@ def create_postgres_db():
                 inputs JSONB,
                 has_impacts BOOLEAN DEFAULT FALSE,
                 latest_impact_id UUID,
-                CONSTRAINT unique_story_id UNIQUE(story_id)  -- Make story_id unique
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                CONSTRAINT unique_story_id_per_user UNIQUE(story_id, user_id)
             );
             
             -- Add index on story_id for faster joins
@@ -101,6 +116,32 @@ def create_postgres_db():
             ON test_cases(source);
         """)
         print("✅ Table 'test_cases' is ready.")
+
+        # Migrate existing test_cases table: add user_id column if missing and drop old unique constraint
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'test_cases' AND column_name = 'user_id'
+                ) THEN
+                    ALTER TABLE test_cases ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
+                END IF;
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_name = 'test_cases' AND constraint_name = 'unique_story_id'
+                ) THEN
+                    ALTER TABLE test_cases DROP CONSTRAINT unique_story_id;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_name = 'test_cases' AND constraint_name = 'unique_story_id_per_user'
+                ) THEN
+                    ALTER TABLE test_cases ADD CONSTRAINT unique_story_id_per_user UNIQUE (story_id, user_id);
+                END IF;
+            END $$;
+        """)
+        print("✅ Migrated 'test_cases' user_id column and constraint.")
 
         # Create test_case_impacts table with enhanced referential integrity
         cursor.execute("""
@@ -155,6 +196,21 @@ def create_postgres_db():
         """)
         print("✅ Table 'test_case_impacts' is ready.")
 
+        # Migrate existing test_case_impacts: add user_id column if missing
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'test_case_impacts' AND column_name = 'user_id'
+                ) THEN
+                    ALTER TABLE test_case_impacts ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_test_case_impacts_user_id ON test_case_impacts(user_id);
+                END IF;
+            END $$;
+        """)
+        print("✅ Migrated 'test_case_impacts' user_id column.")
+
         # Create impact_history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS impact_history (
@@ -178,6 +234,21 @@ def create_postgres_db():
             ON impact_history(change_timestamp);
         """)
         print("✅ Table 'impact_history' is ready.")
+
+        # Migrate existing impact_history: add user_id column if missing
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'impact_history' AND column_name = 'user_id'
+                ) THEN
+                    ALTER TABLE impact_history ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_impact_history_user_id ON impact_history(user_id);
+                END IF;
+            END $$;
+        """)
+        print("✅ Migrated 'impact_history' user_id column.")
 
         # Create view for impact metrics
         cursor.execute("""

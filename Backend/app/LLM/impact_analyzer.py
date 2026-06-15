@@ -367,9 +367,10 @@ def store_impact_analysis(
                             impact_type,
                             impact_severity,
                             impact_priority,
-                            impact_details
+                            impact_details,
+                            user_id
                         ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         RETURNING impact_id
                     """, (
@@ -388,7 +389,8 @@ def store_impact_analysis(
                         'modification',  # Default type for now
                         severity,
                         priority,
-                        json.dumps(impact_details)
+                        json.dumps(impact_details),
+                        user_id
                     ))
 
                     inserted_impact_id = cur.fetchone()[0]
@@ -444,7 +446,7 @@ def store_impact_analysis(
         if conn:
             conn.close()
 
-def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story_id: str = None, similarity_score: float = None, llm_ref=None):
+def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story_id: str = None, similarity_score: float = None, llm_ref=None, user_id: str = None):
     """
     Analyze how a new story impacts existing test cases
     Args:
@@ -515,12 +517,21 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
         conn = psycopg2.connect(**Config.postgres_config())
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Get all stories from the same project with test cases
-            cur.execute("""
-                SELECT story_id, test_case_generated 
-                FROM test_cases 
-                WHERE project_id = %s
-                AND test_case_generated = TRUE
-            """, (project_id,))
+            if user_id:
+                cur.execute("""
+                    SELECT story_id, test_case_generated
+                    FROM test_cases
+                    WHERE project_id = %s
+                    AND test_case_generated = TRUE
+                    AND user_id = %s
+                """, (project_id, user_id))
+            else:
+                cur.execute("""
+                    SELECT story_id, test_case_generated
+                    FROM test_cases
+                    WHERE project_id = %s
+                    AND test_case_generated = TRUE
+                """, (project_id,))
             generated_stories = {row['story_id']: row for row in cur.fetchall()}
         
         # Check if new story has test cases

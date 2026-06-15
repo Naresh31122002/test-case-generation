@@ -9,12 +9,12 @@ import psycopg2.extras
 
 class DatabaseService:
     _instance = None
-    
+
     def __init__(self, postgres_config: Dict[str, Any], lance_db_path: str):
         """Initialize database connections"""
         if DatabaseService._instance is not None:
             raise Exception("DatabaseService is a singleton!")
-            
+
         self.postgres_config = postgres_config
         self.lance_db_path = lance_db_path
         self.lance_db = lancedb.connect(lance_db_path)
@@ -37,6 +37,7 @@ class DatabaseService:
         except Exception:
             import pyarrow as pa
             schema = pa.schema([
+                ("user_id", pa.string()),
                 ("project_id", pa.string()),
                 ("vector", pa.list_(pa.float32(), 768)),
                 ("storyID", pa.string()),
@@ -50,17 +51,20 @@ class DatabaseService:
             ])
             self.lance_db.create_table(self.TABLE_NAME_LANCE, schema=schema)
             print(f"Created LanceDB table '{self.TABLE_NAME_LANCE}'")
-   
-    def get_recent_stories(self, page: int = 1, per_page: int = 10, from_date: str = None, to_date: str = None, project_id: str = None, sort_order: str = 'desc') -> Dict[str, Any]:
+
+    def get_recent_stories(self, page: int = 1, per_page: int = 10, from_date: str = None, to_date: str = None, project_id: str = None, sort_order: str = 'desc', user_id: str = None) -> Dict[str, Any]:
         """
-        Get paginated stories with test case information from both PostgreSQL and LanceDB
-        Optionally filter by created_on date range and project_id.
-        Sorted by test_case_created_time (most recent first by default).
+        Get paginated stories with test case information from both PostgreSQL and LanceDB.
+        Scoped to user_id when provided.
         """
         try:
             # Get stories from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
             lance_stories = stories_table.to_pandas()
+
+            # Filter by user_id if provided
+            if user_id and 'user_id' in lance_stories.columns:
+                lance_stories = lance_stories[lance_stories['user_id'] == user_id]
 
             # Filter by project_id if provided
             if project_id:
@@ -72,20 +76,25 @@ class DatabaseService:
             test_case_times_map = {}
             test_case_count_map = {}
             test_case_source_map = {}
-            
+
             with psycopg2.connect(**self.postgres_config) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""
+                    query = """
                         SELECT story_id, created_on, total_test_cases, source
-                        FROM test_cases 
+                        FROM test_cases
                         WHERE story_id = ANY(%s)
-                        ORDER BY created_on DESC NULLS LAST
-                    """, (story_ids,))
+                    """
+                    params = [story_ids]
+                    if user_id:
+                        query += " AND user_id = %s"
+                        params.append(user_id)
+                    query += " ORDER BY created_on DESC NULLS LAST"
+                    cur.execute(query, params)
                     for row in cur.fetchall():
                         story_id, created_on, total_test_cases, source = row
                         if story_id not in created_on_map:
                             created_on_map[story_id] = created_on
-                            test_case_times_map[story_id] = created_on  # Use created_on as last updated time
+                            test_case_times_map[story_id] = created_on
                             test_case_count_map[story_id] = total_test_cases
                             test_case_source_map[story_id] = source
 
@@ -104,8 +113,8 @@ class DatabaseService:
             # Sort by test_case_created_time based on sort_order
             ascending = sort_order.lower() == 'asc'
             lance_stories = lance_stories.sort_values(
-                by=['test_case_created_time', 'storyID'], 
-                ascending=[ascending, True], 
+                by=['test_case_created_time', 'storyID'],
+                ascending=[ascending, True],
                 na_position='last'
             )
 
@@ -123,7 +132,7 @@ class DatabaseService:
                 story_id = lance_story['storyID']
                 test_case_created_time = lance_story['test_case_created_time']
                 test_case_count = lance_story.get('total_test_cases', 0)
-                
+
                 stories.append({
                     'id': story_id,
                     'description': lance_story['storyDescription'],
@@ -154,31 +163,39 @@ class DatabaseService:
                 'current_page': page,
                 'per_page': per_page
             }
-        
-    def get_story(self, story_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific story by ID from both LanceDB and PostgreSQL"""
+
+    def get_story(self, story_id: str, user_id: str = None) -> Optional[Dict[str, Any]]:
+        """Get a specific story by ID. Scoped to user_id when provided."""
         try:
             # Get story from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
             story_data = stories_table.to_pandas()
             lance_story = story_data[story_data['storyID'] == story_id]
-            
+
+            # Apply user filter in LanceDB if column exists
+            if user_id and 'user_id' in lance_story.columns:
+                lance_story = lance_story[lance_story['user_id'] == user_id]
+
             if lance_story.empty:
                 print(f"Story not found in LanceDB: {story_id}")
                 return None
-            
+
             # Get the latest test case row for this story_id
             with psycopg2.connect(**self.postgres_config) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""
+                    query = """
                         SELECT total_test_cases, created_on, source
                         FROM test_cases
                         WHERE story_id = %s
-                        ORDER BY created_on DESC NULLS LAST
-                        LIMIT 1
-                    """, (story_id,))
+                    """
+                    params = [story_id]
+                    if user_id:
+                        query += " AND user_id = %s"
+                        params.append(user_id)
+                    query += " ORDER BY created_on DESC NULLS LAST LIMIT 1"
+                    cur.execute(query, params)
                     pg_result = cur.fetchone()
-                
+
             # Get embedding_timestamp from LanceDB
             embedding_timestamp = None
             if 'embedding_timestamp' in lance_story.columns:
@@ -189,7 +206,7 @@ class DatabaseService:
                     else:
                         from dateutil import parser
                         embedding_timestamp = parser.parse(ts).isoformat()
-                    
+
             return {
                 'id': story_id,
                 'description': lance_story['storyDescription'].iloc[0],
@@ -207,38 +224,40 @@ class DatabaseService:
         except Exception as e:
             print(f"Error getting story {story_id}: {str(e)}")
             return None
-        
-    def get_all_stories(self) -> List[Dict[str, Any]]:
-        """Return all stories that have test cases generated.
 
-        Each item contains at least 'id' and 'project_id', which is what the
-        scheduler's impact-analysis step expects.
+    def get_all_stories(self, user_id: str = None) -> List[Dict[str, Any]]:
+        """Return all stories that have test cases generated.
+        Pass user_id to scope to a specific user (scheduler passes None to process all).
         """
         try:
             with psycopg2.connect(**self.postgres_config) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                    cur.execute("""
-                        SELECT story_id, project_id
-                        FROM test_cases
-                        WHERE test_case_generated = TRUE
-                        ORDER BY created_on DESC NULLS LAST
-                    """)
+                    if user_id:
+                        cur.execute("""
+                            SELECT story_id, project_id, user_id
+                            FROM test_cases
+                            WHERE test_case_generated = TRUE AND user_id = %s
+                            ORDER BY created_on DESC NULLS LAST
+                        """, (user_id,))
+                    else:
+                        cur.execute("""
+                            SELECT story_id, project_id, user_id
+                            FROM test_cases
+                            WHERE test_case_generated = TRUE
+                            ORDER BY created_on DESC NULLS LAST
+                        """)
                     return [
-                        {'id': row['story_id'], 'project_id': row['project_id']}
+                        {'id': row['story_id'], 'project_id': row['project_id'], 'user_id': str(row['user_id']) if row['user_id'] else None}
                         for row in cur.fetchall()
                     ]
         except Exception as e:
             print(f"Error getting all stories: {str(e)}")
             return []
 
-    def search_similar_stories(self, query: str, limit: int = 3) -> Dict[str, Any]:
+    def search_similar_stories(self, query: str, limit: int = 3, user_id: str = None) -> Dict[str, Any]:
         """
-        Search for similar stories using vector similarity
-        Args:
-            query: Search query
-            limit: Maximum number of results to return (default 3)
-        Returns:
-            Dictionary containing list of similar stories with similarity scores
+        Search for similar stories using vector similarity.
+        Scoped to user_id when provided.
         """
         try:
             if not query or not query.strip():
@@ -246,20 +265,28 @@ class DatabaseService:
 
             # Get stories table from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
-            
+
             # Get all data first to ensure we have complete story content
             lance_data = stories_table.to_pandas()
-            
+
             # Encode the query using the embedding model
             query_vector = Config.EMBEDDING_MODEL.encode(query).tolist()
 
-            # Use LanceDB vector search
+            # Fetch more results than needed so we have enough after user filtering
+            fetch_limit = limit * 5 if user_id else limit
             results = (
                 stories_table.search(query_vector)
                 .metric("cosine")
-                .limit(limit)
+                .limit(fetch_limit)
                 .to_list()
             )
+
+            # Filter results by user_id if provided
+            if user_id and results:
+                user_story_ids = set(
+                    lance_data[lance_data['user_id'] == user_id]['storyID'].tolist()
+                ) if 'user_id' in lance_data.columns else set()
+                results = [r for r in results if r['storyID'] in user_story_ids][:limit]
 
             if not results:
                 return {'stories': [], 'message': 'No matching stories found'}
@@ -270,19 +297,19 @@ class DatabaseService:
                     stories = []
                     for result in results:
                         story_id = result['storyID']
-                        
+
                         # Get complete story data from LanceDB DataFrame
                         lance_story = lance_data[lance_data['storyID'] == story_id].iloc[0]
-                        
+
                         # Get story content from multiple possible sources
                         story_content = (
-                            lance_story.get('doc_content_text', '') or 
+                            lance_story.get('doc_content_text', '') or
                             lance_story.get('storyDescription', '')
                         )
-                        
+
                         # Fetch test case data and impacted test cases count
-                        cur.execute("""
-                            SELECT 
+                        query_sql = """
+                            SELECT
                                 story_description,
                                 test_case_json,
                                 total_test_cases,
@@ -290,32 +317,36 @@ class DatabaseService:
                                 source,
                                 impacted_test_cases_count,
                                 inputs
-                            FROM test_cases 
+                            FROM test_cases
                             WHERE story_id = %s
-                        """, (story_id,))
+                        """
+                        params = [story_id]
+                        if user_id:
+                            query_sql += " AND user_id = %s"
+                            params.append(user_id)
+                        cur.execute(query_sql, params)
                         pg_result = cur.fetchone()
-                        
+
                         if pg_result:
                             # Get additional content from PostgreSQL inputs if available
                             pg_inputs = pg_result['inputs'] if pg_result['inputs'] else {}
                             if isinstance(pg_inputs, str):
-                                import json
                                 pg_inputs = json.loads(pg_inputs)
-                            
+
                             # Use the most complete content available
                             content = (
-                                story_content or 
-                                pg_inputs.get('content', '') or 
-                                pg_inputs.get('file_content', '') or 
+                                story_content or
+                                pg_inputs.get('content', '') or
+                                pg_inputs.get('file_content', '') or
                                 pg_result['story_description']
                             )
-                            
+
                             story_data = {
                                 'id': story_id,
                                 'description': pg_result['story_description'],
-                                'document_content': content,  # Full story content
-                                'story_content': content,     # Additional field for story content
-                                'content': content,          # Another field for story content
+                                'document_content': content,
+                                'story_content': content,
+                                'content': content,
                                 'test_case_count': pg_result['total_test_cases'] or 0,
                                 'impactedTestCases': pg_result['impacted_test_cases_count'] or 0,
                                 'download_link': f'/api/stories/download/{story_id}',
@@ -333,7 +364,7 @@ class DatabaseService:
         except Exception as e:
             print(f"Error searching stories: {str(e)}")
             return {'stories': [], 'error': str(e)}
-        
+
 
 def get_db_service() -> DatabaseService:
     """Get or create the singleton instance of DatabaseService"""
@@ -349,4 +380,3 @@ def get_db_service() -> DatabaseService:
             lance_db_path=Config.LANCE_DB_PATH
         )
     return DatabaseService._instance
-        

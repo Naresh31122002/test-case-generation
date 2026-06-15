@@ -6,11 +6,12 @@ import {
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
   SidebarMenuItem, SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Upload, Clock, RefreshCw, FlaskConical, Search, Command } from "lucide-react"
+import { LayoutDashboard, Upload, Clock, RefreshCw, FlaskConical, Search, LogOut } from "lucide-react"
 import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { api, Story } from "@/lib/api"
 import { CommandPalette } from "@/components/command-palette"
+import { getCurrentUser, logout } from "@/lib/auth"
 
 interface AppSidebarProps {
   projects?: string[]
@@ -25,6 +26,17 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
   const [nextReload, setNextReload] = useState<Date | null>(null)
   const [timeLeft, setTimeLeft] = useState<string>("")
   const [isTriggering, setIsTriggering] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+
+  /* Load current user for display in sidebar footer */
+  useEffect(() => {
+    getCurrentUser().then(u => setUserEmail(u?.email ?? null)).catch(() => {})
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    router.push("/login")
+  }
 
   /* ── Command palette — fetches its own stories so it works on every page ── */
   const [showPalette, setShowPalette] = useState(false)
@@ -180,7 +192,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
           </SidebarGroup>
         </SidebarContent>
 
-        {/* Scheduler footer */}
+        {/* Scheduler + user footer */}
         <SidebarFooter className="group-data-[collapsible=icon]:hidden p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -199,6 +211,25 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
                 : <><RefreshCw className="w-3 h-3" />Trigger Now</>}
             </button>
           </div>
+
+          {/* Logged-in user row */}
+          {userEmail && (
+            <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] truncate" style={{ color: "rgba(162,210,233,0.7)" }} title={userEmail}>
+                  {userEmail}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  title="Sign out"
+                  className="flex-shrink-0 p-1.5 rounded-lg transition hover:bg-white/10"
+                  style={{ color: "#A8DCE5" }}
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </SidebarFooter>
       </Sidebar>
 

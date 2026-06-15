@@ -401,45 +401,51 @@ Remember:
         
         return formatted
 
-def generate_test_case_for_story(story_id, llm_ref=None):
+def generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
     """Synchronous wrapper for async function"""
     if llm_ref is None:
         llm_ref = Config.llm
-    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref))
+    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id))
 
-async def _generate_test_case_for_story(story_id, llm_ref=None):
+async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
     """Async implementation of test case generation"""
     if llm_ref is None:
         llm_ref = Config.llm
-    
+
     try:
         # Initialize test case generator
         generator = TestCaseGenerator()
-        
+
         # Get story data from LanceDB
         db = lancedb.connect(Config.LANCE_DB_PATH)
         table = db.open_table(Config.TABLE_NAME_LANCE)
         all_rows = table.to_pandas()
         row_data = all_rows[all_rows['storyID'] == story_id]
-        
+
+        # Scope to user if user_id provided and column exists
+        if user_id and 'user_id' in row_data.columns:
+            row_data = row_data[row_data['user_id'] == user_id]
+
         if row_data.empty:
             print(f"❌ Story ID '{story_id}' not found in LanceDB.")
             return
-        
+
         row = row_data.iloc[0].to_dict()
         project_id = row.get("project_id", "")
         story_description = row["storyDescription"]
         main_text = row.get("doc_content_text", "").strip()
-        
+        # Carry user_id from LanceDB row if not passed explicitly (scheduler case)
+        resolved_user_id = user_id or row.get("user_id")
+
         if not main_text:
             print(f"❌ Skipping {story_id} — missing doc_content_text.")
             return
-        
+
         print(f"🔍 Generating test case for: {story_id} (Project: {project_id})")
-        
+
         # Use the dynamic test case generation
         test_cases = generator.generate_test_cases(story_id, story_description)
-        
+
         if test_cases and test_cases.get("test_cases"):
             # Insert test cases into database
             insert_test_case(
@@ -452,15 +458,16 @@ async def _generate_test_case_for_story(story_id, llm_ref=None):
                     "story_description": story_description,
                     "main_text": main_text,
                     "project_id": project_id
-                }
+                },
+                user_id=resolved_user_id
             )
             print(f"✅ Inserted test cases for {story_id} into Postgres.\n")
-            
+
             # Trigger impact analysis after storing test cases
             print(f"🔄 Triggering impact analysis for {story_id}")
-            analyze_test_case_impacts(story_id, project_id)
+            analyze_test_case_impacts(story_id, project_id, user_id=resolved_user_id)
             print(f"✅ Impact analysis completed for {story_id}\n")
-            
+
             return test_cases
         else:
             print(f"❌ Failed to generate test cases for {story_id}")
@@ -498,15 +505,21 @@ async def _generate_test_cases_for_all_stories():
     # Get all story IDs and filter out already generated ones
     all_story_ids = all_rows['storyID'].tolist()
     records = [story_id for story_id in all_story_ids if story_id not in generated_ids]
-    
+
     print(f"🟡 Found {len(records)} entries to process.\n")
-    
+
     if len(records) == 0:
         print("✅ All stories with vectors have been processed!")
         return
-        
+
     for story_id in records:
-        await _generate_test_case_for_story(story_id)
+        # Pass user_id from LanceDB row so each story is stored under the correct user
+        row_uid = None
+        if 'user_id' in all_rows.columns:
+            row_match = all_rows[all_rows['storyID'] == story_id]
+            if not row_match.empty:
+                row_uid = row_match.iloc[0].get('user_id')
+        await _generate_test_case_for_story(story_id, user_id=row_uid)
 
 def Chat_RAG(user_query, top_k=3):
     """

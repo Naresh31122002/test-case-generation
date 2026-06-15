@@ -6,6 +6,7 @@ import math
 
 # Third-party imports
 from flask import Blueprint, jsonify, request, send_file, Response
+from flask_jwt_extended import jwt_required, get_jwt_identity
 import psycopg2.extras
 import lancedb
 from dateutil import parser
@@ -25,9 +26,11 @@ def serialize_datetime(obj):
     return str(obj)
 
 @stories_bp.route('/', methods=['GET'])
+@jwt_required()
 def get_stories():
     """Get all stories with pagination and sorting"""
     try:
+        user_id = get_jwt_identity()
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         sort_order = request.args.get('sort_order', 'desc')
@@ -39,14 +42,14 @@ def get_stories():
             'sort_order': sort_order,
             'project_id': project_id
         })
-            
+
         # Validate sort_order
         if sort_order not in ['asc', 'desc']:
             return jsonify({'error': 'Invalid sort_order. Must be "asc" or "desc"'}), 400
 
-        # Get stories from PostgreSQL
+        # Get stories from PostgreSQL scoped to this user
         query = """
-            SELECT 
+            SELECT
                 story_id as id,
                 story_description as description,
                 project_id,
@@ -60,8 +63,9 @@ def get_stories():
                 inputs->>'file_content' as file_content
             FROM test_cases
             WHERE test_case_generated = TRUE
+            AND user_id = %s
         """
-        params = []
+        params = [user_id]
 
         # Add project filter if specified
         if project_id:
@@ -75,7 +79,6 @@ def get_stories():
         query += " LIMIT %s OFFSET %s"
         params.extend([per_page, (page - 1) * per_page])
 
-        
         # Get embedding timestamps and doc_content_text from LanceDB
         print("DEBUG:get_stories: Connecting to LanceDB", {
             'lance_db_path': Config.LANCE_DB_PATH,
@@ -84,9 +87,12 @@ def get_stories():
         db = lancedb.connect(Config.LANCE_DB_PATH)
         table = db.open_table(Config.TABLE_NAME_LANCE)
         lance_data = table.to_pandas()
+        # Filter LanceDB data to this user
+        if 'user_id' in lance_data.columns:
+            lance_data = lance_data[lance_data['user_id'] == user_id]
         embedding_timestamps = dict(zip(lance_data['storyID'], lance_data['embedding_timestamp']))
         doc_content_texts = dict(zip(lance_data['storyID'], lance_data['doc_content_text']))
-        
+
         # Execute query
         print("DEBUG:get_stories: Executing Postgres query", {
             'query': query,
@@ -99,14 +105,15 @@ def get_stories():
                 print("DEBUG:get_stories: Query returned stories", {
                     'stories_count': len(stories)
                 })
-                
+
                 # Get total count for pagination
                 count_query = """
-                    SELECT COUNT(*) 
-                    FROM test_cases 
+                    SELECT COUNT(*)
+                    FROM test_cases
                     WHERE test_case_generated = TRUE
+                    AND user_id = %s
                 """
-                count_params = []
+                count_params = [user_id]
                 if project_id:
                     count_query += " AND project_id = %s"
                     count_params.append(project_id)
@@ -131,10 +138,10 @@ def get_stories():
                 # Format each story
                 for story in stories:
                     story_dict = dict(story)
-                    
+
                     # Add download link
                     story_dict['download_link'] = f"/api/stories/download/{story_dict['id']}"
-                    
+
                     # Parse source info
                     source = story_dict.get('source', 'backend')
                     if isinstance(source, str):
@@ -156,9 +163,6 @@ def get_stories():
                     # Get document content from LanceDB's doc_content_text
                     story_dict['doc_content_text'] = doc_content_texts.get(story_dict['id'])
 
-                    # Ensure impactedTestCases is included with the correct case.
-                    # psycopg2 DictCursor lowercases all column names regardless of SQL aliases.
-                    # The column is now aliased as 'impacted_test_cases_count' in the query.
                     def _get_impact_count(d):
                         for key in ('impactedtestcases', 'impactedTestCases', 'impacted_test_cases_count'):
                             val = d.pop(key, None) if key in d else None
@@ -166,7 +170,6 @@ def get_stories():
                                 return int(val)
                         return 0
                     story_dict['impactedTestCases'] = _get_impact_count(story_dict)
-
 
                     result['stories'].append(story_dict)
 
@@ -181,17 +184,19 @@ def get_stories():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/<story_id>', methods=['GET'])
+@jwt_required()
 def get_story(story_id):
     """Get a specific story"""
     try:
+        user_id = get_jwt_identity()
         print("DEBUG:get_story: Request received", {'story_id': story_id})
         if not story_id:
             return jsonify({'error': 'Story ID is required'}), 400
 
         db_service = get_db_service()
         print("DEBUG:get_story: Fetching story from db_service")
-        story = db_service.get_story(story_id)
-        
+        story = db_service.get_story(story_id, user_id=user_id)
+
         if story:
             print("DEBUG:get_story: Story found", {'story_id': story_id})
             return jsonify(story)
@@ -202,29 +207,31 @@ def get_story(story_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/search', methods=['POST'])
+@jwt_required()
 def search_stories():
     """Search for similar stories"""
     try:
+        user_id = get_jwt_identity()
         data = request.get_json()
         print("DEBUG:search_stories: Request received", {'data': data})
         if not data or 'query' not in data:
             return jsonify({'error': 'Query is required'}), 400
-            
+
         query = data['query']
         limit = data.get('limit', 5)
-        
+
         if not query.strip():
             return jsonify({'error': 'Query cannot be empty'}), 400
-            
+
         if limit < 1:
             limit = 5
-            
+
         db_service = get_db_service()
         print("DEBUG:search_stories: Calling db_service.search_similar_stories", {
             'query': query,
             'limit': limit
         })
-        results = db_service.search_similar_stories(query, limit)
+        results = db_service.search_similar_stories(query, limit, user_id=user_id)
         print("DEBUG:search_stories: Returning results", {
             'results_count': len(results) if isinstance(results, list) else 'n/a'
         })
@@ -234,29 +241,31 @@ def search_stories():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/testcases/download/<story_id>', methods=['GET'])
+@jwt_required()
 def download_test_cases(story_id):
     """Download test cases for a story as Excel file"""
     try:
+        user_id = get_jwt_identity()
         print("DEBUG:download_test_cases: Request received", {'story_id': story_id})
         db_service = get_db_service()
-        
-        # Get story details from LanceDB
+
+        # Get story details from LanceDB (scoped to user)
         print("DEBUG:download_test_cases: Fetching story details from db_service")
-        story = db_service.get_story(story_id)
+        story = db_service.get_story(story_id, user_id=user_id)
         if not story:
             return jsonify({
                 'error': f'Story not found with ID: {story_id}'
             }), 404
 
-        # Get test cases from PostgreSQL
+        # Get test cases from PostgreSQL scoped to user
         print("DEBUG:download_test_cases: Querying Postgres for test_case_json")
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT test_case_json, story_description 
-                    FROM test_cases 
-                    WHERE story_id = %s
-                """, (story_id,))
+                    SELECT test_case_json, story_description
+                    FROM test_cases
+                    WHERE story_id = %s AND user_id = %s
+                """, (story_id, user_id))
                 result = cursor.fetchone()
 
                 if not result:
@@ -319,21 +328,23 @@ def download_test_cases(story_id):
         }), 500
 
 @stories_bp.route('/<story_id>/testcases', methods=['GET'])
+@jwt_required()
 def get_story_testcases(story_id):
     """Get test cases for a specific story"""
     try:
+        user_id = get_jwt_identity()
         print(f"DEBUG:get_story_testcases: Request received for story {story_id}")
         db_service = get_db_service()
-        
-        # Get test cases from PostgreSQL
+
+        # Get test cases from PostgreSQL scoped to user
         print("DEBUG:get_story_testcases: Querying Postgres for test_case_json")
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT test_case_json, story_description, project_id
                     FROM test_cases
-                    WHERE story_id = %s
-                """, (story_id,))
+                    WHERE story_id = %s AND user_id = %s
+                """, (story_id, user_id))
                 result = cur.fetchone()
 
                 print("DEBUG:get_story_testcases: Raw DB result exists?", {
@@ -379,7 +390,7 @@ def get_story_testcases(story_id):
                     })
 
                     return jsonify(response_data)
-                
+
                 print(f"DEBUG:get_story_testcases: No test cases found for story {story_id}")
                 return jsonify({
                     'storyID': story_id,
@@ -393,13 +404,13 @@ def get_story_testcases(story_id):
         return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 @stories_bp.route('/next-reload', methods=['GET'])
+@jwt_required()
 def get_next_reload():
     try:
-        # Use dynamic path instead of hardcoded path
         import os
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         next_reload_file = os.path.join(base_dir, 'next_reload.txt')
-        
+
         if os.path.exists(next_reload_file):
             with open(next_reload_file, 'r') as f:
                 content = f.read().strip()
@@ -408,7 +419,6 @@ def get_next_reload():
                     'source': 'file'
                 }), 200
         else:
-            # If file doesn't exist, return current time + 5 minutes
             from datetime import datetime, timedelta
             next_time = datetime.now() + timedelta(minutes=5)
             return jsonify({
@@ -417,7 +427,6 @@ def get_next_reload():
             }), 200
     except Exception as e:
         print(f"Error reading next reload time: {str(e)}")
-        # Return explicit error with a suggested fallback time
         from datetime import datetime, timedelta
         next_time = datetime.now() + timedelta(minutes=5)
         return jsonify({
@@ -427,6 +436,7 @@ def get_next_reload():
         }), 500
 
 @stories_bp.route('/trigger-reload', methods=['POST'])
+@jwt_required()
 def trigger_reload():
     """Trigger the scheduler to run immediately"""
     try:
@@ -438,6 +448,7 @@ def trigger_reload():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/rag-chat', methods=['POST'])
+@jwt_required()
 def rag_chat():
     """RAG chatbot endpoint: retrieves similar test cases, sends them as context to Gemini, returns generated test cases."""
     try:
@@ -504,19 +515,16 @@ Now, based on the following user story, generate new, comprehensive test cases i
             print("DEBUG:rag_chat: Attempting to parse LLM output as JSON")
             parsed = json.loads(cleaned)
             print("DEBUG:rag_chat: Parsed LLM JSON type", {'type': str(type(parsed))})
-            # If it's a list of test cases, return as JSON
             if isinstance(parsed, list):
                 print("DEBUG:rag_chat: Returning list of test cases", {
                     'count': len(parsed)
                 })
                 return jsonify({'testCases': parsed})
-            # If it's a dict with 'test_cases', return that
             if isinstance(parsed, dict) and 'test_cases' in parsed:
                 print("DEBUG:rag_chat: Returning dict['test_cases']", {
                     'count': len(parsed['test_cases'])
                 })
                 return jsonify({'testCases': parsed['test_cases']})
-            # Otherwise, return the parsed object
             print("DEBUG:rag_chat: Returning parsed object without transformation")
             return jsonify({'testCases': parsed})
         except Exception as e:
@@ -527,19 +535,25 @@ Now, based on the following user story, generate new, comprehensive test cases i
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/projects', methods=['GET'])
+@jwt_required()
 def get_projects():
-    """Get unique project IDs"""
+    """Get unique project IDs for the current user"""
     try:
+        user_id = get_jwt_identity()
         db_service = get_db_service()
-        
-        # Get stories from LanceDB
+
+        # Get stories from LanceDB filtered by user
         stories_table = db_service.lance_db.open_table(Config.TABLE_NAME_LANCE)
         lance_stories = stories_table.to_pandas()
-        
+
+        # Filter by user_id if column exists
+        if 'user_id' in lance_stories.columns:
+            lance_stories = lance_stories[lance_stories['user_id'] == user_id]
+
         # Get unique project IDs
         project_ids = lance_stories['project_id'].dropna().unique().tolist()
         project_ids = [pid for pid in project_ids if pid and pid.strip()]
-        
+
         return jsonify({
             'projects': project_ids
         })
@@ -547,15 +561,17 @@ def get_projects():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/upload', methods=['POST'])
+@jwt_required()
 def upload_story():
     """Upload a new user story with project ID, story ID, content, and optional file. Description will be AI-generated."""
     try:
+        user_id = get_jwt_identity()
         # Get form data
         project_id = request.form.get('project_id')
         story_id = request.form.get('story_id')
-        content = request.form.get('content')  # Changed from description to content
+        content = request.form.get('content')
         file = request.files.get('file')
-        source = request.form.get('source', 'backend')  # Default to 'backend' if not provided
+        source = request.form.get('source', 'backend')
 
         # Validate required fields
         if not project_id or not story_id or (not content and not file):
@@ -563,9 +579,9 @@ def upload_story():
                 'error': 'Project ID, Story ID, and either Content or File are required'
             }), 400
 
-        # Check if story already exists
+        # Check if story already exists for this user
         db_service = get_db_service()
-        existing_story = db_service.get_story(story_id)
+        existing_story = db_service.get_story(story_id, user_id=user_id)
         if existing_story:
             return jsonify({
                 'error': f'Story with ID "{story_id}" already exists'
@@ -580,7 +596,7 @@ def upload_story():
         # Handle file upload if provided
         file_path = None
         file_content = None
-        
+
         if file and file.filename:
             # Validate file type
             allowed_extensions = {'.pdf', '.docx', '.txt'}
@@ -594,7 +610,7 @@ def upload_story():
             filename = f"{story_id}{file_ext}"
             file_path = os.path.join(project_dir, filename)
             file.save(file_path)
-            
+
             # Extract text from file
             try:
                 from app.datapipeline.text_extractor import extract_text
@@ -617,7 +633,7 @@ def upload_story():
                 try:
                     chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
                     summaries = []
-                    for chunk in chunks[:3]:  # Limit to 3 chunks for efficiency
+                    for chunk in chunks[:3]:
                         prompt = (
                             "Summarize the following document section in 1 sentence:\n\n" + chunk
                         )
@@ -632,15 +648,13 @@ def upload_story():
                     print(f"❌ LLM summary failed: {e}")
                     return "Summary could not be generated."
 
-            # Generate description using the chunking method
             description = summarize_in_chunks(story_content)
-                
+
         except Exception as e:
             print(f"Error generating AI description: {str(e)}")
-            # Fallback to a simple truncation of content
             description = story_content[:147] + "..." if len(story_content) > 150 else story_content
 
-        # Add to LanceDB
+        # Add to LanceDB with user_id
         try:
             from app.config import get_embedding_model
             from datetime import datetime
@@ -651,35 +665,36 @@ def upload_story():
 
             # Generate embedding
             embedding = get_embedding_model().encode(story_content).tolist()
-            
+
             # Add to LanceDB
             table.add([{
+                "user_id": user_id,
                 "project_id": project_id,
                 "vector": embedding,
                 "storyID": story_id,
-                "storyDescription": description,  # AI-generated description
+                "storyDescription": description,
                 "test_case_content": "",
                 "filename": filename if file else f"{story_id}.txt",
                 "original_path": file_path if file else None,
                 "doc_content_text": story_content,
                 "embedding_timestamp": datetime.now(),
-                "source": source  # Add source field
+                "source": source
             }])
-            
+
         except Exception as e:
             return jsonify({
                 'error': f'Error adding story to database: {str(e)}'
             }), 500
 
-        # Generate test cases
+        # Generate test cases with user_id
         try:
             from app.LLM.Test_case_generator import generate_test_case_for_story
-            generate_test_case_for_story(story_id)
-            
+            generate_test_case_for_story(story_id, user_id=user_id)
+
             # Check if test cases were generated successfully
             from app.models.postgress_writer import get_test_case_json_by_story_id
-            test_cases_result = get_test_case_json_by_story_id(story_id)
-            
+            test_cases_result = get_test_case_json_by_story_id(story_id, user_id=user_id)
+
             if test_cases_result:
                 # Move file to success folder
                 if file_path and os.path.exists(file_path):
@@ -687,39 +702,35 @@ def upload_story():
                     os.makedirs(success_dir, exist_ok=True)
                     import shutil
                     shutil.move(file_path, os.path.join(success_dir, filename))
-                
-                # -------------------------------------------------------
-                # Run impact analysis in background thread:
-                # This finds all existing stories in the same project and
-                # updates their impacted_test_cases_count so the table
-                # immediately reflects how many test cases are affected.
-                # -------------------------------------------------------
+
+                # Run impact analysis in background thread
                 import threading
-                def run_impact_analysis(new_story_id, proj_id):
+                def run_impact_analysis(new_story_id, proj_id, uid):
                     try:
                         print(f"[ImpactAnalysis] Starting background impact analysis for story {new_story_id} in project {proj_id}")
                         from app.LLM.impact_analyzer import analyze_test_case_impacts
                         analyze_test_case_impacts(
                             new_story_id=new_story_id,
-                            project_id=proj_id
+                            project_id=proj_id,
+                            user_id=uid
                         )
                         print(f"[ImpactAnalysis] ✅ Background impact analysis completed for story {new_story_id}")
                     except Exception as ia_err:
                         print(f"[ImpactAnalysis] ❌ Background impact analysis failed for story {new_story_id}: {ia_err}")
-                
+
                 impact_thread = threading.Thread(
                     target=run_impact_analysis,
-                    args=(story_id, project_id),
+                    args=(story_id, project_id, user_id),
                     daemon=True
                 )
                 impact_thread.start()
                 print(f"[Upload] Impact analysis thread started for story {story_id}")
-                
+
                 return jsonify({
                     'message': 'Story uploaded and test cases generated successfully',
                     'story_id': story_id,
                     'project_id': project_id,
-                    'description': description,  # Return the AI-generated description
+                    'description': description,
                     'test_cases_generated': True,
                     'file_processed': file is not None,
                     'source': source
@@ -731,17 +742,17 @@ def upload_story():
                     os.makedirs(failure_dir, exist_ok=True)
                     import shutil
                     shutil.move(file_path, os.path.join(failure_dir, filename))
-                
+
                 return jsonify({
                     'message': 'Story uploaded but test case generation failed',
                     'story_id': story_id,
                     'project_id': project_id,
-                    'description': description,  # Return the AI-generated description
+                    'description': description,
                     'test_cases_generated': False,
                     'file_processed': file is not None,
                     'source': source
                 }), 200
-                
+
         except Exception as e:
             # Move file to failure folder
             if file_path and os.path.exists(file_path):
@@ -749,7 +760,7 @@ def upload_story():
                 os.makedirs(failure_dir, exist_ok=True)
                 import shutil
                 shutil.move(file_path, os.path.join(failure_dir, filename))
-            
+
             return jsonify({
                 'error': f'Error generating test cases: {str(e)}'
             }), 500
@@ -761,15 +772,16 @@ def upload_story():
         }), 500
 
 @stories_bp.route('/impacts/<project_id>', methods=['GET'])
+@jwt_required()
 def get_project_impacts(project_id):
     """Get all impact analyses for a project"""
     try:
+        user_id = get_jwt_identity()
         db_service = get_db_service()
-        # Use Config's connection method with context managers
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
-                    SELECT 
+                    SELECT
                         tci.impact_id,
                         tci.new_story_id,
                         tci.original_story_id,
@@ -781,76 +793,79 @@ def get_project_impacts(project_id):
                         tc.story_description as original_story_description
                     FROM test_case_impacts tci
                     JOIN test_cases tc ON tc.story_id = tci.original_story_id
-                    WHERE tci.project_id = %s
+                    WHERE tci.project_id = %s AND tci.user_id = %s
                     ORDER BY tci.impact_created_on DESC
-                """, (project_id,))
-                
+                """, (project_id, user_id))
+
                 impacts = cursor.fetchall()
-                
+
                 return jsonify({
                     'project_id': project_id,
                     'total_impacts': len(impacts),
                     'impacts': [dict(impact) for impact in impacts]
                 }), 200
-                
+
     except Exception as e:
         print(f"❌ Error fetching project impacts: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/story/<story_id>', methods=['GET'])
+@jwt_required()
 def get_story_impacts(story_id):
     """Get impacts where this story is either the source or target"""
     try:
+        user_id = get_jwt_identity()
         db_service = get_db_service()
-        # Use Config's connection method with context managers
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
-                    SELECT 
+                    SELECT
                         tci.*,
                         tc_orig.story_description as impacted_story_description,
                         tc_new.story_description as new_story_description
                     FROM test_case_impacts tci
                     JOIN test_cases tc_orig ON tc_orig.story_id = tci.original_story_id
                     JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
-                    WHERE tci.original_story_id = %s OR tci.new_story_id = %s
+                    WHERE (tci.original_story_id = %s OR tci.new_story_id = %s)
+                    AND tci.user_id = %s
                     ORDER BY tci.impact_created_on DESC
-                """, (story_id, story_id))
-                
+                """, (story_id, story_id, user_id))
+
                 impacts = cursor.fetchall()
-                
+
                 # Organize impacts by role (source vs target)
                 caused_impacts = []
                 received_impacts = []
-                
+
                 for impact in impacts:
                     impact_dict = dict(impact)
                     if impact['new_story_id'] == story_id:
                         caused_impacts.append(impact_dict)
                     else:
                         received_impacts.append(impact_dict)
-                
+
                 return jsonify({
                     'story_id': story_id,
                     'total_impacts': len(impacts),
                     'caused_impacts': caused_impacts,
                     'received_impacts': received_impacts
                 }), 200
-                
+
     except Exception as e:
         print(f"❌ Error fetching story impacts: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/details/<impact_id>', methods=['GET'])
+@jwt_required()
 def get_impact_details(impact_id):
     """Get detailed view of a specific impact"""
     try:
+        user_id = get_jwt_identity()
         db_service = get_db_service()
-        # Use Config's connection method with context managers
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
-                    SELECT 
+                    SELECT
                         tci.*,
                         tc_orig.story_description as original_story_description,
                         tc_orig.test_case_json as original_test_cases,
@@ -859,52 +874,55 @@ def get_impact_details(impact_id):
                     FROM test_case_impacts tci
                     JOIN test_cases tc_orig ON tc_orig.story_id = tci.original_story_id
                     JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
-                    WHERE tci.impact_id = %s
-                """, (impact_id,))
-                
+                    WHERE tci.impact_id = %s AND tci.user_id = %s
+                """, (impact_id, user_id))
+
                 impact = cursor.fetchone()
-                
+
                 if not impact:
                     return jsonify({'error': 'Impact not found'}), 404
-                    
+
                 return jsonify(dict(impact)), 200
-                
+
     except Exception as e:
         print(f"❌ Error fetching impact details: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/summary/<project_id>', methods=['GET'])
+@jwt_required()
 def get_project_impact_summary(project_id):
     """Get summary of impacts in a project"""
     try:
-        db_service = get_db_service()
-        cursor = db_service.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        
-        # Get summary from our view
-        cursor.execute("""
-            SELECT * FROM test_case_impact_summary
-            WHERE project_id = %s
-            ORDER BY total_impacts DESC
-        """, (project_id,))
-        
-        summaries = cursor.fetchall()
-        cursor.close()
-        
+        user_id = get_jwt_identity()
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM test_case_impact_summary
+                    WHERE project_id = %s
+                    AND story_id IN (
+                        SELECT story_id FROM test_cases WHERE user_id = %s
+                    )
+                    ORDER BY total_impacts DESC
+                """, (project_id, user_id))
+                summaries = cursor.fetchall()
+
         return jsonify({
             'project_id': project_id,
             'total_stories': len(summaries),
             'stories_with_impacts': len([s for s in summaries if s['total_impacts'] > 0]),
             'summaries': [dict(summary) for summary in summaries]
         }), 200
-        
+
     except Exception as e:
         print(f"❌ Error fetching impact summary: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/analyze', methods=['POST'])
+@jwt_required()
 def trigger_impact_analysis():
     """Manually trigger impact analysis for a story"""
     try:
+        user_id = get_jwt_identity()
         data = request.get_json()
         story_id = data.get('story_id')
         project_id = data.get('project_id')
@@ -914,105 +932,104 @@ def trigger_impact_analysis():
                 'error': 'Both story_id and project_id are required'
             }), 400
 
-        # Run impact analysis (analyze_test_case_impacts is synchronous)
-        analyze_test_case_impacts(story_id, project_id)
-        
+        analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+
         return jsonify({
             'message': 'Impact analysis triggered successfully',
             'story_id': story_id,
             'project_id': project_id
         }), 200
-        
+
     except Exception as e:
         print(f"❌ Error triggering impact analysis: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/analyze-project', methods=['POST'])
+@jwt_required()
 def trigger_project_impact_analysis():
-    """Trigger impact analysis for ALL stories in a project (background thread).
-    Refreshes impacted_test_cases_count for each story so the table shows
-    accurate non-zero counts after a new story is uploaded.
-    """
+    """Trigger impact analysis for ALL stories in a project (background thread)."""
     try:
+        user_id = get_jwt_identity()
         data = request.get_json()
         project_id = data.get('project_id')
-        
+
         if not project_id:
             return jsonify({'error': 'project_id is required'}), 400
-        
-        # Get all stories with test cases in this project
+
+        # Get all stories with test cases in this project scoped to user
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
                     SELECT story_id FROM test_cases
-                    WHERE project_id = %s AND test_case_generated = TRUE
+                    WHERE project_id = %s AND test_case_generated = TRUE AND user_id = %s
                     ORDER BY created_on ASC
-                """, (project_id,))
+                """, (project_id, user_id))
                 stories = [row['story_id'] for row in cursor.fetchall()]
-        
+
         if not stories:
             return jsonify({
                 'message': 'No stories with test cases found in project',
                 'project_id': project_id,
                 'stories_queued': 0
             }), 200
-        
+
         # Run analysis in background thread
         import threading
-        def run_all_impact_analyses(story_list, proj_id):
+        def run_all_impact_analyses(story_list, proj_id, uid):
             try:
                 print(f"[ImpactAnalysis] Starting project-wide impact analysis for {len(story_list)} stories in project {proj_id}")
                 from app.LLM.impact_analyzer import analyze_test_case_impacts
                 for sid in story_list:
                     try:
-                        analyze_test_case_impacts(new_story_id=sid, project_id=proj_id)
+                        analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid)
                         print(f"[ImpactAnalysis] Completed impact analysis for story {sid}")
                     except Exception as story_err:
                         print(f"[ImpactAnalysis] Error analyzing story {sid}: {story_err}")
                 print(f"[ImpactAnalysis] Project-wide impact analysis completed for project {proj_id}")
             except Exception as e:
                 print(f"[ImpactAnalysis] Project-wide impact analysis failed: {e}")
-        
+
         thread = threading.Thread(
             target=run_all_impact_analyses,
-            args=(stories, project_id),
+            args=(stories, project_id, user_id),
             daemon=True
         )
         thread.start()
-        
+
         return jsonify({
             'message': f'Impact analysis started for {len(stories)} stories in background',
             'project_id': project_id,
             'stories_queued': len(stories)
         }), 202
-        
+
     except Exception as e:
         print(f"Error triggering project impact analysis: {e}")
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/<story_id>/test-cases/<test_case_id>', methods=['GET'])
+@jwt_required()
 def get_test_case(story_id, test_case_id):
     """Get a specific test case from a story"""
     try:
+        user_id = get_jwt_identity()
         print(f"Fetching test case {test_case_id} from story {story_id}")
         db_service = get_db_service()
-        
-        # Get test cases from PostgreSQL
+
+        # Get test cases from PostgreSQL scoped to user
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor() as cur:
-                # Use a JSON path query to extract the specific test case
                 cur.execute("""
                     WITH test_cases_array AS (
                         SELECT jsonb_array_elements(test_case_json->'test_cases') as test_case
                         FROM test_cases
-                        WHERE story_id = %s
+                        WHERE story_id = %s AND user_id = %s
                     )
                     SELECT test_case
                     FROM test_cases_array
                     WHERE test_case->>'id' = %s
                     OR test_case->>'test_case_id' = %s
                     LIMIT 1
-                """, (story_id, test_case_id, test_case_id))
+                """, (story_id, user_id, test_case_id, test_case_id))
                 result = cur.fetchone()
 
                 if not result:
@@ -1035,15 +1052,17 @@ def get_test_case(story_id, test_case_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/story-test-cases/<story_id>', methods=['GET'])
+@jwt_required()
 def get_story_test_case_impacts(story_id):
     """Get details of how test cases in this story were impacted by other stories"""
     try:
+        user_id = get_jwt_identity()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
 
         print(f"DEBUG: Starting story test case impacts fetch for story {story_id} in project {project_id}")
-        
+
         # Get story description first to check if story exists
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -1054,14 +1073,15 @@ def get_story_test_case_impacts(story_id):
                     WHERE original_story_id = %s
                     AND project_id = %s
                     AND impact_status = 'active'
-                """, (story_id, project_id))
+                    AND user_id = %s
+                """, (story_id, project_id, user_id))
                 db_impacted_count = cursor.fetchone()['impacted_count']
 
                 cursor.execute("""
                     SELECT story_description, test_case_json
                     FROM test_cases
-                    WHERE story_id = %s
-                """, (story_id,))
+                    WHERE story_id = %s AND user_id = %s
+                """, (story_id, user_id))
                 story_info = cursor.fetchone()
 
                 if not story_info:
@@ -1069,7 +1089,7 @@ def get_story_test_case_impacts(story_id):
 
                 print("DEBUG: Found story info")
                 story_info = dict(story_info)
-                
+
                 # Handle test_case_json which could be either string or dict
                 test_case_json = story_info['test_case_json']
                 if isinstance(test_case_json, str):
@@ -1081,7 +1101,7 @@ def get_story_test_case_impacts(story_id):
                 elif not isinstance(test_case_json, dict):
                     print(f"DEBUG: Unexpected test_case_json type: {type(test_case_json)}")
                     test_case_json = {'test_cases': []}
-                
+
                 test_cases = test_case_json.get('test_cases', [])
                 total_test_cases = len(test_cases)
                 test_case_ids = [tc.get('id') for tc in test_cases]
@@ -1091,7 +1111,7 @@ def get_story_test_case_impacts(story_id):
                 if test_case_ids:
                     placeholders = ','.join(['%s'] * len(test_case_ids))
                     cursor.execute(f"""
-                        SELECT 
+                        SELECT
                             tci.original_test_case_id,
                             tci.impact_id,
                             tci.new_story_id,
@@ -1103,11 +1123,12 @@ def get_story_test_case_impacts(story_id):
                             tci.impact_analysis_json
                         FROM test_case_impacts tci
                         JOIN test_cases new_tc ON new_tc.story_id = tci.new_story_id
-                        WHERE tci.project_id = %s 
+                        WHERE tci.project_id = %s
                         AND tci.original_test_case_id IN ({placeholders})
                         AND tci.impact_status = 'active'
+                        AND tci.user_id = %s
                         ORDER BY tci.original_test_case_id, tci.impact_created_on DESC
-                    """, (project_id,) + tuple(test_case_ids))
+                    """, (project_id,) + tuple(test_case_ids) + (user_id,))
                     impacts = cursor.fetchall()
                     print(f"DEBUG: Found {len(impacts)} impacts")
                 else:
@@ -1119,7 +1140,7 @@ def get_story_test_case_impacts(story_id):
                     test_case_id = impact['original_test_case_id']
                     if test_case_id not in impact_map:
                         impact_map[test_case_id] = []
-                    
+
                     # Handle impact_analysis_json
                     impact_analysis = impact['impact_analysis_json']
                     try:
@@ -1149,20 +1170,18 @@ def get_story_test_case_impacts(story_id):
                     tc_id = tc.get('id')
                     steps = tc.get('steps', [])
                     steps_str = json.dumps(steps) if isinstance(steps, (list, dict)) else str(steps)
-                    
+
                     test_case = {
                         'test_case_id': str(tc_id),
                         'original_title': str(tc.get('title', '')),
                         'original_expected_result': str(tc.get('expected_result', '')),
                         'original_steps': steps_str,
-                        'impacts': impact_map.get(tc_id, [])  # Get impacts from map if they exist, empty list if not
+                        'impacts': impact_map.get(tc_id, [])
                     }
                     impacted_test_cases.append(test_case)
 
-                # Use the database count instead of calculating it here
                 print(f"DEBUG: Using database count - {db_impacted_count} impacted test cases")
-                
-                # Create response structure
+
                 response = {
                     'story_id': str(story_id),
                     'story_description': str(story_info['story_description']) if story_info['story_description'] else '',
@@ -1176,7 +1195,7 @@ def get_story_test_case_impacts(story_id):
                         'low': str(len([tc for tc in impacted_test_cases if any(i['impact_severity'] == 'low' for i in tc['impacts'])]))
                     }
                 }
-                
+
                 return jsonify(response), 200
 
     except Exception as e:
@@ -1184,9 +1203,11 @@ def get_story_test_case_impacts(story_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/details/<story_id>', methods=['GET'])
+@jwt_required()
 def get_story_impact_details(story_id):
     """Get detailed impact information for a story"""
     try:
+        user_id = get_jwt_identity()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
@@ -1198,8 +1219,8 @@ def get_story_impact_details(story_id):
                 cursor.execute("""
                     SELECT story_description, test_case_json
                     FROM test_cases
-                    WHERE story_id = %s
-                """, (story_id,))
+                    WHERE story_id = %s AND user_id = %s
+                """, (story_id, user_id))
                 story_info = cursor.fetchone()
 
                 if not story_info:
@@ -1208,15 +1229,15 @@ def get_story_impact_details(story_id):
                 # Get all test cases and their impacts
                 cursor.execute("""
                     WITH story_test_cases AS (
-                        SELECT 
+                        SELECT
                             story_id,
                             jsonb_array_elements(test_case_json->'test_cases') as test_case,
                             (jsonb_array_elements(test_case_json->'test_cases')->>'id') as test_case_id
                         FROM test_cases
-                        WHERE story_id = %s
+                        WHERE story_id = %s AND user_id = %s
                     ),
                     impact_details AS (
-                        SELECT 
+                        SELECT
                             tc.test_case_id,
                             tc.test_case->>'title' as test_case_title,
                             tc.test_case->>'expected_result' as original_expected_result,
@@ -1239,33 +1260,34 @@ def get_story_impact_details(story_id):
                         LEFT JOIN test_case_impacts tci ON tci.original_test_case_id = tc.test_case_id
                             AND tci.project_id = %s
                             AND tci.impact_status = 'active'
+                            AND tci.user_id = %s
                         GROUP BY tc.test_case_id, tc.test_case
                     )
-                    SELECT 
+                    SELECT
                         test_case_id,
                         test_case_title,
                         original_expected_result,
                         original_steps,
                         impacts,
                         impacts IS NOT NULL as is_impacted,
-                        CASE 
+                        CASE
                             WHEN impacts IS NULL THEN 'none'
                             WHEN impacts::text LIKE '%%"impact_severity":"high"%%' THEN 'high'
                             WHEN impacts::text LIKE '%%"impact_severity":"medium"%%' THEN 'medium'
                             ELSE 'low'
                         END as highest_severity
                     FROM impact_details
-                    ORDER BY 
+                    ORDER BY
                         is_impacted DESC,
-                        CASE highest_severity 
+                        CASE highest_severity
                             WHEN 'high' THEN 1
                             WHEN 'medium' THEN 2
                             WHEN 'low' THEN 3
                             ELSE 4
                         END,
                         test_case_title
-                """, (story_id, project_id))
-                
+                """, (story_id, user_id, project_id, user_id))
+
                 test_cases = cursor.fetchall()
 
                 # Calculate summary statistics
@@ -1317,4 +1339,4 @@ def get_story_impact_details(story_id):
 
     except Exception as e:
         print(f"❌ Error fetching story impact details: {e}")
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500

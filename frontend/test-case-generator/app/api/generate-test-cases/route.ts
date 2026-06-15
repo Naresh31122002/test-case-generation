@@ -238,10 +238,11 @@ export async function POST(request: Request) {
     const { message, context, model: modelType } = await request.json()
 
     if (modelType === 'rag') {
-      // Call Flask backend RAG endpoint for test case generation
+      // Forward auth cookies to Flask so the @jwt_required decorator can verify the user
+      const cookieHeader = (request as any).headers?.get?.('cookie') ?? ''
       const flaskRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/rag-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', cookie: cookieHeader },
         body: JSON.stringify({ query: message })
       });
       const ragData = await flaskRes.json();

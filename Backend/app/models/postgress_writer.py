@@ -10,8 +10,8 @@ from app.config import Config
 load_dotenv()
 
 
-def get_test_case_json_by_story_id(story_id, project_id=None):
-    """Get latest generated test_case_json for a story_id (optionally project-scoped)."""
+def get_test_case_json_by_story_id(story_id, user_id=None, project_id=None):
+    """Get latest generated test_case_json for a story_id, scoped to user when provided."""
     conn = None
     try:
         conn = Config.get_postgres_connection()
@@ -24,6 +24,9 @@ def get_test_case_json_by_story_id(story_id, project_id=None):
                 AND test_case_generated = TRUE
             """
             params = [story_id]
+            if user_id:
+                query += " AND user_id = %s"
+                params.append(user_id)
             if project_id:
                 query += " AND project_id = %s"
                 params.append(project_id)
@@ -41,15 +44,22 @@ def get_test_case_json_by_story_id(story_id, project_id=None):
         if conn:
             conn.close()
 
-def get_all_generated_story_ids():
-    """Fetch list of story_ids that already have test cases generated."""
+def get_all_generated_story_ids(user_id=None):
+    """Fetch list of story_ids that already have test cases generated. Pass user_id to scope to a user."""
+    conn = None
     try:
         conn = Config.get_postgres_connection()
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT DISTINCT story_id FROM test_cases
-                WHERE test_case_generated = TRUE
-            """)
+            if user_id:
+                cur.execute("""
+                    SELECT DISTINCT story_id FROM test_cases
+                    WHERE test_case_generated = TRUE AND user_id = %s
+                """, (user_id,))
+            else:
+                cur.execute("""
+                    SELECT DISTINCT story_id FROM test_cases
+                    WHERE test_case_generated = TRUE
+                """)
             return [row[0] for row in cur.fetchall()]
     except Exception as e:
         print(f"❌ Error fetching generated story IDs: {e}")
@@ -58,15 +68,19 @@ def get_all_generated_story_ids():
         if conn:
             conn.close()
 
-def insert_test_case(story_id, story_description, test_case_json, project_id=None, source='backend', inputs=None):
+def insert_test_case(story_id, story_description, test_case_json, project_id=None, source='backend', inputs=None, user_id=None):
     """Insert or update generated test case JSON into PostgreSQL."""
+    conn = None
     try:
         conn = Config.get_postgres_connection()
         with conn.cursor() as cur:
-            # First check if a record exists for this story_id
-            cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s", (story_id,))
+            # Check if a record exists for this story_id (scoped to user when provided)
+            if user_id:
+                cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s AND user_id = %s", (story_id, user_id))
+            else:
+                cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s AND user_id IS NULL", (story_id,))
             existing = cur.fetchone()
-            
+
             run_id = existing[0] if existing else str(uuid.uuid4())
             created_on = datetime.datetime.now()
             total_test_cases = len(test_case_json.get("test_cases", []))
@@ -82,8 +96,9 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                     total_test_cases,
                     test_case_generated,
                     source,
-                    inputs
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)
+                    inputs,
+                    user_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s)
                 ON CONFLICT (run_id)
                 DO UPDATE SET
                     project_id = EXCLUDED.project_id,
@@ -93,7 +108,8 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                     total_test_cases = EXCLUDED.total_test_cases,
                     test_case_generated = TRUE,
                     source = EXCLUDED.source,
-                    inputs = EXCLUDED.inputs
+                    inputs = EXCLUDED.inputs,
+                    user_id = EXCLUDED.user_id
             """
 
             cur.execute(query, (
@@ -105,7 +121,8 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                 json.dumps(test_case_json),
                 total_test_cases,
                 source,
-                json.dumps(inputs) if inputs else None
+                json.dumps(inputs) if inputs else None,
+                user_id,
             ))
             conn.commit()
     except Exception as e:

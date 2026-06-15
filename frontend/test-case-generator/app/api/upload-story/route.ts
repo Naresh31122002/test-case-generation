@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    
-    // Forward the request to the backend
+
+    // Forward auth cookies from browser to Flask so JWT is validated
+    const cookieHeader = request.headers.get('cookie') || '';
+
     const backendResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/upload`, {
       method: 'POST',
+      headers: { cookie: cookieHeader },
       body: formData
     });
 
@@ -27,4 +30,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

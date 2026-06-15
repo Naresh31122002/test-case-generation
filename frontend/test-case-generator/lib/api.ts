@@ -170,11 +170,35 @@ const isMockMode = () => {
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 const fetchWithErrorHandling = async (url: string, options: RequestInit = {}) => {
-  try {
-    const response = await fetch(url, {
+  const makeRequest = () =>
+    fetch(url, {
       ...options,
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...options.headers },
     });
+
+  try {
+    let response = await makeRequest();
+
+    // 401 → try refreshing the access token once, then retry
+    if (response.status === 401) {
+      try {
+        const { refreshAccessToken } = await import("@/lib/auth");
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          response = await makeRequest();
+        }
+      } catch {
+        // refresh import failed — fall through to redirect
+      }
+      if (response.status === 401) {
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
+        throw new Error("Session expired");
+      }
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
