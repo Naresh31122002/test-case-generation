@@ -27,6 +27,29 @@ class DatabaseService:
         }
         self.TABLE_NAME_LANCE = Config.TABLE_NAME_LANCE
         DatabaseService._instance = self
+        # Auto-create LanceDB table if it doesn't exist
+        self._ensure_lance_table()
+
+    def _ensure_lance_table(self):
+        """Create LanceDB table if it doesn't exist."""
+        try:
+            self.lance_db.open_table(self.TABLE_NAME_LANCE)
+        except Exception:
+            import pyarrow as pa
+            schema = pa.schema([
+                ("project_id", pa.string()),
+                ("vector", pa.list_(pa.float32(), 768)),
+                ("storyID", pa.string()),
+                ("storyDescription", pa.string()),
+                ("test_case_content", pa.string()),
+                ("filename", pa.string()),
+                ("original_path", pa.string()),
+                ("doc_content_text", pa.string()),
+                ("embedding_timestamp", pa.timestamp("us")),
+                ("source", pa.string())
+            ])
+            self.lance_db.create_table(self.TABLE_NAME_LANCE, schema=schema)
+            print(f"Created LanceDB table '{self.TABLE_NAME_LANCE}'")
    
     def get_recent_stories(self, page: int = 1, per_page: int = 10, from_date: str = None, to_date: str = None, project_id: str = None, sort_order: str = 'desc') -> Dict[str, Any]:
         """
