@@ -1,4 +1,4 @@
-from app.config import llm, EMBEDDING_MODEL, Config
+from app.config import Config, get_llm, get_embedding_model
 import os
 import shutil
 from app.datapipeline.text_extractor import extract_text
@@ -14,14 +14,15 @@ db = lancedb.connect(Config.LANCE_DB_PATH)
 try:
     table=db.open_table(Config.TABLE_NAME_LANCE)
 except Exception as e:
-    print(f"❌ Error opening table: {e}")
+    print(f"Error opening table: {e}")
     table=create_LanceDB()
 
 def summarize_in_chunks(text, chunk_size=4000):
     try:
+        llm = get_llm()
         chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
         summaries = []
-        for chunk in chunks[:3]:  # Limit to 3 chunks for efficiency
+        for chunk in chunks[:3]:
             prompt = (
                 "Summarize the following document section in 1 sentence:\n\n" + chunk
             )
@@ -30,10 +31,10 @@ def summarize_in_chunks(text, chunk_size=4000):
                 summaries.append(response.content.strip())
             except Exception as e:
                 summaries.append("[Summary failed for a chunk]")
-                print(f"❌ LLM failed on a chunk: {e}")
+                print(f"LLM failed on a chunk: {e}")
         return " ".join(summaries)
     except Exception as e:
-        print(f"❌ LLM summary failed: {e}")
+        print(f"LLM summary failed: {e}")
         return "Summary could not be generated."
     
 def story_id_exists(table, story_id):
@@ -100,7 +101,7 @@ def process_project_folder(project_folder_path, project_name):
             story_description = summarize_in_chunks(text)
 
             try:
-                embedding = EMBEDDING_MODEL.encode(text).tolist()
+                embedding = get_embedding_model().encode(text).tolist()
             except Exception as e:
                 print(f"❌ Embedding generation failed for {file}: {e}")
                 shutil.move(file_path, os.path.join(project_failure_folder, file))

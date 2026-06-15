@@ -6,7 +6,6 @@ lancedb==0.5.3
 langchain==0.2.16
 langchain-google-genai==1.0.10
 google-generativeai>=0.7.0
-sentence-transformers==2.5.1
 pandas==2.2.1
 numpy==1.26.4
 xlsxwriter==3.2.0
