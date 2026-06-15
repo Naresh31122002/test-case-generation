@@ -104,7 +104,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Header */}
           <div
             className="flex flex-col px-5 pt-4 pb-3 flex-shrink-0"
-            style={{ background: '#0F162B' }}
+            style={{ background: '#0D1B2A' }}
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
@@ -112,11 +112,11 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ background: 'rgba(162,210,233,0.18)' }}
                 >
-                  <Brain className="h-4 w-4" style={{ color: '#A2D2E9' }} />
+                  <Brain className="h-4 w-4" style={{ color: '#A8DCE5' }} />
                 </div>
                 <div>
                   <div className="text-white font-semibold text-sm leading-tight">CoverLoop Assistant</div>
-                  <div className="text-xs leading-tight" style={{ color: '#A2D2E9' }}>
+                  <div className="text-xs leading-tight" style={{ color: '#A8DCE5' }}>
                     {isGenerating ? 'Generating…' : 'Ready'}
                   </div>
                 </div>
@@ -124,7 +124,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
               <button
                 onClick={() => setShowChatbot(false)}
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors"
-                style={{ color: '#A2D2E9' }}
+                style={{ color: '#A8DCE5' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
@@ -145,7 +145,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   style={
                     selectedModel === mode
                       ? { background: '#1A9FB5', color: '#ffffff' }
-                      : { color: '#A2D2E9' }
+                      : { color: '#A8DCE5' }
                   }
                 >
                   {mode === 'rag' ? <Sparkles className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
@@ -158,7 +158,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Messages */}
           <div
             className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
-            style={{ background: '#F6F8FB', scrollbarWidth: 'thin' }}
+            style={{ background: '#F4F8FA', scrollbarWidth: 'thin' }}
           >
             {chatMessages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -167,7 +167,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   style={
                     message.role === "user"
                       ? { background: '#1A9FB5', color: '#ffffff', borderBottomRightRadius: 4 }
-                      : { background: '#ffffff', color: '#1a2540', border: '1px solid #dde6f0', borderBottomLeftRadius: 4 }
+                      : { background: '#ffffff', color: '#0D1B2A', border: '1px solid #C8E3E8', borderBottomLeftRadius: 4 }
                   }
                 >
                   {message.role === "assistant" ? (
@@ -185,7 +185,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
               <div className="flex justify-start">
                 <div
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm shadow-sm"
-                  style={{ background: '#ffffff', border: '1px solid #dde6f0', borderBottomLeftRadius: 4 }}
+                  style={{ background: '#ffffff', border: '1px solid #C8E3E8', borderBottomLeftRadius: 4 }}
                 >
                   <div className="flex gap-1">
                     {[0, 1, 2].map(i => (
@@ -196,7 +196,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                       />
                     ))}
                   </div>
-                  <span style={{ color: '#5a7ca0' }}>Generating…</span>
+                  <span style={{ color: '#4E7A8A' }}>Generating…</span>
                 </div>
               </div>
             )}
@@ -206,7 +206,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Input */}
           <div
             className="px-4 py-3 flex-shrink-0"
-            style={{ background: '#ffffff', borderTop: '1px solid #dde6f0' }}
+            style={{ background: '#ffffff', borderTop: '1px solid #C8E3E8' }}
           >
             <div className="flex gap-2 items-center">
               <Input
@@ -216,7 +216,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                 onKeyDown={e => e.key === "Enter" && !isGenerating && handleSendMessage()}
                 disabled={isGenerating}
                 className="flex-1 h-9 rounded-xl text-sm"
-                style={{ border: '1.5px solid #c8d8eb', outline: 'none' }}
+                style={{ border: '1.5px solid #A8D4DB', outline: 'none' }}
               />
               <button
                 onClick={handleSendMessage}

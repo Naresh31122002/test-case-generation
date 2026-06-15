@@ -43,16 +43,16 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
         style={{ boxShadow: "0 24px 64px rgba(15,22,43,0.22)", maxHeight: "88vh" }}
       >
         {/* Header */}
-        <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F162B" }}>
+        <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0D1B2A" }}>
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-white flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: "rgba(162,210,233,0.18)" }}>
-                <Code2 className="w-3.5 h-3.5" style={{ color: "#A2D2E9" }} />
+                <Code2 className="w-3.5 h-3.5" style={{ color: "#A8DCE5" }} />
               </div>
               Export Test Script
             </DialogTitle>
-            <DialogDescription className="text-sm mt-0.5" style={{ color: "#A2D2E9" }}>
+            <DialogDescription className="text-sm mt-0.5" style={{ color: "#A8DCE5" }}>
               {storyId} · {testCases.length} test case{testCases.length !== 1 ? "s" : ""} · Select a format to preview and download
             </DialogDescription>
           </DialogHeader>
@@ -62,9 +62,9 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
         <div className="flex flex-1 overflow-hidden min-h-0">
 
           {/* Left — format picker */}
-          <div className="w-56 flex-shrink-0 flex flex-col border-r border-[#eef2f8]" style={{ background: "#F6F8FB" }}>
-            <div className="px-4 py-3 border-b border-[#eef2f8]">
-              <span className="text-[11px] font-bold uppercase tracking-widest text-[#5a7ca0]">Framework</span>
+          <div className="w-56 flex-shrink-0 flex flex-col border-r border-[#E4F1F3]" style={{ background: "#F4F8FA" }}>
+            <div className="px-4 py-3 border-b border-[#E4F1F3]">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-[#4E7A8A]">Framework</span>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {FORMATS.map(fmt => (
@@ -93,17 +93,17 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
             </div>
 
             {/* Format info */}
-            <div className="p-3 border-t border-[#eef2f8]">
-              <div className="rounded-xl p-3" style={{ background: "#ffffff", border: "1px solid #dde6f0" }}>
-                <div className="text-[11px] font-bold text-[#0F162B] mb-1">{selectedMeta.label}</div>
-                <div className="text-[11px] text-[#5a7ca0] leading-relaxed">{selectedMeta.description}</div>
+            <div className="p-3 border-t border-[#E4F1F3]">
+              <div className="rounded-xl p-3" style={{ background: "#ffffff", border: "1px solid #C8E3E8" }}>
+                <div className="text-[11px] font-bold text-[#0D1B2A] mb-1">{selectedMeta.label}</div>
+                <div className="text-[11px] text-[#4E7A8A] leading-relaxed">{selectedMeta.description}</div>
                 <div className="mt-2 flex items-center gap-1.5">
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold"
                     style={{ background: "#E1F5F8", color: "#0F7A8A" }}>
                     .{selectedMeta.ext}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                    style={{ background: "#F6F8FB", color: "#5a7ca0", border: "1px solid #eef2f8" }}>
+                    style={{ background: "#F4F8FA", color: "#4E7A8A", border: "1px solid #E4F1F3" }}>
                     {selectedMeta.language}
                   </span>
                 </div>
@@ -114,13 +114,13 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
           {/* Right — code preview */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {/* Preview toolbar */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#eef2f8] flex-shrink-0"
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#E4F1F3] flex-shrink-0"
               style={{ background: "#fafbfd" }}>
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
                   <div className="w-3 h-3 rounded-full" style={{ background: "#fde68a" }} />
                   <div className="w-3 h-3 rounded-full" style={{ background: "#bbf7d0" }} />
-                  <div className="w-3 h-3 rounded-full" style={{ background: "#bfdbfe" }} />
+                  <div className="w-3 h-3 rounded-full" style={{ background: "#9DD6DE" }} />
                 </div>
                 <span className="text-xs font-mono text-[#9ca3af] ml-1">
                   {`${storyId.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${selected}.${selectedMeta.ext}`}
@@ -151,14 +151,14 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0 border-t border-[#eef2f8] bg-white">
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0 border-t border-[#E4F1F3] bg-white">
           <div className="text-xs text-[#9ca3af]">
             Steps are scaffolded as comments — add your selectors and assertions to complete each test.
           </div>
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => onOpenChange(false)}
-              className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#dde6f0] text-[#374151] hover:bg-[#F6F8FB] transition-colors"
+              className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#C8E3E8] text-[#374151] hover:bg-[#F4F8FA] transition-colors"
             >
               Cancel
             </button>

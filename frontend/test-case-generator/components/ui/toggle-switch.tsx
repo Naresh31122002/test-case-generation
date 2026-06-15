@@ -21,7 +21,7 @@ export function Toggle({
   onChange,
   label,
   disabled = false,
-  offLabelColor = "#5a7ca0",
+  offLabelColor = "#4E7A8A",
   className,
 }: ToggleProps) {
   return (
