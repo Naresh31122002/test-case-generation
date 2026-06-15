@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* TestSurge brand colors */
+  --color-primary: #6c3bf5;
+  --color-secondary: #ff4d6d;
+  --color-accent: #00c9a7;
+  --color-background: #fafafa;
+  --color-surface: #ffffff;
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #6b7280;
+  --color-text-light: #9ca3af;
+
+  --background: var(--color-background);
+  --foreground: var(--color-text-primary);
+}
+
+html {
+  scroll-behavior: smooth;
+  color: var(--color-text-primary);
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  /* Clip transient off-canvas states from scroll/x animations without
+     creating a vertical scroll context (keeps sticky headers working). */
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-plus-jakarta-sans), var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
