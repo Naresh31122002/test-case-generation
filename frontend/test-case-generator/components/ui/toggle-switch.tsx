@@ -21,7 +21,7 @@ export function Toggle({
   onChange,
   label,
   disabled = false,
-  offLabelColor = "#4E7A8A",
+  offLabelColor = "#6B7280",
   className,
 }: ToggleProps) {
   return (
@@ -40,7 +40,7 @@ export function Toggle({
         border: "none",
         fontSize: 13,
         fontWeight: checked ? 500 : 400,
-        color: checked ? "#1A9FB5" : offLabelColor,
+        color: checked ? "#FF4D6D" : offLabelColor,
         opacity: disabled ? 0.4 : 1,
         cursor: disabled ? "not-allowed" : "pointer",
         pointerEvents: disabled ? "none" : "auto",
@@ -53,7 +53,7 @@ export function Toggle({
           width: 36,
           height: 20,
           borderRadius: 10,
-          background: checked ? "#1A9FB5" : "#D3D1C7",
+          background: checked ? "#FF4D6D" : "#FAFAFA",
           transition: "background 0.2s ease",
           flexShrink: 0,
         }}

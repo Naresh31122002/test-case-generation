@@ -4,46 +4,46 @@
 
 @layer base {
   :root {
-    /* Kynetropo palette — faint lavender-white bg, navy headline, cyan-blue primary */
-    --background: 220 30% 98%;
-    --foreground: 211 51% 12%;
+    /* Coral/navy landing page palette */
+    --background: 351 100% 98%;        /* #FFF0F3 warm pink-white */
+    --foreground: 240 47% 14%;         /* #1A1A2E dark navy */
 
     --card: 0 0% 100%;
-    --card-foreground: 211 51% 12%;
+    --card-foreground: 240 47% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 211 51% 12%;
+    --popover-foreground: 240 47% 14%;
 
-    --primary: 200 89% 47%;
+    --primary: 345 100% 64%;           /* #FF4D6D coral red */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 202 71% 87%;
-    --secondary-foreground: 211 51% 12%;
+    --secondary: 351 100% 93%;         /* #FFE4E8 light coral */
+    --secondary-foreground: 240 47% 14%;
 
-    --muted: 205 25% 94%;
-    --muted-foreground: 207 14% 42%;
+    --muted: 0 0% 96%;                 /* #F5F5F5 */
+    --muted-foreground: 220 9% 46%;    /* #6B7280 slate gray */
 
-    --accent: 202 71% 93%;
-    --accent-foreground: 200 89% 35%;
+    --accent: 351 100% 95%;
+    --accent-foreground: 345 100% 45%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 205 30% 88%;
-    --input: 205 30% 88%;
-    --ring: 200 89% 47%;
+    --border: 351 40% 88%;
+    --input: 351 40% 88%;
+    --ring: 345 100% 64%;
 
     --radius: 0.75rem;
 
-    /* Sidebar — Kynetropo brand navy #0D1B2A, light-teal text, teal active */
-    --sidebar-background: 209 53% 11%;
-    --sidebar-foreground: 190 40% 85%;
-    --sidebar-primary: 188 75% 41%;
+    /* Sidebar — landing page dark navy */
+    --sidebar-background: 240 47% 14%;      /* #1A1A2E */
+    --sidebar-foreground: 351 80% 90%;      /* warm pink-white text */
+    --sidebar-primary: 345 100% 64%;        /* #FF4D6D coral */
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 209 40% 18%;
-    --sidebar-accent-foreground: 190 56% 92%;
-    --sidebar-border: 209 30% 20%;
-    --sidebar-ring: 188 75% 41%;
+    --sidebar-accent: 240 35% 20%;
+    --sidebar-accent-foreground: 351 80% 92%;
+    --sidebar-border: 240 30% 22%;
+    --sidebar-ring: 345 100% 64%;
   }
 }
 
@@ -65,5 +65,5 @@
 /* Thin scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #b3dde4; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #1A9FB5; }
+::-webkit-scrollbar-thumb { background: #FFB3C1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #FF4D6D; }

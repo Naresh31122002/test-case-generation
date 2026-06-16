@@ -4,7 +4,7 @@ import * as React from "react"
 
 /**
  * CoverLoop brand button system.
- * Brand palette: navy #0D1B2A, teal #1A9FB5, light teal #E1F5F8.
+ * Brand palette: navy #1A1A2E, teal #FF4D6D, light teal #E1F5F8.
  *
  * Variants:
  *  - primary     : solid navy   (the single most important action)
@@ -42,11 +42,11 @@ const base: React.CSSProperties = {
 const variantStyle: Record<BtnVariant, React.CSSProperties> = {
   // PRIMARY = the master "Trigger Now" teal solid button
   primary: {
-    background: "#1A9FB5", color: "#ffffff", border: "none",
+    background: "#FF4D6D", color: "#ffffff", border: "none",
     padding: "9px 20px", borderRadius: 8, fontSize: 13,
   },
   secondary: {
-    background: "transparent", color: "#1A9FB5", border: "1.5px solid #1A9FB5",
+    background: "transparent", color: "#FF4D6D", border: "1.5px solid #FF4D6D",
     padding: "8px 18px", borderRadius: 8, fontSize: 13,
   },
   ghost: {
@@ -58,21 +58,21 @@ const variantStyle: Record<BtnVariant, React.CSSProperties> = {
     padding: "8px 16px", borderRadius: 8, fontSize: 13,
   },
   "icon-filled": {
-    background: "#1A9FB5", color: "#ffffff", border: "none",
+    background: "#FF4D6D", color: "#ffffff", border: "none",
     width: 34, height: 34, borderRadius: "50%", padding: 0,
   },
   "icon-outline": {
-    background: "transparent", color: "#1A9FB5", border: "1.5px solid #1A9FB5",
+    background: "transparent", color: "#FF4D6D", border: "1.5px solid #FF4D6D",
     width: 34, height: 34, borderRadius: "50%", padding: 0,
   },
 }
 
 const hoverBg: Record<BtnVariant, string> = {
-  primary: "#178fa3",
+  primary: "#E11D48",
   secondary: "#E1F5F8",
   ghost: "rgba(0,0,0,0.04)",
   "dark-ghost": "rgba(255,255,255,0.10)",
-  "icon-filled": "#168ca0",
+  "icon-filled": "#E11D48",
   "icon-outline": "#E1F5F8",
 }
 

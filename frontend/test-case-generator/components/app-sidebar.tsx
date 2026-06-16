@@ -119,12 +119,12 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
         {/* Brand */}
         <SidebarHeader className="px-4 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#1A9FB5" }}>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#FF4D6D" }}>
               <FlaskConical className="w-4 h-4 text-white" />
             </div>
             <div className="group-data-[collapsible=icon]:hidden min-w-0">
               <div className="font-bold text-sm text-white leading-tight truncate">Test Forge AI</div>
-              <div className="text-[11px] leading-tight truncate" style={{ color: "#A8DCE5" }}>Powered by Gen AI</div>
+              <div className="text-[11px] leading-tight truncate" style={{ color: "#FFB3C1" }}>Powered by Gen AI</div>
             </div>
           </div>
         </SidebarHeader>
@@ -160,7 +160,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
                   <span className="flex-1">Search Stories</span>
                   <kbd
                     className="text-[10px] px-1.5 py-0.5 rounded font-mono group-data-[collapsible=icon]:hidden"
-                    style={{ background: "rgba(255,255,255,0.08)", color: "#A8DCE5", border: "1px solid rgba(255,255,255,0.1)" }}
+                    style={{ background: "rgba(255,255,255,0.08)", color: "#FFB3C1", border: "1px solid rgba(255,255,255,0.1)" }}
                   >
                     ⌘K
                   </kbd>
@@ -180,12 +180,12 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
               <select
                 value={selectedProject}
                 onChange={e => onProjectChange?.(e.target.value)}
-                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium border-0 focus:outline-none focus:ring-2 focus:ring-[#1A9FB5]/40"
-                style={{ background: "rgba(255,255,255,0.07)", color: "#A8DCE5" }}
+                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium border-0 focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/40"
+                style={{ background: "rgba(255,255,255,0.07)", color: "#FFB3C1" }}
               >
-                <option value="" style={{ background: "#0D1B2A", color: "#fff" }}>All Projects</option>
+                <option value="" style={{ background: "#1A1A2E", color: "#fff" }}>All Projects</option>
                 {projects.map(p => (
-                  <option key={p} value={p} style={{ background: "#0D1B2A", color: "#fff" }}>{p}</option>
+                  <option key={p} value={p} style={{ background: "#1A1A2E", color: "#fff" }}>{p}</option>
                 ))}
               </select>
             </div>
@@ -196,7 +196,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
         <SidebarFooter className="group-data-[collapsible=icon]:hidden p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#A8DCE5" }} />
+              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#FFB3C1" }} />
               <span className="text-[11px]" style={{ color: "rgba(162,210,233,0.7)" }}>Next scheduler run</span>
             </div>
             <div className="font-mono text-sm font-bold text-white">{timeLeft || "—"}</div>
@@ -204,7 +204,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
               onClick={triggerReload}
               disabled={isTriggering}
               className="w-full h-8 rounded-lg text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-              style={{ background: "#1A9FB5" }}
+              style={{ background: "#FF4D6D" }}
             >
               {isTriggering
                 ? <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Triggering…</>
@@ -223,7 +223,7 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
                   onClick={handleLogout}
                   title="Sign out"
                   className="flex-shrink-0 p-1.5 rounded-lg transition hover:bg-white/10"
-                  style={{ color: "#A8DCE5" }}
+                  style={{ color: "#FFB3C1" }}
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>

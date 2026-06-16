@@ -77,9 +77,9 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
         <button
           onClick={() => setShowChatbot(true)}
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-5 h-12 rounded-2xl shadow-2xl transition-all duration-200 hover:shadow-3xl hover:scale-105 active:scale-95"
-          style={{ background: '#1A9FB5' }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#178fa3')}
-          onMouseLeave={e => (e.currentTarget.style.background = '#1A9FB5')}
+          style={{ background: '#FF4D6D' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#E11D48')}
+          onMouseLeave={e => (e.currentTarget.style.background = '#FF4D6D')}
         >
           <Brain className="h-5 w-5 text-white flex-shrink-0" />
           <span className="text-white font-semibold text-sm whitespace-nowrap">AI Assistant</span>
@@ -104,7 +104,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Header */}
           <div
             className="flex flex-col px-5 pt-4 pb-3 flex-shrink-0"
-            style={{ background: '#0D1B2A' }}
+            style={{ background: '#1A1A2E' }}
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
@@ -112,11 +112,11 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ background: 'rgba(162,210,233,0.18)' }}
                 >
-                  <Brain className="h-4 w-4" style={{ color: '#A8DCE5' }} />
+                  <Brain className="h-4 w-4" style={{ color: '#FFB3C1' }} />
                 </div>
                 <div>
                   <div className="text-white font-semibold text-sm leading-tight">CoverLoop Assistant</div>
-                  <div className="text-xs leading-tight" style={{ color: '#A8DCE5' }}>
+                  <div className="text-xs leading-tight" style={{ color: '#FFB3C1' }}>
                     {isGenerating ? 'Generating…' : 'Ready'}
                   </div>
                 </div>
@@ -124,7 +124,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
               <button
                 onClick={() => setShowChatbot(false)}
                 className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors"
-                style={{ color: '#A8DCE5' }}
+                style={{ color: '#FFB3C1' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
@@ -144,8 +144,8 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-[10px] text-sm font-medium transition-all duration-150"
                   style={
                     selectedModel === mode
-                      ? { background: '#1A9FB5', color: '#ffffff' }
-                      : { color: '#A8DCE5' }
+                      ? { background: '#FF4D6D', color: '#ffffff' }
+                      : { color: '#FFB3C1' }
                   }
                 >
                   {mode === 'rag' ? <Sparkles className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
@@ -158,7 +158,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Messages */}
           <div
             className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
-            style={{ background: '#F4F8FA', scrollbarWidth: 'thin' }}
+            style={{ background: '#FAFAFA', scrollbarWidth: 'thin' }}
           >
             {chatMessages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -166,8 +166,8 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                   className="px-4 py-2.5 rounded-2xl max-w-[82%] text-sm shadow-sm"
                   style={
                     message.role === "user"
-                      ? { background: '#1A9FB5', color: '#ffffff', borderBottomRightRadius: 4 }
-                      : { background: '#ffffff', color: '#0D1B2A', border: '1px solid #C8E3E8', borderBottomLeftRadius: 4 }
+                      ? { background: '#FF4D6D', color: '#ffffff', borderBottomRightRadius: 4 }
+                      : { background: '#ffffff', color: '#1A1A2E', border: '1px solid #FECDD3', borderBottomLeftRadius: 4 }
                   }
                 >
                   {message.role === "assistant" ? (
@@ -185,18 +185,18 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
               <div className="flex justify-start">
                 <div
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm shadow-sm"
-                  style={{ background: '#ffffff', border: '1px solid #C8E3E8', borderBottomLeftRadius: 4 }}
+                  style={{ background: '#ffffff', border: '1px solid #FECDD3', borderBottomLeftRadius: 4 }}
                 >
                   <div className="flex gap-1">
                     {[0, 1, 2].map(i => (
                       <div
                         key={i}
                         className="w-1.5 h-1.5 rounded-full animate-bounce"
-                        style={{ background: '#1A9FB5', animationDelay: `${-0.3 + i * 0.15}s` }}
+                        style={{ background: '#FF4D6D', animationDelay: `${-0.3 + i * 0.15}s` }}
                       />
                     ))}
                   </div>
-                  <span style={{ color: '#4E7A8A' }}>Generating…</span>
+                  <span style={{ color: '#6B7280' }}>Generating…</span>
                 </div>
               </div>
             )}
@@ -206,7 +206,7 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
           {/* Input */}
           <div
             className="px-4 py-3 flex-shrink-0"
-            style={{ background: '#ffffff', borderTop: '1px solid #C8E3E8' }}
+            style={{ background: '#ffffff', borderTop: '1px solid #FECDD3' }}
           >
             <div className="flex gap-2 items-center">
               <Input
@@ -216,13 +216,13 @@ export function Chatbot({ onSendMessage, chatMessages, isGenerating, selectedMod
                 onKeyDown={e => e.key === "Enter" && !isGenerating && handleSendMessage()}
                 disabled={isGenerating}
                 className="flex-1 h-9 rounded-xl text-sm"
-                style={{ border: '1.5px solid #A8D4DB', outline: 'none' }}
+                style={{ border: '1.5px solid #FCA5A5', outline: 'none' }}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={isGenerating || !chatMessage.trim()}
                 className="h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                style={{ background: '#1A9FB5' }}
+                style={{ background: '#FF4D6D' }}
               >
                 <Send className="h-4 w-4 text-white" />
               </button>

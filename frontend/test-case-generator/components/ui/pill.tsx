@@ -29,7 +29,7 @@ export function ImpactedBadge({
 }) {
   const hasImpact = count > 0
   const s = hasImpact
-    ? { background: "#E1F5F8", color: "#0F7A8A", border: "1px solid #1A9FB5" }
+    ? { background: "#FFE4E8", color: "#E11D48", border: "1px solid #FF4D6D" }
     : { background: "#F1EFE8", color: "#5F5E5A", border: "1px solid #D3D1C7" }
   const Icon = hasImpact ? AlertCircle : CircleOff
   return (
@@ -44,8 +44,8 @@ type StatusPillKind = "navy" | "teal" | "project"
 
 const statusStyle: Record<StatusPillKind, React.CSSProperties> = {
   // navy pill carries a hairline light border so it reads on a dark navy banner
-  navy: { background: "#0D1B2A", color: "#ffffff", border: "1px solid rgba(255,255,255,0.22)" },
-  teal: { background: "#1A9FB5", color: "#ffffff" },
+  navy: { background: "#1A1A2E", color: "#ffffff", border: "1px solid rgba(255,255,255,0.22)" },
+  teal: { background: "#FF4D6D", color: "#ffffff" },
   project: { background: "#F1EFE8", color: "#5F5E5A" },
 }
 

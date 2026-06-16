@@ -77,14 +77,14 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#E4F1F3]">
-          <Search className="w-4 h-4 flex-shrink-0 text-[#1A9FB5]" />
+        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#FFE4E8]">
+          <Search className="w-4 h-4 flex-shrink-0 text-[#FF4D6D]" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search stories by ID or description…"
-            className="flex-1 text-sm bg-transparent outline-none text-[#0D1B2A] placeholder:text-[#b0c4d8]"
+            className="flex-1 text-sm bg-transparent outline-none text-[#1A1A2E] placeholder:text-[#FECDD3]"
           />
           {query && (
             <button onClick={() => setQuery("")} className="text-[#9ca3af] hover:text-[#374151]">
@@ -92,7 +92,7 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
             </button>
           )}
           <kbd className="text-[10px] px-1.5 py-0.5 rounded font-mono text-[#9ca3af]"
-            style={{ background: "#F4F8FA", border: "1px solid #C8E3E8" }}>
+            style={{ background: "#FAFAFA", border: "1px solid #FECDD3" }}>
             ESC
           </kbd>
         </div>
@@ -131,9 +131,9 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
                 { label: "Go to Dashboard", icon: <ArrowRight className="w-3.5 h-3.5" />, action: () => { router.push("/"); onOpenChange(false) } },
               ].map(a => (
                 <button key={a.label} onClick={a.action}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#E8F6F8] transition-colors text-left">
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF0F3] transition-colors text-left">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ background: "#E8F6F8", color: "#1A9FB5" }}>
+                    style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
                     {a.icon}
                   </div>
                   <span className="text-sm text-[#374151]">{a.label}</span>
@@ -144,14 +144,14 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
         </div>
 
         {/* Footer hint */}
-        <div className="px-4 py-2.5 border-t border-[#E4F1F3] flex items-center gap-3"
-          style={{ background: "#fafbfd" }}>
+        <div className="px-4 py-2.5 border-t border-[#FFE4E8] flex items-center gap-3"
+          style={{ background: "#FAFAFA" }}>
           <div className="flex items-center gap-1 text-[11px] text-[#9ca3af]">
-            <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px]" style={{ background: "#F4F8FA", border: "1px solid #C8E3E8" }}>↵</kbd>
+            <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px]" style={{ background: "#FAFAFA", border: "1px solid #FECDD3" }}>↵</kbd>
             open preview
           </div>
           <div className="flex items-center gap-1 text-[11px] text-[#9ca3af]">
-            <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px]" style={{ background: "#F4F8FA", border: "1px solid #C8E3E8" }}>⌘K</kbd>
+            <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px]" style={{ background: "#FAFAFA", border: "1px solid #FECDD3" }}>⌘K</kbd>
             toggle
           </div>
         </div>
@@ -162,19 +162,19 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
 
 function StoryRow({ story, onSelect, router }: { story: Story; onSelect: (s: Story) => void; router: any }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#E8F6F8] transition-colors group">
+    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF0F3] transition-colors group">
       <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ background: "#E8F6F8", color: "#1A9FB5" }}>
+        style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
         <FileText className="w-3.5 h-3.5" />
       </div>
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onSelect(story)}>
-        <div className="text-sm font-semibold text-[#0D1B2A] truncate">{story.id}</div>
+        <div className="text-sm font-semibold text-[#1A1A2E] truncate">{story.id}</div>
         <div className="text-xs text-[#9ca3af] truncate">{story.description || "No description"}</div>
       </div>
       <div className="hidden group-hover:flex items-center gap-1.5">
         <button onClick={e => { e.stopPropagation(); router.push(`/test-cases/${story.id}`) }}
           className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-colors hover:opacity-80"
-          style={{ background: "#E8F6F8", color: "#1A9FB5", border: "1px solid #A8D4DB" }}>
+          style={{ background: "#FFF0F3", color: "#FF4D6D", border: "1px solid #FCA5A5" }}>
           Test Cases
         </button>
         {typeof story.impactedTestCases === "number" && story.impactedTestCases > 0 && (
