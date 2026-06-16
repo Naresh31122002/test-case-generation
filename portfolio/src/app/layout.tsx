@@ -18,32 +18,63 @@ const siteUrl = "https://testsurge.kynetropo.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "TestSurge — AI Test Case Generator & Change-Impact Analysis",
+  title: {
+    default: "TestSurge — AI Test Case Generator & Impact Analysis",
+    template: "%s | TestSurge",
+  },
   description:
-    "Generate 5 types of test cases from Jira stories in 30 seconds. The only AI testing tool with change-impact analysis. Start free — no card needed.",
+    "Generate all 5 test types from Jira stories in 30 seconds. Detect change impact. Critique stories. Built by Kynetropo.",
+  keywords: [
+    "AI test case generator",
+    "test case from jira",
+    "change impact analysis",
+    "QA automation",
+    "TestSurge",
+    "Kynetropo",
+  ],
+  authors: [{ name: "Kynetropo" }],
+  creator: "Kynetropo",
+  publisher: "Kynetropo",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+    other: [
+      {
+        rel: "icon",
+        url: "/android-chrome-512x512.png",
+        sizes: "512x512",
+      },
+    ],
+  },
   openGraph: {
-    title: "TestSurge — AI Test Case Generator & Change-Impact Analysis",
-    description:
-      "Generate 5 types of test cases from Jira stories in 30 seconds. The only AI testing tool with change-impact analysis. Start free — no card needed.",
+    type: "website",
     url: siteUrl,
-    siteName: "TestSurge",
+    siteName: "TestSurge by Kynetropo",
+    title: "TestSurge — AI Test Intelligence & Impact for Modern QA Teams",
+    description:
+      "Generate tests. Predict impact. Prevent missed coverage.",
     images: [
       {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "TestSurge — AI Test Case Generator & Change-Impact Analysis",
+        alt: "TestSurge — AI Test Intelligence & Impact for Modern QA Teams",
       },
     ],
     locale: "en_US",
-    type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TestSurge — AI Test Case Generator & Change-Impact Analysis",
+    title: "TestSurge — AI Test Case Generator",
     description:
-      "Generate 5 types of test cases from Jira stories in 30 seconds. The only AI testing tool with change-impact analysis. Start free — no card needed.",
+      "Generate all 5 test types from Jira stories in 30 seconds.",
+    creator: "@kynetropo",
     images: ["/og-image.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 };
 
@@ -87,6 +118,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}

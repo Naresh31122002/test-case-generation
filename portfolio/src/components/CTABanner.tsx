@@ -49,7 +49,7 @@ export default function CTABanner() {
           Free for 7 days. No credit card needed.
         </p>
         <motion.a
-          href="/trial"
+          href="/signup"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.97 }}
           className="mt-8 rounded-full bg-white px-8 py-4 text-lg font-semibold text-secondary shadow-lg"

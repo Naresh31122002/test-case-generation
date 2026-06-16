@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Clock, AlertTriangle, ShieldAlert } from "lucide-react";
+import { Check, Clock, AlertTriangle, ShieldAlert, FileSpreadsheet } from "lucide-react";
 
 type Feature = {
   tag: string;
@@ -32,7 +32,7 @@ function GenerationCard() {
             key={tc.id}
             initial={{ opacity: 0, x: -16 }}
             whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: false, amount: 0.4 }}
+            viewport={{ once: false, amount: 0.25 }}
             transition={{ duration: 0.4, delay: index * 0.25 }}
             className="flex items-center gap-2 text-sm"
           >
@@ -89,7 +89,7 @@ function ImpactAnalysisCard() {
               key={node.label}
               initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: false, amount: 0.4 }}
+              viewport={{ once: false, amount: 0.25 }}
               transition={{ duration: 0.4, delay: 0.3 + index * 0.15 }}
               className="rounded-xl border border-gray-100 p-3 text-center"
             >
@@ -118,7 +118,7 @@ function StoryQualityCard() {
             key={warning}
             initial={{ opacity: 0, x: -16 }}
             whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: false, amount: 0.4 }}
+            viewport={{ once: false, amount: 0.25 }}
             transition={{ duration: 0.4, delay: index * 0.2 }}
             className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm"
           >
@@ -131,7 +131,7 @@ function StoryQualityCard() {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: false, amount: 0.4 }}
+        viewport={{ once: false, amount: 0.25 }}
         transition={{ duration: 0.4, delay: 0.7 }}
         className="mt-4 flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2 text-sm font-medium"
       >
@@ -159,7 +159,7 @@ function TeamStyleCard() {
           <motion.div
             initial={{ width: 0 }}
             whileInView={{ width: "94%" }}
-            viewport={{ once: false, amount: 0.4 }}
+            viewport={{ once: false, amount: 0.25 }}
             transition={{ duration: 1, ease: "easeOut" }}
             className="h-full rounded-full bg-secondary"
           />
@@ -169,7 +169,7 @@ function TeamStyleCard() {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: false, amount: 0.4 }}
+        viewport={{ once: false, amount: 0.25 }}
         transition={{ duration: 0.4, delay: 0.5 }}
         className="mt-4 flex items-center gap-2 rounded-xl bg-accent/10 px-3 py-2 text-sm font-medium text-accent"
       >
@@ -180,45 +180,88 @@ function TeamStyleCard() {
   );
 }
 
+const EXPORT_TARGETS = ["TestRail", "Excel", "Jira", "Xray"] as const;
+
+function ExportCard() {
+  return (
+    <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl transition-shadow duration-300 hover:shadow-2xl">
+      <div className="flex items-center gap-2">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10">
+          <FileSpreadsheet className="text-accent" size={18} />
+        </span>
+        <p className="font-heading text-sm font-semibold text-text-primary">
+          Export 24 test cases
+        </p>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {EXPORT_TARGETS.map((target, index) => (
+          <motion.div
+            key={target}
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: false, amount: 0.25 }}
+            transition={{ duration: 0.35, delay: index * 0.12 }}
+            className="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2"
+          >
+            <span className="text-sm font-medium text-text-primary">{target}</span>
+            <Check className="text-accent" size={16} strokeWidth={3} />
+          </motion.div>
+        ))}
+      </div>
+      <p className="mt-4 text-xs text-text-secondary">
+        Synced to your QA workflow — no copy-paste.
+      </p>
+    </div>
+  );
+}
+
 const FEATURES: Feature[] = [
   {
-    tag: "Core Feature",
-    tagClass: "bg-accent/10 text-accent",
-    title: "Generate 5 Types of Test Cases Instantly",
-    description:
-      "Paste any Jira story or upload PDF/DOCX. TestSurge generates positive, negative, boundary, security and performance test cases in 30 seconds — not 3 hours.",
-    visual: <GenerationCard />,
-  },
-  {
-    tag: "🏆 Only TestSurge",
+    tag: "⭐ Only TestSurge",
     tagClass: "bg-secondary/10 text-secondary",
-    title: "Change-Impact Analysis",
+    title: "Change Impact Analysis",
     description:
-      "When a requirement changes, TestSurge automatically finds every existing test case affected and ranks them by severity. No other AI testing tool does this.",
+      "Know exactly which existing tests are affected when requirements change. When a story updates, TestSurge ranks every impacted test by severity. Unique to TestSurge.",
     highlight: "Competitors offer traceability. We offer impact intelligence.",
     visual: <ImpactAnalysisCard />,
   },
   {
-    tag: "Story Intelligence",
-    tagClass: "bg-primary/10 text-primary",
-    title: "Critiques Your Story Before Generating",
+    tag: "⭐ Story Intelligence",
+    tagClass: "bg-secondary/10 text-secondary",
+    title: "Story Quality Critique",
     description:
-      "Bad requirements = bad tests. TestSurge reviews your user story first — flags missing acceptance criteria, undefined edge cases, ambiguous language. Garbage in, garbage out? Not anymore.",
+      "AI flags missing acceptance criteria, undefined edge cases, and ambiguous language BEFORE generating tests. Stop garbage-in, garbage-out at the source.",
     visual: <StoryQualityCard />,
   },
   {
-    tag: "Gets Smarter",
-    tagClass: "bg-accent/10 text-accent",
-    title: "Learns Your Team's Testing Style",
+    tag: "⭐ Gets Smarter",
+    tagClass: "bg-secondary/10 text-secondary",
+    title: "RAG Team Style Learning",
     description:
-      "Our RAG engine uses your own historical test cases as context. The more you use TestSurge, the more it sounds like your team wrote it.",
+      "Learns your team's historical test patterns and uses them as context. The more you use TestSurge, the more it sounds like your team wrote it.",
     visual: <TeamStyleCard />,
+  },
+  {
+    tag: "Core Feature",
+    tagClass: "bg-accent/10 text-accent",
+    title: "Generate 5 Test Types",
+    description:
+      "Paste any Jira story or upload PDF/DOCX. TestSurge generates Positive, Negative, Boundary, Security and Performance test cases in 30 seconds — not 3 hours.",
+    visual: <GenerationCard />,
+  },
+  {
+    tag: "Ships Everywhere",
+    tagClass: "bg-accent/10 text-accent",
+    title: "Export & Integrations",
+    description:
+      "Push tests straight into the tools you already run. One-click export to TestRail, Excel, Jira and Xray keeps your whole QA workflow in sync.",
+    visual: <ExportCard />,
   },
 ];
 
 export default function Features() {
   return (
-    <section className="overflow-x-hidden bg-white px-6 py-24">
+    <section id="features" className="overflow-x-hidden bg-white px-6 py-24">
       <div className="mx-auto max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

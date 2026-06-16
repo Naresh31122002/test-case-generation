@@ -10,19 +10,19 @@ const PAIN_CARDS: {
 }[] = [
   {
     icon: Clock,
-    title: "Hours wasted writing tests manually",
+    title: "QA teams spend hours writing repetitive tests every sprint",
     description:
       "Writing test cases for one Jira story takes 2-4 hours. Multiply that by 50 stories per sprint — your QA team never catches up.",
   },
   {
     icon: AlertTriangle,
-    title: "No idea what breaks when stories change",
+    title: "Nobody knows which tests break after story changes",
     description:
       "Requirements change daily. Nobody knows which existing tests are affected. Bugs slip through because coverage is invisible.",
   },
   {
     icon: Bot,
-    title: "Generic AI tools ignore your team's style",
+    title: "Generic AI ignores your team's QA standards and history",
     description:
       "Other AI generators produce cookie-cutter tests that don't match your team's standards or existing test case patterns.",
   },
@@ -35,7 +35,7 @@ const cardVariants = {
 
 export default function Problem() {
   return (
-    <section className="bg-background px-6 py-24">
+    <section className="bg-muted px-6 py-24">
       <div className="mx-auto max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

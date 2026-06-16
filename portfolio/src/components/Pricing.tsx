@@ -9,12 +9,11 @@ type Plan = {
   subtitle: string;
   monthlyPrice: number;
   annualPrice: number;
+  custom?: boolean;
   accent: string;
-  badgeBg: string;
-  badgeText: string;
   buttonBg: string;
+  buttonLabel: string;
   features: string[];
-  note: string;
   popular?: boolean;
 };
 
@@ -22,63 +21,73 @@ const PLANS: Plan[] = [
   {
     name: "Starter",
     subtitle: "Perfect for small QA teams",
-    monthlyPrice: 29,
-    annualPrice: 23,
+    monthlyPrice: 19,
+    annualPrice: 15,
     accent: "text-accent",
-    badgeBg: "bg-accent/10",
-    badgeText: "text-accent",
     buttonBg: "bg-accent",
+    buttonLabel: "Start Free Trial",
     features: [
       "3 users",
-      "500 AI generations/month",
-      "5 projects",
+      "300 generations/month",
+      "Basic test generation",
       "Jira integration",
       "Excel export",
       "Email support",
     ],
-    note: "vs Qase: $90 for 3 users",
   },
   {
     name: "Pro",
     subtitle: "For growing QA teams",
-    monthlyPrice: 79,
-    annualPrice: 63,
+    monthlyPrice: 49,
+    annualPrice: 39,
     accent: "text-secondary",
-    badgeBg: "bg-secondary/10",
-    badgeText: "text-secondary",
     buttonBg: "bg-secondary",
+    buttonLabel: "Start Free Trial",
     features: [
       "10 users",
-      "2,000 generations/month",
-      "Unlimited projects",
-      "Jira + GitHub + TestRail",
-      "Change-Impact Analysis ✨",
-      "Story Quality Check ✨",
-      "Team Style Learning ✨",
-      "Priority support",
+      "1,500 generations/month",
+      "Change Impact Analysis (FULL)",
+      "Story Quality Critique",
+      "RAG Team Learning",
+      "TestRail + GitHub integration",
+      "Priority support <4h",
     ],
-    note: "vs TestRail: $360 + no AI",
     popular: true,
   },
   {
     name: "Team",
     subtitle: "For large QA departments",
-    monthlyPrice: 199,
-    annualPrice: 159,
+    monthlyPrice: 129,
+    annualPrice: 103,
     accent: "text-primary",
-    badgeBg: "bg-primary/10",
-    badgeText: "text-primary",
     buttonBg: "bg-primary",
+    buttonLabel: "Start Free Trial",
     features: [
-      "30 users",
-      "10,000 generations/month",
+      "25 users, unlimited generations",
       "Everything in Pro",
-      "Admin dashboard",
       "SSO / Google Workspace",
-      "On-premise option",
+      "Admin dashboard + audit logs",
+      "On-prem option",
       "Dedicated Slack support",
     ],
-    note: "vs Tricentis: $3,000+/mo",
+  },
+  {
+    name: "Enterprise",
+    subtitle: "For organizations at scale",
+    monthlyPrice: 0,
+    annualPrice: 0,
+    custom: true,
+    accent: "text-primary",
+    buttonBg: "bg-primary",
+    buttonLabel: "Contact Sales",
+    features: [
+      "Custom user limits",
+      "Everything in Team",
+      "Custom integrations",
+      "Security & compliance review",
+      "Dedicated success manager",
+      "SLA & onboarding",
+    ],
   },
 ];
 
@@ -91,7 +100,7 @@ export default function Pricing() {
   const [annual, setAnnual] = useState(false);
 
   return (
-    <section className="bg-white px-6 py-24">
+    <section id="pricing" className="bg-white px-6 py-24">
       <div className="mx-auto max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -145,7 +154,7 @@ export default function Pricing() {
         </div>
 
         {/* Cards */}
-        <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-3 md:items-start">
+        <div className="mt-16 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:items-start">
           {PLANS.map((plan, index) => (
             <motion.div
               key={plan.name}
@@ -155,9 +164,9 @@ export default function Pricing() {
               variants={cardVariants}
               transition={{ delay: index * 0.15 }}
               whileHover={{ y: -4, boxShadow: "0 24px 48px -12px rgba(26, 26, 46, 0.18)" }}
-              className={`relative flex flex-col rounded-2xl bg-white p-8 shadow-sm transition-shadow duration-300 ${
+              className={`relative flex flex-col rounded-2xl bg-white p-7 shadow-sm transition-shadow duration-300 ${
                 plan.popular
-                  ? "border-t-[3px] border-secondary shadow-xl md:scale-105"
+                  ? "border-t-[3px] border-secondary shadow-xl lg:scale-105"
                   : "border border-gray-100"
               }`}
             >
@@ -170,25 +179,33 @@ export default function Pricing() {
               <h3 className="font-heading text-2xl font-bold text-text-primary">
                 {plan.name}
               </h3>
-              <p className="mt-1 text-text-secondary">{plan.subtitle}</p>
+              <p className="mt-1 text-sm text-text-secondary">{plan.subtitle}</p>
 
               <div className="mt-6 flex items-end gap-1">
-                <AnimatePresence mode="wait">
-                  <motion.span
-                    key={annual ? "annual" : "monthly"}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.25 }}
-                    className="font-heading text-4xl font-bold text-text-primary"
-                  >
-                    ${annual ? plan.annualPrice : plan.monthlyPrice}
-                  </motion.span>
-                </AnimatePresence>
-                <span className="text-text-secondary">/mo</span>
+                {plan.custom ? (
+                  <span className="font-heading text-4xl font-bold text-text-primary">
+                    Custom
+                  </span>
+                ) : (
+                  <>
+                    <AnimatePresence mode="wait">
+                      <motion.span
+                        key={annual ? "annual" : "monthly"}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.25 }}
+                        className="font-heading text-4xl font-bold text-text-primary"
+                      >
+                        ${annual ? plan.annualPrice : plan.monthlyPrice}
+                      </motion.span>
+                    </AnimatePresence>
+                    <span className="text-text-secondary">/mo</span>
+                  </>
+                )}
               </div>
 
-              <ul className="mt-6 flex flex-col gap-3">
+              <ul className="mt-6 flex flex-1 flex-col gap-3">
                 {plan.features.map((feature) => (
                   <li key={feature} className="flex items-start gap-2">
                     <Check
@@ -196,22 +213,18 @@ export default function Pricing() {
                       size={18}
                       strokeWidth={3}
                     />
-                    <span className="text-text-secondary">{feature}</span>
+                    <span className="text-sm text-text-secondary">{feature}</span>
                   </li>
                 ))}
               </ul>
 
-              <p className="mt-6 text-sm font-medium text-text-light">
-                {plan.note}
-              </p>
-
               <motion.a
-                href="/trial"
+                href="/signup"
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 className={`mt-8 rounded-full ${plan.buttonBg} py-3 text-center font-semibold text-white`}
               >
-                Start Free Trial
+                {plan.buttonLabel}
               </motion.a>
             </motion.div>
           ))}

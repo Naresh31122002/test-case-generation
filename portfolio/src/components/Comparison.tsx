@@ -9,32 +9,20 @@ type Cell = boolean | string;
 
 const ROWS: { feature: string; values: Cell[] }[] = [
   {
-    feature: "AI Test Generation",
-    values: [true, false, true, true],
-  },
-  {
-    feature: "Change-Impact Analysis",
+    feature: "Change Impact Analysis",
     values: ["only-us", false, false, false],
   },
   {
-    feature: "Story Quality Check",
+    feature: "Story Critique",
     values: [true, false, false, false],
   },
   {
-    feature: "Learns Team Style (RAG)",
+    feature: "RAG Team Learning",
     values: [true, false, false, false],
   },
   {
     feature: "Transparent Pricing",
-    values: [true, true, true, false],
-  },
-  {
-    feature: "Starting Price (5 users)",
-    values: ["$29/mo", "$180/mo", "$50/mo", "Hidden"],
-  },
-  {
-    feature: "Free Trial",
-    values: ["✅ 7 days", "✅ 30 days", true, false],
+    values: [true, false, true, false],
   },
   {
     feature: "Jira Integration",
@@ -64,7 +52,7 @@ function renderCell(value: Cell) {
 
 export default function Comparison() {
   return (
-    <section className="bg-background px-6 py-24">
+    <section className="bg-muted px-6 py-24">
       <div className="mx-auto max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -114,7 +102,7 @@ export default function Comparison() {
                 <tr key={row.feature}>
                   <td
                     className={`p-4 text-left font-medium text-text-primary ${
-                      rowIndex % 2 === 0 ? "bg-white" : "bg-background"
+                      rowIndex % 2 === 0 ? "bg-white" : "bg-muted"
                     }`}
                   >
                     {row.feature}
@@ -127,7 +115,7 @@ export default function Comparison() {
                           ? "bg-secondary/5"
                           : rowIndex % 2 === 0
                           ? "bg-white"
-                          : "bg-background"
+                          : "bg-muted"
                       }`}
                     >
                       {renderCell(value)}
@@ -138,6 +126,10 @@ export default function Comparison() {
             </tbody>
           </table>
         </motion.div>
+
+        <p className="mt-4 text-center text-sm text-text-light">
+          Based on publicly available product capabilities.
+        </p>
       </div>
     </section>
   );

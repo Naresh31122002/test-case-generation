@@ -6,15 +6,16 @@ const INTEGRATIONS = [
   "Jira",
   "GitHub",
   "TestRail",
-  "Confluence",
   "Slack",
-  "Xray",
   "Azure DevOps",
+  "Confluence",
+  "Playwright",
+  "Jenkins",
 ];
 
 export default function SocialProof() {
   return (
-    <section className="overflow-x-hidden border-y border-gray-200 bg-white py-6">
+    <section id="integrations" className="overflow-x-hidden border-y border-gray-200 bg-white py-6">
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-6 lg:flex-row lg:px-8">
         {/* Left side */}
         <motion.div
@@ -25,7 +26,7 @@ export default function SocialProof() {
           className="flex flex-col items-center gap-4 lg:flex-row"
         >
           <span className="text-sm font-medium text-text-secondary">
-            Trusted by QA teams using:
+            Works with tools your QA team already uses
           </span>
           <div className="flex flex-wrap items-center justify-center gap-2">
             {INTEGRATIONS.map((name) => (
