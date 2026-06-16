@@ -273,7 +273,7 @@ export default function StoryImpactAnalysisPage() {
           </div>
         </header>
 
-        <div className="p-6 space-y-5" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
+        <div className="p-6 space-y-5" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)", minHeight: "calc(100vh - 56px)" }}>
 
           {/* Story header card */}
           <div className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm overflow-hidden">

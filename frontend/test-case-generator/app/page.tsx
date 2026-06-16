@@ -447,7 +447,7 @@ export default function TestCaseGenerator() {
         </header>
 
         {/* ── Main content ────────────────────────────────────── */}
-        <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "#FAFAFA" }}>
+        <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)" }}>
 
           {/* ── Smart single search bar ───────────────────────── */}
           <div

@@ -168,7 +168,7 @@ export default function StoryTestCasesPage() {
         </header>
 
         {/* ── Page body ────────────────────────────────────── */}
-        <div className="flex flex-col" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
+        <div className="flex flex-col" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)", minHeight: "calc(100vh - 56px)" }}>
 
           {/* Story header strip */}
           <div className="mx-6 mt-6 rounded-2xl overflow-hidden flex-shrink-0" style={{ background: "#1A1A2E" }}>

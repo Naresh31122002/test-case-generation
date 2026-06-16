@@ -50,7 +50,9 @@
 @layer base {
   * { @apply border-border; }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background: linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%);
+    min-height: 100vh;
     font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   }
   html {
