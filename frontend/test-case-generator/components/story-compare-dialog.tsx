@@ -71,14 +71,14 @@ export function StoryCompareDialog({ open, onOpenChange, stories, initialStoryId
         </div>
 
         {/* Story selectors */}
-        <div className="flex items-center gap-3 px-6 py-3 flex-shrink-0 border-b border-[#FFE4E8]"
+        <div className="flex items-center gap-3 px-6 py-3 flex-shrink-0 border-b border-[#F0F0F0]"
           style={{ background: "#FAFAFA" }}>
           <select value={leftId} onChange={e => setLeftId(e.target.value)}
             className="flex-1 h-9 rounded-xl px-3 text-sm border border-[#FCA5A5] bg-white text-[#1A1A2E] focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/20">
             <option value="">Select story A…</option>
             {stories.map(s => <option key={s.id} value={s.id}>{s.id} — {(s.description || "").slice(0, 60)}</option>)}
           </select>
-          <button onClick={swap} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors hover:bg-[#FFF0F3] border border-[#FECDD3]"
+          <button onClick={swap} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors hover:bg-[#FFF8FA] border border-[#F0F0F0]"
             style={{ color: "#FF4D6D" }}>
             <ArrowLeftRight className="w-4 h-4" />
           </button>
@@ -95,9 +95,9 @@ export function StoryCompareDialog({ open, onOpenChange, stories, initialStoryId
             { story: leftStory, tcs: leftTCs, loading: loadingLeft, id: leftId, side: "A" },
             { story: rightStory, tcs: rightTCs, loading: loadingRight, id: rightId, side: "B" },
           ].map(({ story, tcs, loading, id, side }) => (
-            <div key={side} className="flex-1 flex flex-col overflow-hidden border-r last:border-r-0 border-[#FFE4E8]">
+            <div key={side} className="flex-1 flex flex-col overflow-hidden border-r last:border-r-0 border-[#F0F0F0]">
               {/* Story info */}
-              <div className="px-4 py-3 flex-shrink-0 border-b border-[#FFE4E8]" style={{ background: "#FAFAFA" }}>
+              <div className="px-4 py-3 flex-shrink-0 border-b border-[#F0F0F0]" style={{ background: "#FAFAFA" }}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded font-mono"
                     style={{ background: "#1A1A2E", color: "#FFB3C1" }}>{side}</span>
@@ -157,7 +157,7 @@ export function StoryCompareDialog({ open, onOpenChange, stories, initialStoryId
 
               {/* Footer stats */}
               {tcs.length > 0 && (
-                <div className="px-4 py-2.5 flex-shrink-0 border-t border-[#FFE4E8] flex items-center gap-3"
+                <div className="px-4 py-2.5 flex-shrink-0 border-t border-[#F0F0F0] flex items-center gap-3"
                   style={{ background: "#FAFAFA" }}>
                   {(["high","medium","low"] as const).map(p => {
                     const count = tcs.filter(tc => (tc.priority || "low") === p).length

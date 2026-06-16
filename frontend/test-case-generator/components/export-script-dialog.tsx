@@ -62,8 +62,8 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
         <div className="flex flex-1 overflow-hidden min-h-0">
 
           {/* Left — format picker */}
-          <div className="w-56 flex-shrink-0 flex flex-col border-r border-[#FFE4E8]" style={{ background: "#FAFAFA" }}>
-            <div className="px-4 py-3 border-b border-[#FFE4E8]">
+          <div className="w-56 flex-shrink-0 flex flex-col border-r border-[#F0F0F0]" style={{ background: "#FAFAFA" }}>
+            <div className="px-4 py-3 border-b border-[#F0F0F0]">
               <span className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280]">Framework</span>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -93,7 +93,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
             </div>
 
             {/* Format info */}
-            <div className="p-3 border-t border-[#FFE4E8]">
+            <div className="p-3 border-t border-[#F0F0F0]">
               <div className="rounded-xl p-3" style={{ background: "#ffffff", border: "1px solid #FECDD3" }}>
                 <div className="text-[11px] font-bold text-[#1A1A2E] mb-1">{selectedMeta.label}</div>
                 <div className="text-[11px] text-[#6B7280] leading-relaxed">{selectedMeta.description}</div>
@@ -114,7 +114,7 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
           {/* Right — code preview */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {/* Preview toolbar */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#FFE4E8] flex-shrink-0"
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#F0F0F0] flex-shrink-0"
               style={{ background: "#FAFAFA" }}>
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
@@ -151,14 +151,14 @@ export function ExportScriptDialog({ open, onOpenChange, storyId, testCases }: E
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0 border-t border-[#FFE4E8] bg-white">
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0 border-t border-[#F0F0F0] bg-white">
           <div className="text-xs text-[#9ca3af]">
             Steps are scaffolded as comments — add your selectors and assertions to complete each test.
           </div>
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => onOpenChange(false)}
-              className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#FECDD3] text-[#374151] hover:bg-[#FAFAFA] transition-colors"
+              className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#F0F0F0] text-[#374151] hover:bg-[#FAFAFA] transition-colors"
             >
               Cancel
             </button>

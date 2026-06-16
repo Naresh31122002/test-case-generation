@@ -146,7 +146,7 @@ export default function StoryTestCasesPage() {
       <SidebarInset>
 
         {/* ── Top bar ──────────────────────────────────────── */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#FFE4E8] bg-white sticky top-0 z-30">
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#F0F0F0] bg-white sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#6B7280] hover:text-[#1A1A2E]" />
             <Separator orientation="vertical" className="h-5" />
@@ -168,7 +168,7 @@ export default function StoryTestCasesPage() {
         </header>
 
         {/* ── Page body ────────────────────────────────────── */}
-        <div className="flex flex-col" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)", minHeight: "calc(100vh - 56px)" }}>
+        <div className="flex flex-col" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
 
           {/* Story header strip */}
           <div className="mx-6 mt-6 rounded-2xl overflow-hidden flex-shrink-0" style={{ background: "#1A1A2E" }}>
@@ -225,7 +225,7 @@ export default function StoryTestCasesPage() {
           </div>
 
           {/* ── Split pane ───────────────────────────────────── */}
-          <div className="flex-1 flex gap-0 mx-6 mt-4 mb-6 rounded-2xl overflow-hidden border border-[#FECDD3] shadow-sm"
+          <div className="flex-1 flex gap-0 mx-6 mt-4 mb-6 rounded-2xl overflow-hidden border border-[#F0F0F0] shadow-sm"
             style={{ background: "#ffffff", minHeight: 0 }}>
 
             {runMode ? (
@@ -244,9 +244,9 @@ export default function StoryTestCasesPage() {
             ) : (
               <>
                 {/* ── LEFT: numbered list ──────────────────── */}
-                <div className="w-72 flex-shrink-0 flex flex-col border-r border-[#FFE4E8] overflow-hidden">
+                <div className="w-72 flex-shrink-0 flex flex-col border-r border-[#EBEBEB] overflow-hidden">
                   {/* list header */}
-                  <div className="px-4 py-3 border-b border-[#FFE4E8] flex items-center justify-between flex-shrink-0"
+                  <div className="px-4 py-3 border-b border-[#F0F0F0] flex items-center justify-between flex-shrink-0"
                     style={{ background: "#FAFAFA" }}>
                     <div className="flex items-center gap-2">
                       <ListChecks className="w-3.5 h-3.5 text-[#FF4D6D]" />
@@ -323,7 +323,7 @@ export default function StoryTestCasesPage() {
                   <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
                     {/* detail header */}
-                    <div className="px-6 py-4 flex-shrink-0 border-b border-[#FFE4E8]"
+                    <div className="px-6 py-4 flex-shrink-0 border-b border-[#F0F0F0]"
                       style={{ background: "#FAFAFA" }}>
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
@@ -354,7 +354,7 @@ export default function StoryTestCasesPage() {
                           <button
                             onClick={() => setActiveIdx(i => Math.max(0, i - 1))}
                             disabled={activeIdx === 0}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#FECDD3] transition-colors hover:bg-[#FFF0F3] disabled:opacity-30"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] transition-colors hover:bg-[#FFF8FA] disabled:opacity-30"
                             style={{ color: "#6B7280" }}>
                             <ChevronRight className="w-3.5 h-3.5 rotate-180" />
                           </button>
@@ -362,7 +362,7 @@ export default function StoryTestCasesPage() {
                           <button
                             onClick={() => setActiveIdx(i => Math.min(testCases.length - 1, i + 1))}
                             disabled={activeIdx === testCases.length - 1}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#FECDD3] transition-colors hover:bg-[#FFF0F3] disabled:opacity-30"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] transition-colors hover:bg-[#FFF8FA] disabled:opacity-30"
                             style={{ color: "#6B7280" }}>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
@@ -491,7 +491,7 @@ export default function StoryTestCasesPage() {
             {storyDescription && (
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">AI Description</div>
-                <div className="rounded-xl p-4 bg-white border border-[#FECDD3]">
+                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
                   <p className="text-sm text-[#374151] leading-relaxed">{storyDescription}</p>
                 </div>
               </div>
@@ -499,7 +499,7 @@ export default function StoryTestCasesPage() {
             {storyContent && (
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Full Content</div>
-                <div className="rounded-xl p-4 bg-white border border-[#FECDD3]">
+                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
                   <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{storyContent}</p>
                 </div>
               </div>

@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* TestSurge brand colors */
+  --color-primary: #0d1b2a;     /* deep navy */
+  --color-secondary: #ff3b6b;   /* coral / pink accent */
+  --color-accent: #1a9fb5;      /* teal */
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-muted: #f7f8fa;       /* subtle off-white for section alternation */
+  --color-text-primary: #0d1b2a;
+  --color-text-secondary: #6b7280;
+  --color-text-light: #9ca3af;
+
+  --background: var(--color-background);
+  --foreground: var(--color-text-primary);
+}
+
+html {
+  scroll-behavior: smooth;
+  color: var(--color-text-primary);
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  /* Clip transient off-canvas states from scroll/x animations without
+     creating a vertical scroll context (keeps sticky headers working). */
+  overflow-x: hidden;
+  max-width: 100vw;
+  min-width: 320px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Long words / URLs can't push past the viewport at any zoom level */
+p, h1, h2, h3, h4, h5, h6, li, span, a {
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-plus-jakarta-sans), var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.prose-testsurge h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-top: 0.5rem;
+  scroll-margin-top: 7rem;
+}
+
+.prose-testsurge h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  scroll-margin-top: 7rem;
+}
+
+.prose-testsurge p,
+.prose-testsurge li {
+  line-height: 1.75;
+}
+
+.prose-testsurge ul,
+.prose-testsurge ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.prose-testsurge ul {
+  list-style-type: disc;
+}
+
+.prose-testsurge ol {
+  list-style-type: decimal;
+}
+
+.prose-testsurge a {
+  color: var(--color-secondary);
+  font-weight: 600;
+}
+
+.prose-testsurge table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: #fff;
+}
+
+.prose-testsurge th,
+.prose-testsurge td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+}
+
+.prose-testsurge th {
+  background: var(--color-muted);
+  color: var(--color-text-primary);
+}

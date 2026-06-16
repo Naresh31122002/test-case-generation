@@ -129,7 +129,7 @@ export function RunMode({ storyId, testCases, onExit }: RunModeProps) {
       </div>
 
       {/* Progress bar */}
-      <div className="flex-shrink-0 px-5 py-3 border-b border-[#FFE4E8]" style={{ background: "#FAFAFA" }}>
+      <div className="flex-shrink-0 px-5 py-3 border-b border-[#F0F0F0]" style={{ background: "#FAFAFA" }}>
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs font-semibold text-[#6B7280]">Progress — {pct}%</span>
           <div className="flex items-center gap-3">
@@ -145,7 +145,7 @@ export function RunMode({ storyId, testCases, onExit }: RunModeProps) {
             ))}
           </div>
         </div>
-        <div className="h-2 rounded-full overflow-hidden" style={{ background: "#FFE4E8" }}>
+        <div className="h-2 rounded-full overflow-hidden" style={{ background: "#F0F0F0" }}>
           <div className="h-full rounded-full transition-all duration-500"
             style={{ width: `${pct}%`, background: failed > 0 ? "#be123c" : "#15803d" }} />
         </div>
@@ -154,7 +154,7 @@ export function RunMode({ storyId, testCases, onExit }: RunModeProps) {
       {/* Split: list + detail */}
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left list */}
-        <div className="w-64 flex-shrink-0 overflow-y-auto border-r border-[#FFE4E8]">
+        <div className="w-64 flex-shrink-0 overflow-y-auto border-r border-[#F0F0F0]">
           {testCases.map((tc, idx) => {
             const r = runState[idx]
             const sm = statusMeta[r.status]
@@ -231,7 +231,7 @@ export function RunMode({ storyId, testCases, onExit }: RunModeProps) {
             </div>
 
             {/* Pass / Fail / Skip buttons */}
-            <div className="flex items-center gap-2 px-5 py-4 flex-shrink-0 border-t border-[#FFE4E8]" style={{ background: "#FAFAFA" }}>
+            <div className="flex items-center gap-2 px-5 py-4 flex-shrink-0 border-t border-[#F0F0F0]" style={{ background: "#FAFAFA" }}>
               {(["pass", "fail", "skip"] as RunStatus[]).map(s => {
                 const sm = statusMeta[s]
                 const isActive = activeRun.status === s

@@ -131,7 +131,7 @@ export default function TestCaseGenerator() {
   /* ── kanban column state (persisted to localStorage) ── */
   type KanbanCol = "generated" | "review" | "approved"
   const COLS: { id: KanbanCol; label: string; icon: React.ReactNode; color: string; bg: string; border: string }[] = [
-    { id: "generated", label: "Generated",   icon: <Circle className="w-3.5 h-3.5" />,      color: "#FF4D6D", bg: "#FFF0F3", border: "#FDA4AF" },
+    { id: "generated", label: "Generated",   icon: <Circle className="w-3.5 h-3.5" />,      color: "#FF4D6D", bg: "#FFF8FA", border: "#F5D0D8" },
     { id: "review",    label: "Under Review", icon: <AlertCircle className="w-3.5 h-3.5" />, color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
     { id: "approved",  label: "Approved",     icon: <CheckCircle2 className="w-3.5 h-3.5" />,color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
   ]
@@ -332,22 +332,22 @@ export default function TestCaseGenerator() {
     const changePerPage = (n: number) => { setPerPage(n); fetchStories(1, n) }
 
     return (
-      <div className="flex items-center justify-between px-5 py-3 border-t border-[#FFE4E8] bg-[#FAFAFA] rounded-b-2xl">
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[#F0F0F0] bg-[#FAFAFA] rounded-b-2xl">
         <div className="flex items-center gap-3">
           <span className="text-sm text-[#6B7280]">
             {((currentPage - 1) * perPage) + 1}–{Math.min(currentPage * perPage, totalStories)} of {totalStories}
           </span>
           <select value={perPage} onChange={e => changePerPage(Number(e.target.value))}
-            className="h-7 rounded-lg px-2 text-xs border border-[#FECDD3] bg-white text-[#1A1A2E] focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/20">
+            className="h-7 rounded-lg px-2 text-xs border border-[#F0F0F0] bg-white text-[#1A1A2E] focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/20">
             {[5, 10, 20, 50].map(v => <option key={v} value={v}>{v} / page</option>)}
           </select>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => go(currentPage - 1)} disabled={currentPage === 1}
-            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#FECDD3] bg-white text-[#FF4D6D] disabled:opacity-30 hover:bg-[#FFF0F3] transition-colors">
+            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] bg-white text-[#FF4D6D] disabled:opacity-30 hover:bg-[#FFF8FA] transition-colors">
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          {start > 1 && <><button onClick={() => go(1)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#FECDD3] bg-white text-[#FF4D6D] hover:bg-[#FFF0F3]">1</button>{start > 2 && <span className="text-[#FECDD3] text-xs px-0.5">…</span>}</>}
+          {start > 1 && <><button onClick={() => go(1)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#F0F0F0] bg-white text-[#FF4D6D] hover:bg-[#FFF8FA]">1</button>{start > 2 && <span className="text-[#FECDD3] text-xs px-0.5">…</span>}</>}
           {pages.map(n => (
             <button key={n} onClick={() => go(n)}
               className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs font-medium transition-colors"
@@ -355,9 +355,9 @@ export default function TestCaseGenerator() {
               {n}
             </button>
           ))}
-          {end < totalPages && <>{end < totalPages - 1 && <span className="text-[#FECDD3] text-xs px-0.5">…</span>}<button onClick={() => go(totalPages)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#FECDD3] bg-white text-[#FF4D6D] hover:bg-[#FFF0F3]">{totalPages}</button></>}
+          {end < totalPages && <>{end < totalPages - 1 && <span className="text-[#FECDD3] text-xs px-0.5">…</span>}<button onClick={() => go(totalPages)} className="h-7 min-w-[28px] px-1.5 rounded-lg text-xs border border-[#F0F0F0] bg-white text-[#FF4D6D] hover:bg-[#FFF8FA]">{totalPages}</button></>}
           <button onClick={() => go(currentPage + 1)} disabled={currentPage === totalPages}
-            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#FECDD3] bg-white text-[#FF4D6D] disabled:opacity-30 hover:bg-[#FFF0F3] transition-colors">
+            className="h-7 w-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] bg-white text-[#FF4D6D] disabled:opacity-30 hover:bg-[#FFF8FA] transition-colors">
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -402,7 +402,7 @@ export default function TestCaseGenerator() {
 
       <SidebarInset>
         {/* ── Top bar ─────────────────────────────────────────── */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#FFE4E8] bg-white sticky top-0 z-30">
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#F0F0F0] bg-white sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#6B7280] hover:text-[#1A1A2E]" />
             <Separator orientation="vertical" className="h-5" />
@@ -415,7 +415,7 @@ export default function TestCaseGenerator() {
             {/* Ctrl+K button */}
             <button
               onClick={() => setShowCommandPalette(true)}
-              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#FECDD3] hover:bg-[#FFF0F3] transition-colors"
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#F0F0F0] hover:bg-[#FFF8FA] transition-colors"
               style={{ color: "#6B7280" }}
             >
               <Command className="w-3.5 h-3.5" />
@@ -425,7 +425,7 @@ export default function TestCaseGenerator() {
             {/* Compare button */}
             <button
               onClick={() => setShowCompare(true)}
-              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#FECDD3] hover:bg-[#FFF0F3] transition-colors"
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#F0F0F0] hover:bg-[#FFF8FA] transition-colors"
               style={{ color: "#6B7280" }}
             >
               <ArrowLeftRight className="w-3.5 h-3.5" />Compare
@@ -433,7 +433,7 @@ export default function TestCaseGenerator() {
             {/* Print */}
             <button
               onClick={handlePrint}
-              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#FECDD3] hover:bg-[#FFF0F3] transition-colors"
+              className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-[#F0F0F0] hover:bg-[#FFF8FA] transition-colors"
               style={{ color: "#6B7280" }}
             >
               <Printer className="w-3.5 h-3.5" />Print
@@ -447,7 +447,7 @@ export default function TestCaseGenerator() {
         </header>
 
         {/* ── Main content ────────────────────────────────────── */}
-        <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)" }}>
+        <div className="p-6 space-y-6 min-h-[calc(100vh-56px)]" style={{ background: "#FAFAFA" }}>
 
           {/* ── Smart single search bar ───────────────────────── */}
           <div
@@ -459,7 +459,7 @@ export default function TestCaseGenerator() {
               height: 52,
             }}
             onFocus={e => (e.currentTarget.style.borderColor = "#FF4D6D")}
-            onBlur={e => (e.currentTarget.style.borderColor = "#FECDD3")}
+            onBlur={e => (e.currentTarget.style.borderColor = "#EBEBEB")}
           >
             {/* icon — changes based on detected mode */}
             <Search className="w-4 h-4 flex-shrink-0" style={{
@@ -501,7 +501,7 @@ export default function TestCaseGenerator() {
             {(formData.storyId || formData.storyDescription) && (
               <button
                 onClick={() => { setFormData(p => ({ ...p, storyId: "", storyDescription: "" })); fetchStories(1, perPage) }}
-                className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors hover:bg-[#FFF0F3]"
+                className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors hover:bg-[#FFF8FA]"
                 style={{ color: "#9ca3af" }}
               >
                 <X className="w-3.5 h-3.5" />
@@ -532,7 +532,7 @@ export default function TestCaseGenerator() {
                       : { ...p, storyDescription: q, storyId: "" })
                     setTimeout(handleSearch, 0)
                   }}
-                  className="text-xs px-2.5 py-1 rounded-full border transition-colors hover:bg-[#FFF0F3]"
+                  className="text-xs px-2.5 py-1 rounded-full border transition-colors hover:bg-[#FFF8FA]"
                   style={{ color: "#6B7280", border: "1px solid #FECDD3", background: "#ffffff" }}
                 >
                   {q}
@@ -602,7 +602,7 @@ export default function TestCaseGenerator() {
           )}
 
           {/* ── Filter bar ─────────────────────────────────────── */}
-          <div className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm px-5 py-4">
+          <div className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm px-5 py-4">
             <div className="flex items-end flex-wrap gap-4">
               <div>
                 <label className={labelCls}>From Date</label>
@@ -634,11 +634,11 @@ export default function TestCaseGenerator() {
               </div>
 
               <button onClick={() => fetchStories(currentPage, perPage)}
-                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#FCA5A5] bg-white text-[#FF4D6D] flex items-center gap-2 hover:bg-[#FFF0F3] transition-colors self-end">
+                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#FCA5A5] bg-white text-[#FF4D6D] flex items-center gap-2 hover:bg-[#FFF8FA] transition-colors self-end">
                 <RefreshCw className="w-3.5 h-3.5" /> Refresh
               </button>
               <button onClick={handleClearFilters}
-                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#FCA5A5] bg-white text-[#6B7280] flex items-center gap-2 hover:bg-[#FFF0F3] transition-colors self-end">
+                className="h-9 px-4 rounded-xl text-sm font-semibold border border-[#FCA5A5] bg-white text-[#6B7280] flex items-center gap-2 hover:bg-[#FFF8FA] transition-colors self-end">
                 <X className="w-3.5 h-3.5" /> Clear All
               </button>
             </div>
@@ -652,7 +652,7 @@ export default function TestCaseGenerator() {
                 <SlidersHorizontal className="w-4 h-4 text-[#FF4D6D]" />
                 <span className="font-semibold text-sm text-[#1A1A2E]">Results</span>
                 {!loading && (
-                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#FFF0F3] text-[#FF4D6D]">
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#FFF8FA] text-[#FF4D6D]">
                     {filterNoTC ? stories.filter(s => !s.test_case_count).length : totalStories}
                   </span>
                 )}
@@ -685,7 +685,7 @@ export default function TestCaseGenerator() {
                 )}
               </div>
               {/* View toggle pill */}
-              <div className="flex items-center rounded-xl border border-[#FECDD3] bg-white p-0.5">
+              <div className="flex items-center rounded-xl border border-[#F0F0F0] bg-white p-0.5">
                 {([
                   { mode: "board" as const, icon: <LayoutGrid className="w-3.5 h-3.5" />, label: "Board" },
                   { mode: "table" as const, icon: <List className="w-3.5 h-3.5" />, label: "Table" },
@@ -701,7 +701,7 @@ export default function TestCaseGenerator() {
 
             {/* ── TABLE ──────────────────────────────────────── */}
             {viewMode === "table" && (
-              <div className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm overflow-hidden">
+              <div className="bg-white rounded-2xl border border-[#EBEBEB] shadow-sm overflow-hidden">
                 {loading ? (
                   <div className="py-16 text-center">
                     <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#FF4D6D]">
@@ -736,7 +736,7 @@ export default function TestCaseGenerator() {
                         {(filterNoTC ? stories.filter(s => !s.test_case_count) : stories).map((story, i) => (
                           <tr key={story.id || i}
                             onClick={() => { setPreviewStory(story); setShowPreview(true) }}
-                            className="cursor-pointer border-b border-[#FFE4E8] transition-colors"
+                            className="cursor-pointer border-b border-[#F0F0F0] transition-colors"
                             style={{ background: i % 2 === 0 ? "#ffffff" : "#FAFAFA" }}
                             onMouseEnter={e => (e.currentTarget.style.background = "#FFF0F3")}
                             onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? "#ffffff" : "#FAFAFA")}
@@ -757,7 +757,7 @@ export default function TestCaseGenerator() {
                               <button onClick={() => router.push(`/test-cases/${story.id}`)}
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                                 style={{ background: "#FFF0F3", color: "#FF4D6D", border: "1px solid #FCA5A5" }}
-                                onMouseEnter={e => (e.currentTarget.style.background = "#FFE4E8")}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#F0F0F0")}
                                 onMouseLeave={e => (e.currentTarget.style.background = "#FFF0F3")}>
                                 <FileText className="w-3.5 h-3.5" />{story.test_case_count || 0} Cases
                               </button>
@@ -953,7 +953,7 @@ export default function TestCaseGenerator() {
 
       {/* ═══════ STORY PREVIEW SHEET ═══════ */}
       <Sheet open={showPreview} onOpenChange={setShowPreview}>
-        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#FECDD3]">
+        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#F0F0F0]">
           {/* header */}
           <div className="px-6 py-5 flex-shrink-0" style={{ background: "#1A1A2E" }}>
             <SheetHeader>
@@ -975,7 +975,7 @@ export default function TestCaseGenerator() {
                 <span className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280]">AI-Generated Description</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: "rgba(55,122,207,0.12)", color: "#FF4D6D" }}>AI</span>
               </div>
-              <div className="rounded-xl p-4 bg-white border border-[#FECDD3]">
+              <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
                 <p className="text-sm text-[#374151] leading-relaxed">{previewStory?.description || "No description available."}</p>
               </div>
             </div>
@@ -984,7 +984,7 @@ export default function TestCaseGenerator() {
             {previewStory?.doc_content_text && (
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Story Content</div>
-                <div className="rounded-xl p-4 bg-white border border-[#FECDD3] max-h-48 overflow-y-auto">
+                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0] max-h-48 overflow-y-auto">
                   <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{previewStory.doc_content_text}</p>
                 </div>
               </div>
@@ -992,11 +992,11 @@ export default function TestCaseGenerator() {
 
             {/* Meta */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl p-3.5 bg-white border border-[#FECDD3]">
+              <div className="rounded-xl p-3.5 bg-white border border-[#F0F0F0]">
                 <div className="text-[11px] font-semibold text-[#6B7280] mb-0.5">Test Cases</div>
                 <div className="text-xl font-bold text-[#FF4D6D]">{previewStory?.test_case_count || 0}</div>
               </div>
-              <div className="rounded-xl p-3.5 bg-white border border-[#FECDD3]">
+              <div className="rounded-xl p-3.5 bg-white border border-[#F0F0F0]">
                 <div className="text-[11px] font-semibold text-[#6B7280] mb-0.5">Impacted</div>
                 <div className="text-xl font-bold text-[#b45309]">
                   {typeof previewStory?.impactedTestCases === "number" ? previewStory.impactedTestCases : "—"}
@@ -1006,7 +1006,7 @@ export default function TestCaseGenerator() {
           </div>
 
           {/* footer actions */}
-          <div className="p-5 flex-shrink-0 border-t border-[#FECDD3] bg-white space-y-2.5">
+          <div className="p-5 flex-shrink-0 border-t border-[#F0F0F0] bg-white space-y-2.5">
             <button onClick={() => { setShowPreview(false); router.push(`/test-cases/${previewStory?.id}`) }}
               className="w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
               style={{ background: "#FF4D6D" }}>
@@ -1020,7 +1020,7 @@ export default function TestCaseGenerator() {
               </button>
             )}
             <button onClick={() => { if (previewStory) handleDownload(previewStory.id) }}
-              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#FECDD3]"
+              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#F0F0F0]"
               style={{ background: "#ffffff", color: "#374151" }}>
               <Download className="w-4 h-4" /> Download Excel
             </button>
@@ -1033,7 +1033,7 @@ export default function TestCaseGenerator() {
             </button>
             <button
               onClick={() => { if (previewStory) { setCompareStoryId(previewStory.id); setShowPreview(false); setShowCompare(true) } }}
-              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#FECDD3]"
+              className="w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors border border-[#F0F0F0]"
               style={{ background: "#FAFAFA", color: "#6B7280" }}>
               <ArrowLeftRight className="w-4 h-4" /> Compare with Another Story
             </button>
@@ -1043,7 +1043,7 @@ export default function TestCaseGenerator() {
 
       {/* ═══════ UPLOAD STORY SHEET ═══════ */}
       <Sheet open={showUpload} onOpenChange={setShowUpload}>
-        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#FECDD3]">
+        <SheetContent side="right" className="w-[480px] p-0 flex flex-col gap-0 border-l border-[#F0F0F0]">
           <div className="px-6 py-5 flex-shrink-0" style={{ background: "#1A1A2E" }}>
             <SheetHeader>
               <SheetTitle className="text-white text-base font-bold flex items-center gap-2.5">
@@ -1095,7 +1095,7 @@ export default function TestCaseGenerator() {
             <div>
               <label className={labelCls}>Or Upload File</label>
               <label htmlFor="file-upload"
-                className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed border-[#FCA5A5] bg-white cursor-pointer hover:border-[#FF4D6D] hover:bg-[#FFF0F3] transition-colors">
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed border-[#FCA5A5] bg-white cursor-pointer hover:border-[#FF4D6D] hover:bg-[#FFF8FA] transition-colors">
                 <FileText className="w-4 h-4 text-[#FF4D6D]" />
                 <span className="text-sm text-[#6B7280]">
                   {uploadForm.file ? uploadForm.file.name : "Click to upload PDF, DOCX or TXT"}
@@ -1125,7 +1125,7 @@ export default function TestCaseGenerator() {
             )}
           </div>
 
-          <div className="p-5 flex-shrink-0 border-t border-[#FECDD3] bg-white">
+          <div className="p-5 flex-shrink-0 border-t border-[#F0F0F0] bg-white">
             <button onClick={handleUploadStory}
               disabled={isUploading || (uploadForm.projectId === "new" ? !newProjectName : !uploadForm.projectId) || !uploadForm.storyId || (!uploadForm.content && !uploadForm.file)}
               className="w-full h-10 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"

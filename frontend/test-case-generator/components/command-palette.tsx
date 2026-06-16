@@ -77,7 +77,7 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#FFE4E8]">
+        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#F0F0F0]">
           <Search className="w-4 h-4 flex-shrink-0 text-[#FF4D6D]" />
           <input
             ref={inputRef}
@@ -131,7 +131,7 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
                 { label: "Go to Dashboard", icon: <ArrowRight className="w-3.5 h-3.5" />, action: () => { router.push("/"); onOpenChange(false) } },
               ].map(a => (
                 <button key={a.label} onClick={a.action}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF0F3] transition-colors text-left">
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF8FA] transition-colors text-left">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
                     {a.icon}
@@ -144,7 +144,7 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
         </div>
 
         {/* Footer hint */}
-        <div className="px-4 py-2.5 border-t border-[#FFE4E8] flex items-center gap-3"
+        <div className="px-4 py-2.5 border-t border-[#F0F0F0] flex items-center gap-3"
           style={{ background: "#FAFAFA" }}>
           <div className="flex items-center gap-1 text-[11px] text-[#9ca3af]">
             <kbd className="px-1.5 py-0.5 rounded font-mono text-[10px]" style={{ background: "#FAFAFA", border: "1px solid #FECDD3" }}>↵</kbd>
@@ -162,7 +162,7 @@ export function CommandPalette({ open, onOpenChange, stories, onSelectStory }: C
 
 function StoryRow({ story, onSelect, router }: { story: Story; onSelect: (s: Story) => void; router: any }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF0F3] transition-colors group">
+    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#FFF8FA] transition-colors group">
       <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
         style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
         <FileText className="w-3.5 h-3.5" />

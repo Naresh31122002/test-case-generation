@@ -250,7 +250,7 @@ export default function StoryImpactAnalysisPage() {
       <AppSidebar />
       <SidebarInset>
         {/* Top bar */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#FFE4E8] sticky top-0 z-50" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
+        <header className="flex items-center justify-between h-14 px-5 border-b border-[#F0F0F0] sticky top-0 z-50" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#6B7280] hover:text-[#1A1A2E]" />
             <Separator orientation="vertical" className="h-5" />
@@ -273,10 +273,10 @@ export default function StoryImpactAnalysisPage() {
           </div>
         </header>
 
-        <div className="p-6 space-y-5" style={{ background: "linear-gradient(160deg, #FFF0F3 0%, #FAFAFA 50%, #FFE4E8 100%)", minHeight: "calc(100vh - 56px)" }}>
+        <div className="p-6 space-y-5" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
 
           {/* Story header card */}
-          <div className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm overflow-hidden">
             <div className="px-6 py-5" style={{ background: "#1A1A2E" }}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -335,7 +335,7 @@ export default function StoryImpactAnalysisPage() {
                   ),
                 },
               ].map((s, i) => (
-                <div key={i} className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm px-5 py-4">
+                <div key={i} className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm px-5 py-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] mb-1">{s.label}</div>
                   {s.custom ? s.custom : <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>}
                 </div>
@@ -344,8 +344,8 @@ export default function StoryImpactAnalysisPage() {
           )}
 
           {/* Impact cards list */}
-          <div className="bg-white rounded-2xl border border-[#FECDD3] shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[#FFE4E8] flex items-center gap-2">
+          <div className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-[#F0F0F0] flex items-center gap-2">
               <Brain className="w-4 h-4 text-[#FF4D6D]" />
               <span className="font-semibold text-sm text-[#1A1A2E]">Modified Test Cases</span>
               {!loading && <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#E1F5F8] text-[#FF4D6D]">{visibleImpacted.length}</span>}
@@ -476,7 +476,7 @@ export default function StoryImpactAnalysisPage() {
                 </div>
 
                 {/* References + priority grid */}
-                <div className="rounded-xl p-4 border border-[#FECDD3] space-y-4" style={{ background: "#fafafa" }}>
+                <div className="rounded-xl p-4 border border-[#F0F0F0] space-y-4" style={{ background: "#fafafa" }}>
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-[#6B7280]" />
                     <span className="text-sm font-bold text-[#6B7280]">References</span>
@@ -568,7 +568,7 @@ export default function StoryImpactAnalysisPage() {
                 )}
 
                 {/* Severity / Priority / Date bar */}
-                <div className="flex items-center flex-wrap gap-4 px-4 py-3 rounded-xl bg-white border border-[#FECDD3] text-sm">
+                <div className="flex items-center flex-wrap gap-4 px-4 py-3 rounded-xl bg-white border border-[#F0F0F0] text-sm">
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-[#6B7280]">Severity:</span>
                     <span className="font-bold" style={{ color: sev.color }}>{selectedTC.impacts[0]?.impact_severity?.toUpperCase() || "LOW"}</span>
@@ -605,7 +605,7 @@ export default function StoryImpactAnalysisPage() {
             {storyDescription && (
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">AI Description</div>
-                <div className="rounded-xl p-4 bg-white border border-[#FECDD3]">
+                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
                   <p className="text-sm text-[#374151] leading-relaxed">{storyDescription}</p>
                 </div>
               </div>
@@ -613,7 +613,7 @@ export default function StoryImpactAnalysisPage() {
             {storyContent && (
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Full Content</div>
-                <div className="rounded-xl p-4 bg-white border border-[#FECDD3]">
+                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
                   <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{storyContent}</p>
                 </div>
               </div>

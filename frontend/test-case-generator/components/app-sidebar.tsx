@@ -6,50 +6,36 @@ import {
   SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
   SidebarMenuItem, SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Upload, Clock, RefreshCw, FlaskConical, Search, LogOut } from "lucide-react"
+import { LayoutDashboard, Upload, Clock, RefreshCw, Search } from "lucide-react"
 import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { api, Story } from "@/lib/api"
 import { CommandPalette } from "@/components/command-palette"
-import { getCurrentUser, logout } from "@/lib/auth"
 
 interface AppSidebarProps {
   projects?: string[]
   selectedProject?: string
   onProjectChange?: (p: string) => void
   onUploadClick?: () => void
+  onCreateProject?: () => void
 }
 
-export function AppSidebar({ projects = [], selectedProject = '', onProjectChange, onUploadClick }: AppSidebarProps) {
+export function AppSidebar({ projects = [], selectedProject = '', onProjectChange, onUploadClick, onCreateProject }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [nextReload, setNextReload] = useState<Date | null>(null)
   const [timeLeft, setTimeLeft] = useState<string>("")
   const [isTriggering, setIsTriggering] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
 
-  /* Load current user for display in sidebar footer */
-  useEffect(() => {
-    getCurrentUser().then(u => setUserEmail(u?.email ?? null)).catch(() => {})
-  }, [])
-
-  const handleLogout = async () => {
-    await logout()
-    router.push("/login")
-  }
-
-  /* ── Command palette — fetches its own stories so it works on every page ── */
   const [showPalette, setShowPalette] = useState(false)
   const [allStories, setAllStories] = useState<Story[]>([])
 
   useEffect(() => {
-    // Load all stories once so the palette has data on every page
     api.getStories(1, 100).then(res => {
       if (res.stories) setAllStories(res.stories)
     }).catch(() => {})
   }, [])
 
-  /* Listen for Ctrl+K globally — works on all pages because sidebar is always mounted */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -115,91 +101,120 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
 
   return (
     <>
-      <Sidebar collapsible="icon">
+      <Sidebar collapsible="icon" className="border-r border-[#EBEBEB] bg-white">
         {/* Brand */}
-        <SidebarHeader className="px-4 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+        <SidebarHeader className="px-4 py-4 bg-white" style={{ borderBottom: "1px solid #EBEBEB" }}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "#FF4D6D" }}>
-              <FlaskConical className="w-4 h-4 text-white" />
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "#FF4D6D" }}
+            >
+              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
             <div className="group-data-[collapsible=icon]:hidden min-w-0">
-              <div className="font-bold text-sm text-white leading-tight truncate">Test Forge AI</div>
-              <div className="text-[11px] leading-tight truncate" style={{ color: "#FFB3C1" }}>Powered by Gen AI</div>
+              <div className="font-bold text-sm leading-tight truncate" style={{ color: "#1A1A2E" }}>Test Forge AI</div>
+              <div className="text-[11px] leading-tight truncate" style={{ color: "#9CA3AF" }}>Powered by Gen AI</div>
             </div>
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="py-3">
-          {/* Nav */}
+        <SidebarContent className="py-2 bg-white">
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-1" style={{ color: "rgba(162,210,233,0.5)" }}>
+            <SidebarGroupLabel
+              className="text-[10px] uppercase tracking-widest px-3 mb-1"
+              style={{ color: "#9CA3AF" }}
+            >
               Navigation
             </SidebarGroupLabel>
             <SidebarMenu>
+              {/* Dashboard — custom active style without shadcn ring */}
               <SidebarMenuItem>
-                <SidebarMenuButton isActive={isDashboard} onClick={() => router.push("/")} tooltip="Dashboard" className="gap-3">
+                <button
+                  onClick={() => router.push("/")}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors relative"
+                  style={isDashboard
+                    ? { background: "#FFF8FA", color: "#FF4D6D" }
+                    : { color: "#1A1A2E" }
+                  }
+                >
+                  {isDashboard && (
+                    <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full" style={{ background: "#FF4D6D" }} />
+                  )}
                   <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-                  <span>Dashboard</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={onUploadClick} tooltip="Upload Story" className="gap-3">
-                  <Upload className="w-4 h-4 flex-shrink-0" />
-                  <span>Upload Story</span>
-                </SidebarMenuButton>
+                  <span className="group-data-[collapsible=icon]:hidden">Dashboard</span>
+                </button>
               </SidebarMenuItem>
 
-              {/* Search / Command palette trigger — visible on every page */}
               <SidebarMenuItem>
-                <SidebarMenuButton
+                <button
+                  onClick={onUploadClick}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors hover:bg-[#FFF8FA]"
+                  style={{ color: "#1A1A2E" }}
+                >
+                  <Upload className="w-4 h-4 flex-shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">Upload Story</span>
+                </button>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <button
                   onClick={() => setShowPalette(true)}
-                  tooltip="Search (Ctrl+K)"
-                  className="gap-3"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors hover:bg-[#FFF8FA]"
+                  style={{ color: "#1A1A2E" }}
                 >
                   <Search className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1">Search Stories</span>
+                  <span className="flex-1 text-left group-data-[collapsible=icon]:hidden">Search Stories</span>
                   <kbd
                     className="text-[10px] px-1.5 py-0.5 rounded font-mono group-data-[collapsible=icon]:hidden"
-                    style={{ background: "rgba(255,255,255,0.08)", color: "#FFB3C1", border: "1px solid rgba(255,255,255,0.1)" }}
+                    style={{ background: "#F5F5F5", color: "#9CA3AF", border: "1px solid #E5E7EB" }}
                   >
                     ⌘K
                   </kbd>
-                </SidebarMenuButton>
+                </button>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
 
-          <SidebarSeparator />
+          <SidebarSeparator style={{ background: "#EBEBEB" }} />
 
           {/* Project filter */}
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest px-3 mb-2" style={{ color: "rgba(162,210,233,0.5)" }}>
+            <SidebarGroupLabel
+              className="text-[10px] uppercase tracking-widest px-3 mb-2"
+              style={{ color: "#9CA3AF" }}
+            >
               Project
             </SidebarGroupLabel>
             <div className="px-3">
               <select
                 value={selectedProject}
                 onChange={e => onProjectChange?.(e.target.value)}
-                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium border-0 focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/40"
-                style={{ background: "rgba(255,255,255,0.07)", color: "#FFB3C1" }}
+                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/20 border"
+                style={{ background: "#FAFAFA", color: "#1A1A2E", border: "1px solid #F3E8ED" }}
               >
-                <option value="" style={{ background: "#1A1A2E", color: "#fff" }}>All Projects</option>
+                <option value="">All Projects</option>
                 {projects.map(p => (
-                  <option key={p} value={p} style={{ background: "#1A1A2E", color: "#fff" }}>{p}</option>
+                  <option key={p} value={p}>{p}</option>
                 ))}
               </select>
             </div>
           </SidebarGroup>
         </SidebarContent>
 
-        {/* Scheduler + user footer */}
-        <SidebarFooter className="group-data-[collapsible=icon]:hidden p-4" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        {/* Scheduler footer */}
+        <SidebarFooter
+          className="group-data-[collapsible=icon]:hidden p-4 bg-white"
+          style={{ borderTop: "1px solid #F3E8ED" }}
+        >
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#FFB3C1" }} />
-              <span className="text-[11px]" style={{ color: "rgba(162,210,233,0.7)" }}>Next scheduler run</span>
+              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#FF4D6D" }} />
+              <span className="text-[11px]" style={{ color: "#9CA3AF" }}>Next scheduler run</span>
             </div>
-            <div className="font-mono text-sm font-bold text-white">{timeLeft || "—"}</div>
+            <div className="font-mono text-sm font-bold" style={{ color: "#1A1A2E" }}>{timeLeft || "—"}</div>
             <button
               onClick={triggerReload}
               disabled={isTriggering}
@@ -211,37 +226,14 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
                 : <><RefreshCw className="w-3 h-3" />Trigger Now</>}
             </button>
           </div>
-
-          {/* Logged-in user row */}
-          {userEmail && (
-            <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] truncate" style={{ color: "rgba(162,210,233,0.7)" }} title={userEmail}>
-                  {userEmail}
-                </span>
-                <button
-                  onClick={handleLogout}
-                  title="Sign out"
-                  className="flex-shrink-0 p-1.5 rounded-lg transition hover:bg-white/10"
-                  style={{ color: "#FFB3C1" }}
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
         </SidebarFooter>
       </Sidebar>
 
-      {/* Command palette — rendered outside sidebar so it overlays the full page */}
       <CommandPalette
         open={showPalette}
         onOpenChange={setShowPalette}
         stories={allStories}
-        onSelectStory={s => {
-          // Navigate to the story's test cases page from any page
-          router.push(`/test-cases/${s.id}`)
-        }}
+        onSelectStory={s => router.push(`/test-cases/${s.id}`)}
       />
     </>
   )

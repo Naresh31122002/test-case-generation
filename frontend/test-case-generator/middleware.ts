@@ -15,6 +15,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // In development, bypass auth entirely so mock data works without a backend
+  if (process.env.NODE_ENV === "development") {
+    return NextResponse.next()
+  }
+
   // Cookie presence check — Flask verifies the token cryptographically on every API call
   const accessToken = request.cookies.get("access_token_cookie")
 
