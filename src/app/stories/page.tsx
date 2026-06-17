@@ -8,6 +8,7 @@ import {
   Search,
   LayoutGrid,
   List,
+  Kanban,
   TestTube2,
   Zap,
   Plus,
@@ -17,12 +18,13 @@ import {
   ExternalLink,
   Trash2,
 } from "lucide-react";
-import { stories, type Story } from "@/lib/seed";
+import { stories, testCases, type Story } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
 import { StatusChip } from "@/components/ui/StatusChip";
+import { KanbanView } from "@/components/KanbanView";
 import { staggerContainer, fadeInUp, scaleIn } from "@/lib/motion";
 
-type ViewMode = "board" | "list";
+type ViewMode = "board" | "list" | "kanban";
 type SortKey = "lastUpdated" | "name" | "coverageAsc" | "coverageDesc" | "impactDesc";
 
 export default function StoriesPage() {
@@ -77,10 +79,10 @@ export default function StoriesPage() {
       </div>
 
       {/* Page content */}
-      <div className="flex-1 px-8 py-8 max-w-content mx-auto w-full">
+      <div className={`flex-1 py-8 max-w-content mx-auto w-full ${viewMode === "kanban" ? "overflow-x-auto px-2" : "px-8"}`}>
         {/* Toolbar */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="relative w-[280px]">
+        <div className={`flex items-center gap-3 mb-6 ${viewMode === "kanban" ? "px-6" : ""}`}>
+          {viewMode !== "kanban" && <div className="relative w-[280px]">
             <Search
               size={15}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted"
@@ -92,9 +94,9 @@ export default function StoriesPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 h-9 text-sm border border-border rounded-btn bg-white text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/30 transition-colors"
             />
-          </div>
+          </div>}
 
-          <select
+          {viewMode !== "kanban" && <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
             className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
@@ -103,9 +105,9 @@ export default function StoriesPage() {
             <option>Functional</option>
             <option>OAuth</option>
             <option>Security</option>
-          </select>
+          </select>}
 
-          <select
+          {viewMode !== "kanban" && <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
             className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
@@ -115,7 +117,11 @@ export default function StoriesPage() {
             <option value="coverageDesc">Coverage ↑</option>
             <option value="coverageAsc">Coverage ↓</option>
             <option value="impactDesc">Impact ↑</option>
-          </select>
+          </select>}
+
+          {viewMode === "kanban" && (
+            <span className="text-sm text-muted">{testCases.length} test cases across {stories.length} stories</span>
+          )}
 
           <div className="ml-auto flex items-center border border-border rounded-btn overflow-hidden">
             <button
@@ -123,7 +129,7 @@ export default function StoriesPage() {
               className={`w-9 h-9 flex items-center justify-center transition-colors ${
                 viewMode === "board" ? "bg-surface-pink text-pink" : "bg-white text-muted hover:text-navy"
               }`}
-              title="Board view"
+              title="Card view"
             >
               <LayoutGrid size={16} />
             </button>
@@ -136,12 +142,31 @@ export default function StoriesPage() {
             >
               <List size={16} />
             </button>
+            <button
+              onClick={() => setViewMode("kanban")}
+              className={`w-9 h-9 flex items-center justify-center transition-colors ${
+                viewMode === "kanban" ? "bg-surface-pink text-pink" : "bg-white text-muted hover:text-navy"
+              }`}
+              title="Kanban view"
+            >
+              <Kanban size={16} />
+            </button>
           </div>
         </div>
 
         {/* Content */}
         <AnimatePresence mode="wait">
-          {filtered.length === 0 ? (
+          {viewMode === "kanban" ? (
+            <motion.div
+              key="kanban"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <KanbanView tests={testCases} />
+            </motion.div>
+          ) : filtered.length === 0 ? (
             <EmptyState key="empty" hasSearch={!!search} />
           ) : viewMode === "board" ? (
             <BoardView key={`board-${filterType}-${sortKey}`} stories={filtered} />
