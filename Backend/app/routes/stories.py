@@ -3,6 +3,8 @@ from datetime import datetime
 import json
 import uuid
 import math
+import os
+import functools
 
 # Third-party imports
 from flask import Blueprint, jsonify, request, send_file, Response
@@ -19,6 +21,30 @@ from app.utils.excel_util import generate_excel
 from app.LLM.Test_case_generator import Chat_RAG
 stories_bp = Blueprint('stories', __name__)
 
+# ── Dev auth bypass ───────────────────────────────────────────────────────────
+# Set DEV_BYPASS_AUTH=1 in .env to skip JWT and use a fixed dev user_id.
+# REMOVE before deploying to production.
+_DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
+
+def _is_bypass():
+    return os.getenv("DEV_BYPASS_AUTH", "0") == "1"
+
+def dev_jwt_required(fn):
+    """Drop-in replacement for @dev_jwt_required that respects DEV_BYPASS_AUTH."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if _is_bypass():
+            return fn(*args, **kwargs)
+        return jwt_required()(fn)(*args, **kwargs)
+    return wrapper
+
+def get_current_user_id():
+    """Return user_id from JWT or the fixed dev user when bypassing."""
+    if _is_bypass():
+        return _DEV_USER_ID
+    return get_jwt_identity()
+# ─────────────────────────────────────────────────────────────────────────────
+
 def serialize_datetime(obj):
     """Helper function to serialize datetime objects"""
     if isinstance(obj, datetime):
@@ -26,11 +52,11 @@ def serialize_datetime(obj):
     return str(obj)
 
 @stories_bp.route('/', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_stories():
     """Get all stories with pagination and sorting"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         sort_order = request.args.get('sort_order', 'desc')
@@ -184,11 +210,11 @@ def get_stories():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/<story_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_story(story_id):
     """Get a specific story"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         print("DEBUG:get_story: Request received", {'story_id': story_id})
         if not story_id:
             return jsonify({'error': 'Story ID is required'}), 400
@@ -207,11 +233,11 @@ def get_story(story_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/search', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def search_stories():
     """Search for similar stories"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         data = request.get_json()
         print("DEBUG:search_stories: Request received", {'data': data})
         if not data or 'query' not in data:
@@ -241,11 +267,11 @@ def search_stories():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/testcases/download/<story_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def download_test_cases(story_id):
     """Download test cases for a story as Excel file"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         print("DEBUG:download_test_cases: Request received", {'story_id': story_id})
         db_service = get_db_service()
 
@@ -328,11 +354,11 @@ def download_test_cases(story_id):
         }), 500
 
 @stories_bp.route('/<story_id>/testcases', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_story_testcases(story_id):
     """Get test cases for a specific story"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         print(f"DEBUG:get_story_testcases: Request received for story {story_id}")
         db_service = get_db_service()
 
@@ -404,7 +430,7 @@ def get_story_testcases(story_id):
         return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 @stories_bp.route('/next-reload', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_next_reload():
     try:
         import os
@@ -436,7 +462,7 @@ def get_next_reload():
         }), 500
 
 @stories_bp.route('/trigger-reload', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def trigger_reload():
     """Trigger the scheduler to run immediately"""
     try:
@@ -448,7 +474,7 @@ def trigger_reload():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/rag-chat', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def rag_chat():
     """RAG chatbot endpoint: retrieves similar test cases, sends them as context to Gemini, returns generated test cases."""
     try:
@@ -535,11 +561,11 @@ Now, based on the following user story, generate new, comprehensive test cases i
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/projects', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_projects():
     """Get unique project IDs for the current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         db_service = get_db_service()
 
         # Get stories from LanceDB filtered by user
@@ -561,11 +587,11 @@ def get_projects():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/upload', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def upload_story():
     """Upload a new user story with project ID, story ID, content, and optional file. Description will be AI-generated."""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         # Get form data
         project_id = request.form.get('project_id')
         story_id = request.form.get('story_id')
@@ -654,6 +680,23 @@ def upload_story():
             print(f"Error generating AI description: {str(e)}")
             description = story_content[:147] + "..." if len(story_content) > 150 else story_content
 
+        # Generate a short 3-5 word title from the description using LLM
+        try:
+            title_prompt = (
+                "Generate a short title of 3-5 words (no punctuation, no quotes) that captures "
+                "the main feature described below. Return ONLY the title, nothing else.\n\n"
+                + description[:500]
+            )
+            title_response = Config.llm.invoke(title_prompt)
+            short_title = title_response.content.strip().strip('"').strip("'").strip()
+            # Fallback if LLM returns something too long or empty
+            if not short_title or len(short_title) > 60:
+                words = description.split()[:5]
+                short_title = " ".join(words)
+        except Exception:
+            words = description.split()[:5]
+            short_title = " ".join(words)
+
         # Add to LanceDB with user_id
         try:
             from app.config import get_embedding_model
@@ -666,13 +709,13 @@ def upload_story():
             # Generate embedding
             embedding = get_embedding_model().encode(story_content).tolist()
 
-            # Add to LanceDB
+            # Add to LanceDB — storyDescription stores the short title for card display
             table.add([{
                 "user_id": user_id,
                 "project_id": project_id,
                 "vector": embedding,
                 "storyID": story_id,
-                "storyDescription": description,
+                "storyDescription": short_title,
                 "test_case_content": "",
                 "filename": filename if file else f"{story_id}.txt",
                 "original_path": file_path if file else None,
@@ -772,11 +815,11 @@ def upload_story():
         }), 500
 
 @stories_bp.route('/impacts/<project_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_project_impacts(project_id):
     """Get all impact analyses for a project"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -810,11 +853,11 @@ def get_project_impacts(project_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/story/<story_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_story_impacts(story_id):
     """Get impacts where this story is either the source or target"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -856,11 +899,11 @@ def get_story_impacts(story_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/details/<impact_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_impact_details(impact_id):
     """Get detailed view of a specific impact"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -889,11 +932,11 @@ def get_impact_details(impact_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/summary/<project_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_project_impact_summary(project_id):
     """Get summary of impacts in a project"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
@@ -918,11 +961,11 @@ def get_project_impact_summary(project_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/analyze', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def trigger_impact_analysis():
     """Manually trigger impact analysis for a story"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         data = request.get_json()
         story_id = data.get('story_id')
         project_id = data.get('project_id')
@@ -945,11 +988,11 @@ def trigger_impact_analysis():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/analyze-project', methods=['POST'])
-@jwt_required()
+@dev_jwt_required
 def trigger_project_impact_analysis():
     """Trigger impact analysis for ALL stories in a project (background thread)."""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         data = request.get_json()
         project_id = data.get('project_id')
 
@@ -1007,11 +1050,11 @@ def trigger_project_impact_analysis():
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/<story_id>/test-cases/<test_case_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_test_case(story_id, test_case_id):
     """Get a specific test case from a story"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         print(f"Fetching test case {test_case_id} from story {story_id}")
         db_service = get_db_service()
 
@@ -1052,11 +1095,11 @@ def get_test_case(story_id, test_case_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/story-test-cases/<story_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_story_test_case_impacts(story_id):
     """Get details of how test cases in this story were impacted by other stories"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
@@ -1203,11 +1246,11 @@ def get_story_test_case_impacts(story_id):
         return jsonify({'error': str(e)}), 500
 
 @stories_bp.route('/impacts/details/<story_id>', methods=['GET'])
-@jwt_required()
+@dev_jwt_required
 def get_story_impact_details(story_id):
     """Get detailed impact information for a story"""
     try:
-        user_id = get_jwt_identity()
+        user_id = get_current_user_id()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
@@ -1340,3 +1383,266 @@ def get_story_impact_details(story_id):
     except Exception as e:
         print(f"❌ Error fetching story impact details: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ── Review endpoints (INTEGRATION_PLAN Gap 2) ────────────────────────────────
+
+@stories_bp.route('/impacts/<impact_id>/review', methods=['POST'])
+@dev_jwt_required
+def review_impact(impact_id):
+    """Accept, reject, or edit a single impact."""
+    try:
+        user_id = get_current_user_id()
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        if action not in ('accept', 'reject', 'edit'):
+            return jsonify({'error': 'action must be accept, reject, or edit'}), 400
+
+        new_status = 'accepted' if action in ('accept', 'edit') else 'rejected'
+        edited_tc = data.get('edited_test_case')
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                # Extend the check constraint if needed (idempotent)
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        ALTER TABLE test_case_impacts
+                            DROP CONSTRAINT IF EXISTS test_case_impacts_impact_status_check;
+                        ALTER TABLE test_case_impacts
+                            ADD CONSTRAINT test_case_impacts_impact_status_check
+                            CHECK (impact_status IN ('active','inactive','accepted','rejected'));
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """)
+
+                # Update impact status
+                cur.execute("""
+                    UPDATE test_case_impacts
+                    SET impact_status = %s,
+                        impact_details = CASE
+                            WHEN %s IS NOT NULL THEN %s::jsonb
+                            ELSE impact_details
+                        END
+                    WHERE impact_id = %s AND user_id = %s
+                    RETURNING impact_id
+                """, (
+                    new_status,
+                    json.dumps(edited_tc) if edited_tc else None,
+                    json.dumps({'edited_test_case': edited_tc, 'reviewed_by': user_id}) if edited_tc else None,
+                    impact_id,
+                    user_id,
+                ))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Impact not found or access denied'}), 404
+
+                # Write to impact_history
+                cur.execute("""
+                    INSERT INTO impact_history
+                        (history_id, impact_id, changed_by, previous_status, new_status, change_reason)
+                    VALUES (%s, %s, %s, 'active', %s, 'user_review')
+                """, (str(uuid.uuid4()), impact_id, user_id, new_status))
+
+                conn.commit()
+
+        return jsonify({
+            'impact_id': impact_id,
+            'new_status': new_status,
+            'message': 'Impact review recorded'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error reviewing impact: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/impacts/batch-review', methods=['POST'])
+@dev_jwt_required
+def batch_review_impacts():
+    """Accept/reject/edit multiple impacts in one call (partial-acceptance workflow)."""
+    try:
+        user_id = get_current_user_id()
+        data = request.get_json(silent=True) or {}
+        project_id = data.get('project_id')
+        new_story_id = data.get('new_story_id')
+        reviews = data.get('reviews', [])
+
+        if not reviews:
+            return jsonify({'error': 'reviews list is required'}), 400
+
+        accepted = rejected = edited = 0
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                # Ensure extended check constraint exists
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        ALTER TABLE test_case_impacts
+                            DROP CONSTRAINT IF EXISTS test_case_impacts_impact_status_check;
+                        ALTER TABLE test_case_impacts
+                            ADD CONSTRAINT test_case_impacts_impact_status_check
+                            CHECK (impact_status IN ('active','inactive','accepted','rejected'));
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """)
+
+                for review in reviews:
+                    iid = review.get('impact_id')
+                    action = review.get('action')
+                    if not iid or action not in ('accept', 'reject', 'edit'):
+                        continue
+
+                    new_status = 'accepted' if action in ('accept', 'edit') else 'rejected'
+                    edited_tc = review.get('edited_test_case')
+
+                    cur.execute("""
+                        UPDATE test_case_impacts
+                        SET impact_status = %s,
+                            impact_details = CASE
+                                WHEN %s IS NOT NULL THEN %s::jsonb
+                                ELSE impact_details
+                            END
+                        WHERE impact_id = %s AND user_id = %s
+                    """, (
+                        new_status,
+                        json.dumps(edited_tc) if edited_tc else None,
+                        json.dumps({'edited_test_case': edited_tc, 'reviewed_by': user_id}) if edited_tc else None,
+                        iid,
+                        user_id,
+                    ))
+
+                    cur.execute("""
+                        INSERT INTO impact_history
+                            (history_id, impact_id, changed_by, previous_status, new_status, change_reason)
+                        VALUES (%s, %s, %s, 'active', %s, 'batch_review')
+                    """, (str(uuid.uuid4()), iid, user_id, new_status))
+
+                    if action == 'accept': accepted += 1
+                    elif action == 'reject': rejected += 1
+                    elif action == 'edit': edited += 1
+
+                conn.commit()
+
+        total = accepted + rejected + edited
+        change_request_status = 'rejected' if accepted == 0 and total > 0 else 'approved'
+
+        return jsonify({
+            'message': 'Review submitted',
+            'accepted': accepted,
+            'rejected': rejected,
+            'edited': edited,
+            'change_request_status': change_request_status
+        }), 202
+
+    except Exception as e:
+        print(f"❌ Error in batch review: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/changes', methods=['GET'])
+@dev_jwt_required
+def get_changes():
+    """
+    List change requests — grouped impacts by new_story_id.
+    A change request = all impacts that a new story caused on existing stories.
+    Query params: project_id, status (pending|approved|rejected|all), page, per_page
+    """
+    try:
+        user_id = get_current_user_id()
+        project_id = request.args.get('project_id')
+        status_filter = request.args.get('status', 'all')
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        # Map frontend status labels to DB values
+        status_map = {
+            'pending': ['active'],
+            'approved': ['accepted'],
+            'rejected': ['rejected'],
+            'all': ['active', 'accepted', 'rejected', 'inactive'],
+        }
+        db_statuses = status_map.get(status_filter, ['active', 'accepted', 'rejected', 'inactive'])
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Build query — group impacts by new_story_id
+                base_query = """
+                    SELECT
+                        tci.new_story_id                                      AS change_id,
+                        tci.new_story_id,
+                        tc_new.story_description                              AS new_story_description,
+                        tci.project_id,
+                        MIN(tci.impact_created_on)                            AS created_on,
+                        COUNT(DISTINCT tci.original_story_id)                 AS stories_affected,
+                        COUNT(tci.impact_id)                                  AS tests_affected,
+                        MAX(tci.impact_severity)                              AS overall_severity,
+                        CASE
+                            WHEN BOOL_OR(tci.impact_status = 'active')   THEN 'pending'
+                            WHEN BOOL_OR(tci.impact_status = 'accepted') THEN 'approved'
+                            ELSE 'rejected'
+                        END                                                   AS status
+                    FROM test_case_impacts tci
+                    JOIN test_cases tc_new
+                        ON tc_new.story_id = tci.new_story_id
+                    WHERE tci.user_id = %s
+                """
+                params = [user_id]
+
+                if project_id:
+                    base_query += " AND tci.project_id = %s"
+                    params.append(project_id)
+
+                base_query += """
+                    GROUP BY tci.new_story_id, tc_new.story_description, tci.project_id
+                    HAVING CASE
+                        WHEN BOOL_OR(tci.impact_status = 'active')   THEN 'pending'
+                        WHEN BOOL_OR(tci.impact_status = 'accepted') THEN 'approved'
+                        ELSE 'rejected'
+                    END = ANY(%s)
+                    ORDER BY MIN(tci.impact_created_on) DESC
+                    LIMIT %s OFFSET %s
+                """
+                params.extend([db_statuses, per_page, (page - 1) * per_page])
+
+                cur.execute(base_query, params)
+                rows = cur.fetchall()
+
+                # Count total for pagination
+                count_q = """
+                    SELECT COUNT(*) FROM (
+                        SELECT tci.new_story_id
+                        FROM test_case_impacts tci
+                        JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
+                        WHERE tci.user_id = %s
+                """
+                count_params = [user_id]
+                if project_id:
+                    count_q += " AND tci.project_id = %s"
+                    count_params.append(project_id)
+                count_q += " GROUP BY tci.new_story_id) sub"
+                cur.execute(count_q, count_params)
+                total = cur.fetchone()[0]
+
+                changes = []
+                for row in rows:
+                    d = dict(row)
+                    if d.get('created_on'):
+                        d['created_on'] = d['created_on'].isoformat()
+                    changes.append(d)
+
+        return jsonify({
+            'changes': changes,
+            'pagination': {
+                'total': total,
+                'page': page,
+                'per_page': per_page,
+                'total_pages': math.ceil(total / per_page) if per_page else 1
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error fetching changes: {e}")
+        return jsonify({'error': str(e)}), 500
+

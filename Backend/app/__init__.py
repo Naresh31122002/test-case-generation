@@ -17,6 +17,13 @@ def create_app():
     allowed_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3007",
+        "http://127.0.0.1:3007",
+        "http://localhost:3008",
+        "http://localhost:3009",
+        "http://localhost:3010",
+        "http://localhost:3011",
+        "http://localhost:3012",
     ]
     # Add production frontend URL if set (e.g. https://testforge.kynetropo.com)
     frontend_url = os.getenv("FRONTEND_URL")

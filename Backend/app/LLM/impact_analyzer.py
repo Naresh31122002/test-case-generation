@@ -268,7 +268,8 @@ def store_impact_analysis(
     project_id: str,
     new_story_id: str,
     existing_story_id: str,
-    similarity_score: float
+    similarity_score: float,
+    user_id: str = None
 ) -> int:
     """
     Store impact analysis results in the database with enhanced tracking
@@ -667,7 +668,8 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                         project_id=project_id,
                         new_story_id=new_story_id,
                         existing_story_id=existing_story["id"],
-                        similarity_score=similarity_score if similarity_score is not None else 0.0
+                        similarity_score=similarity_score if similarity_score is not None else 0.0,
+                        user_id=user_id
                     )
                     
                     logger.info(f"Stored {impacts_stored} impacts for {existing_story['id']}")

@@ -35,25 +35,27 @@ def get_llm_impact():
 
 
 class GoogleEmbeddingWrapper:
-    """Wraps Google's text-embedding-004 model to match SentenceTransformer API.
-    Produces 768-dim vectors — same dimension as all-mpnet-base-v2.
-    Zero RAM overhead — uses the API, no local model loaded."""
+    """Wraps Google's text-embedding-004 model using the new google-genai SDK.
+    Produces 768-dim vectors padded/truncated to match LanceDB schema."""
 
     def encode(self, text, **kwargs):
-        import google.generativeai as genai
         import numpy as np
         api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
         if not api_key:
-            # Fallback: zero vector if no API key
             return np.zeros(768, dtype="float32")
-        genai.configure(api_key=api_key)
-        result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type="retrieval_document",
-        )
-        vec = result["embedding"]
-        # Pad or truncate to 768 dimensions to match existing LanceDB schema
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            result = client.models.embed_content(
+                model="text-embedding-004",
+                contents=text,
+            )
+            vec = result.embeddings[0].values
+        except Exception as e:
+            print(f"Embedding failed: {e} — using zero vector")
+            return np.zeros(768, dtype="float32")
+        # Pad or truncate to 768 dimensions
+        vec = list(vec)
         if len(vec) < 768:
             vec = vec + [0.0] * (768 - len(vec))
         elif len(vec) > 768:
@@ -105,7 +107,8 @@ class Config:
             user=cls.POSTGRES_USER,
             password=cls.POSTGRES_PASSWORD,
             host=cls.POSTGRES_HOST,
-            port=cls.POSTGRES_PORT
+            port=cls.POSTGRES_PORT,
+            sslmode='require'
         )
 
     @classmethod
@@ -115,7 +118,8 @@ class Config:
             'user': cls.POSTGRES_USER,
             'password': cls.POSTGRES_PASSWORD,
             'host': cls.POSTGRES_HOST,
-            'port': cls.POSTGRES_PORT
+            'port': cls.POSTGRES_PORT,
+            'sslmode': 'require'
         }
 
 
