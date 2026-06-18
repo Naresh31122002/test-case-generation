@@ -73,7 +73,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'The login page should accept an email and password. Validate both fields. On success redirect to dashboard. On failure show an error message. Lock account after 5 failed attempts.',
     testCaseCount: 8, embeddingTimestamp: '2025-04-10T09:30:00Z', testCaseCreatedTime: '2025-04-10T09:45:00Z',
     impactedTestCasesCount: 3, downloadUrl: '/api/stories/testcases/download/PROJ-101',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_review',
   },
   {
     id: 'PROJ-102', projectId: 'Alpha',
@@ -81,7 +81,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'User clicks Forgot Password, enters email, receives a reset link. Link expires in 24 hours. New password must be at least 8 characters and contain a number.',
     testCaseCount: 6, embeddingTimestamp: '2025-04-11T11:10:00Z', testCaseCreatedTime: '2025-04-11T11:25:00Z',
     impactedTestCasesCount: 2, downloadUrl: '/api/stories/testcases/download/PROJ-102',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_progress',
   },
   {
     id: 'PROJ-103', projectId: 'Beta',
@@ -89,7 +89,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'Admin can assign roles: Viewer, Editor, Admin. Role changes take effect immediately. Admin cannot remove their own Admin role. Audit log is created for every role change.',
     testCaseCount: 10, embeddingTimestamp: '2025-04-12T14:15:00Z', testCaseCreatedTime: '2025-04-12T14:30:00Z',
     impactedTestCasesCount: 5, downloadUrl: '/api/stories/testcases/download/PROJ-103',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'completed',
   },
   {
     id: 'PROJ-104', projectId: 'Beta',
@@ -97,7 +97,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'Support PDF, DOCX and TXT. Max file size 20MB. Show upload progress. Virus scan on upload. Notify team members on successful upload.',
     testCaseCount: 7, embeddingTimestamp: '2025-04-13T10:20:00Z', testCaseCreatedTime: '2025-04-13T10:35:00Z',
     impactedTestCasesCount: 0, downloadUrl: '/api/stories/testcases/download/PROJ-104',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_review',
   },
   {
     id: 'PROJ-105', projectId: 'Gamma',
@@ -105,7 +105,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'Full-text search across story ID, description, and content. Results sorted by relevance. Search is debounced 300ms. No results state shows helpful message.',
     testCaseCount: 5, embeddingTimestamp: '2025-04-14T08:45:00Z', testCaseCreatedTime: '2025-04-14T09:00:00Z',
     impactedTestCasesCount: 1, downloadUrl: '/api/stories/testcases/download/PROJ-105',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_progress',
   },
   {
     id: 'PROJ-106', projectId: 'Gamma',
@@ -113,7 +113,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'List all notifications ordered by date. Mark as read individually or all at once. Filter by type: info, warning, error. Notifications older than 30 days are archived.',
     testCaseCount: 4, embeddingTimestamp: '2025-04-15T13:10:00Z', testCaseCreatedTime: '2025-04-15T13:20:00Z',
     impactedTestCasesCount: 0, downloadUrl: '/api/stories/testcases/download/PROJ-106',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'completed',
   },
   {
     id: 'PROJ-107', projectId: 'Alpha',
@@ -121,7 +121,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'Export button available on all table views. CSV includes all visible columns. Large exports (>1000 rows) are emailed as a download link. Progress indicator shown.',
     testCaseCount: 3, embeddingTimestamp: '2025-04-16T09:10:00Z', testCaseCreatedTime: '2025-04-16T09:20:00Z',
     impactedTestCasesCount: 2, downloadUrl: '/api/stories/testcases/download/PROJ-107',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_review',
   },
   {
     id: 'PROJ-108', projectId: 'Beta',
@@ -129,7 +129,7 @@ const MOCK_STORIES: Story[] = [
     docContentText: 'Date picker with from/to fields. Validate that from <= to. Persist filter in URL params. Clear button resets to all dates.',
     testCaseCount: 6, embeddingTimestamp: '2025-04-17T11:15:00Z', testCaseCreatedTime: '2025-04-17T11:30:00Z',
     impactedTestCasesCount: 1, downloadUrl: '/api/stories/testcases/download/PROJ-108',
-    source: { story: 'mock', testCases: 'backend' },
+    source: { story: 'mock', testCases: 'backend' }, storyStatus: 'in_progress',
   },
 ]
 
@@ -261,6 +261,7 @@ function normalizeStory(raw: RawStory): Story {
     source,
     // ALWAYS computed — never sourced from raw.download_link (broken backend route).
     downloadUrl: '/api/stories/testcases/download/' + String(raw.id),
+    storyStatus: (raw.story_status as any) ?? 'in_review',
   }
 }
 
@@ -657,6 +658,25 @@ export const api = {
   /** Calls the MAIN Flask app — NOT a separate scheduler service. */
   async triggerReload(): Promise<{ message: string }> {
     return post<{ message: string }>(`/api/stories/trigger-reload`, {})
+  },
+
+  async updateStoryStatus(
+    storyId: string,
+    status: 'in_review' | 'in_progress' | 'completed'
+  ): Promise<{ story_id: string; status: string }> {
+    return post(`/api/stories/${storyId}/status`, { status })
+  },
+
+  async getStoryQuality(storyId: string): Promise<{
+    overall_score: number;
+    completeness: number;
+    clarity: number;
+    testability: number;
+    issues: Array<{ title: string; description: string; area: string }>;
+    risk_areas: Array<{ area: string; severity: string; description: string }>;
+    recommendations: string[];
+  }> {
+    return get(`/api/stories/${storyId}/quality`)
   },
 
   async generateStoriesFromRequirements(

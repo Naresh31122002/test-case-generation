@@ -15,8 +15,9 @@ def get_llm():
     global _llm
     if _llm is None:
         from langchain_groq import ChatGroq
+        # llama-3.3-70b-versatile: higher quality + higher TPM limit than 8b-instant
         _llm = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             temperature=0.3,
             groq_api_key=os.environ["GROQ_API_KEY"]
         )
@@ -26,6 +27,7 @@ def get_llm_impact():
     global _llm_impact
     if _llm_impact is None:
         from langchain_groq import ChatGroq
+        # Use the faster 8b model for impact analysis (more calls, smaller prompts)
         _llm_impact = ChatGroq(
             model="llama-3.1-8b-instant",
             temperature=0.3,

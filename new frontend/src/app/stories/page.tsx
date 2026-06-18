@@ -37,6 +37,8 @@ import { Loader2 } from "lucide-react";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { NewStoryButton } from "@/components/HeaderActions";
 import { NewStoryModal } from "@/components/stories/NewStoryModal";
+import { StoryKanban } from "@/components/StoryKanban";
+import { TestCaseKanban } from "@/components/TestCaseKanban";
 
 // Kanban is heavy (drag-and-drop) and only shown in kanban view — lazy-load it.
 const KanbanView = dynamic(
@@ -182,6 +184,7 @@ export default function StoriesPage() {
   const [filterType, setFilterType] = useState("All Types");
   const [sortKey, setSortKey] = useState<SortKey>("lastUpdated");
   const [viewMode, setViewMode] = useState<ViewMode>("board");
+  const [kanbanSubMode, setKanbanSubMode] = useState<"story" | "testcase">("story");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -353,7 +356,28 @@ export default function StoriesPage() {
           )}
 
           {viewMode === "kanban" && (
-            <span className="text-sm text-muted">{projectTests.length} test cases across {projectStories.length} stories</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setKanbanSubMode("story")}
+                className={`h-7 px-3 rounded-btn border text-xs font-medium transition-colors ${
+                  kanbanSubMode === "story"
+                    ? "bg-surface-pink text-pink border-[#FF0A78]"
+                    : "bg-white text-muted border-border hover:text-navy"
+                }`}
+              >
+                Stories
+              </button>
+              <button
+                onClick={() => setKanbanSubMode("testcase")}
+                className={`h-7 px-3 rounded-btn border text-xs font-medium transition-colors ${
+                  kanbanSubMode === "testcase"
+                    ? "bg-surface-pink text-pink border-[#FF0A78]"
+                    : "bg-white text-muted border-border hover:text-navy"
+                }`}
+              >
+                Test Cases
+              </button>
+            </div>
           )}
 
           <div className="ml-auto flex items-center border border-border rounded-btn overflow-hidden">
@@ -402,13 +426,17 @@ export default function StoriesPage() {
         <AnimatePresence mode="wait">
           {viewMode === "kanban" ? (
             <motion.div
-              key="kanban"
+              key={`kanban-${kanbanSubMode}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <KanbanView tests={projectTests} />
+              {kanbanSubMode === "story" ? (
+                <StoryKanban stories={filtered} />
+              ) : (
+                <TestCaseKanban stories={filtered} />
+              )}
             </motion.div>
           ) : filtered.length === 0 ? (
             <EmptyState key="empty" hasSearch={!!search} />

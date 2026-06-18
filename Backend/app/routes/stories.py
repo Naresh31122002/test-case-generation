@@ -86,7 +86,8 @@ def get_stories():
                 COALESCE(impacted_test_cases_count, 0) as impacted_test_cases_count,
                 COALESCE(jsonb_array_length(test_case_json->'test_cases'), 0) as test_case_count,
                 inputs->>'content' as document_content,
-                inputs->>'file_content' as file_content
+                inputs->>'file_content' as file_content,
+                COALESCE(story_status, 'in_review') as story_status
             FROM test_cases
             WHERE test_case_generated = TRUE
             AND user_id = %s
@@ -729,84 +730,62 @@ def upload_story():
                 'error': f'Error adding story to database: {str(e)}'
             }), 500
 
-        # Generate test cases with user_id
-        try:
-            from app.LLM.Test_case_generator import generate_test_case_for_story
-            generate_test_case_for_story(story_id, user_id=user_id)
+        # Run test case generation + impact analysis entirely in background
+        # so the HTTP response returns immediately (202 Accepted).
+        # Frontend polls GET /api/stories/<id> until test_case_count > 0.
+        import threading
 
-            # Check if test cases were generated successfully
-            from app.models.postgress_writer import get_test_case_json_by_story_id
-            test_cases_result = get_test_case_json_by_story_id(story_id, user_id=user_id)
+        def run_full_pipeline(sid, proj_id, uid, fpath, fname):
+            try:
+                from app.LLM.Test_case_generator import generate_test_case_for_story
+                generate_test_case_for_story(sid, user_id=uid)
 
-            if test_cases_result:
-                # Move file to success folder
-                if file_path and os.path.exists(file_path):
-                    success_dir = os.path.join(os.getenv("SUCCESS_FOLDER", "./data/success"), project_id)
+                # Move file to success folder after generation
+                if fpath and os.path.exists(fpath):
+                    import shutil
+                    success_dir = os.path.join(os.getenv("SUCCESS_FOLDER", "./data/success"), proj_id)
                     os.makedirs(success_dir, exist_ok=True)
-                    import shutil
-                    shutil.move(file_path, os.path.join(success_dir, filename))
-
-                # Run impact analysis in background thread
-                import threading
-                def run_impact_analysis(new_story_id, proj_id, uid):
                     try:
-                        print(f"[ImpactAnalysis] Starting background impact analysis for story {new_story_id} in project {proj_id}")
-                        from app.LLM.impact_analyzer import analyze_test_case_impacts
-                        analyze_test_case_impacts(
-                            new_story_id=new_story_id,
-                            project_id=proj_id,
-                            user_id=uid
-                        )
-                        print(f"[ImpactAnalysis] ✅ Background impact analysis completed for story {new_story_id}")
-                    except Exception as ia_err:
-                        print(f"[ImpactAnalysis] ❌ Background impact analysis failed for story {new_story_id}: {ia_err}")
+                        shutil.move(fpath, os.path.join(success_dir, fname))
+                    except Exception:
+                        pass
 
-                impact_thread = threading.Thread(
-                    target=run_impact_analysis,
-                    args=(story_id, project_id, user_id),
-                    daemon=True
-                )
-                impact_thread.start()
-                print(f"[Upload] Impact analysis thread started for story {story_id}")
+                # Run impact analysis
+                try:
+                    from app.LLM.impact_analyzer import analyze_test_case_impacts
+                    analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid)
+                except Exception as ia_err:
+                    print(f"[Pipeline] Impact analysis failed for {sid}: {ia_err}")
 
-                return jsonify({
-                    'message': 'Story uploaded and test cases generated successfully',
-                    'story_id': story_id,
-                    'project_id': project_id,
-                    'description': description,
-                    'test_cases_generated': True,
-                    'file_processed': file is not None,
-                    'source': source
-                }), 200
-            else:
-                # Move file to failure folder if test case generation failed
-                if file_path and os.path.exists(file_path):
-                    failure_dir = os.path.join(os.getenv("FAILURE_FOLDER", "./data/failure"), project_id)
-                    os.makedirs(failure_dir, exist_ok=True)
+                print(f"[Pipeline] ✅ Completed full pipeline for {sid}")
+            except Exception as e:
+                print(f"[Pipeline] ❌ Pipeline failed for {sid}: {e}")
+                if fpath and os.path.exists(fpath):
                     import shutil
-                    shutil.move(file_path, os.path.join(failure_dir, filename))
+                    failure_dir = os.path.join(os.getenv("FAILURE_FOLDER", "./data/failure"), proj_id)
+                    os.makedirs(failure_dir, exist_ok=True)
+                    try:
+                        shutil.move(fpath, os.path.join(failure_dir, fname))
+                    except Exception:
+                        pass
 
-                return jsonify({
-                    'message': 'Story uploaded but test case generation failed',
-                    'story_id': story_id,
-                    'project_id': project_id,
-                    'description': description,
-                    'test_cases_generated': False,
-                    'file_processed': file is not None,
-                    'source': source
-                }), 200
+        thread = threading.Thread(
+            target=run_full_pipeline,
+            args=(story_id, project_id, user_id, file_path, filename if file else f"{story_id}.txt"),
+            daemon=True
+        )
+        thread.start()
+        print(f"[Upload] Background pipeline started for story {story_id}")
 
-        except Exception as e:
-            # Move file to failure folder
-            if file_path and os.path.exists(file_path):
-                failure_dir = os.path.join(os.getenv("FAILURE_FOLDER", "./data/failure"), project_id)
-                os.makedirs(failure_dir, exist_ok=True)
-                import shutil
-                shutil.move(file_path, os.path.join(failure_dir, filename))
-
-            return jsonify({
-                'error': f'Error generating test cases: {str(e)}'
-            }), 500
+        return jsonify({
+            'message': 'Story uploaded. Test generation started in background.',
+            'story_id': story_id,
+            'project_id': project_id,
+            'description': short_title,
+            'test_cases_generated': False,
+            'file_processed': file is not None,
+            'source': source
+        }), 202
 
     except Exception as e:
         print(f"Error in upload_story: {str(e)}")
@@ -1526,6 +1505,193 @@ Return ONLY a valid JSON array, no other text:
         return jsonify({'error': str(e)}), 500
 
 
+# ── Story quality analysis ────────────────────────────────────────────────────
+
+@stories_bp.route('/<story_id>/quality', methods=['GET'])
+@dev_jwt_required
+def get_story_quality(story_id):
+    """
+    Use LLM to analyze story quality and return:
+      - overall_score (0-100)
+      - completeness, clarity, testability sub-scores (0-100)
+      - issues: list of {title, description, area}
+      - risk_areas: list of {area, severity, description}
+      - recommendations: list of strings
+
+    Results are cached in the story's inputs JSONB column to avoid
+    re-calling the LLM on every page load.
+    """
+    try:
+        user_id = get_current_user_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT story_description, inputs,
+                           inputs->>'main_text'    AS main_text,
+                           inputs->>'content'      AS input_content,
+                           inputs->>'story_description' AS input_desc
+                    FROM test_cases
+                    WHERE story_id = %s AND user_id = %s
+                """, (story_id, user_id))
+                row = cur.fetchone()
+
+        if not row:
+            # Try LanceDB for content
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            table = db.open_table(Config.TABLE_NAME_LANCE)
+            all_rows = table.to_pandas()
+            story_rows = all_rows[all_rows['storyID'] == story_id]
+            if 'user_id' in story_rows.columns:
+                story_rows = story_rows[story_rows['user_id'] == user_id]
+            if story_rows.empty:
+                return jsonify({'error': 'Story not found'}), 404
+            content = str(story_rows.iloc[0].get('doc_content_text', ''))
+            description = str(story_rows.iloc[0].get('storyDescription', ''))
+            cached_quality = None
+        else:
+            # Content priority: main_text > input_content > story_description
+            content = (
+                str(row.get('main_text') or '')
+                or str(row.get('input_content') or '')
+                or str(row.get('input_desc') or '')
+                or str(row.get('story_description') or '')
+            )
+            description = str(row.get('story_description') or '')
+            inputs = row.get('inputs') or {}
+            if isinstance(inputs, str):
+                try:
+                    inputs = json.loads(inputs)
+                except Exception:
+                    inputs = {}
+            cached_quality = inputs.get('quality_analysis')
+
+        # Return cached result if available (avoid re-calling LLM)
+        if cached_quality:
+            return jsonify(cached_quality), 200
+
+        story_text = content or description
+        if not story_text or len(story_text) < 30:
+            return jsonify({'error': 'Story content too short for analysis'}), 422
+
+        # Build LLM prompt
+        prompt = f"""You are a senior QA analyst and business analyst expert. Analyze this user story and return a quality assessment.
+
+USER STORY:
+{story_text[:3000]}
+
+Evaluate the story on three dimensions (0-100 each):
+- Completeness: Are all scenarios, edge cases, and error states covered?
+- Clarity: Is the story unambiguous and clearly written?
+- Testability: Can acceptance criteria be turned directly into test cases?
+
+Also identify:
+- Quality issues (things that would cause poor test generation)
+- Risk areas (potential defects or security concerns)
+- Recommendations (specific improvements)
+
+Return ONLY this JSON, no other text:
+{{
+  "completeness": <0-100>,
+  "clarity": <0-100>,
+  "testability": <0-100>,
+  "issues": [
+    {{"title": "Issue title", "description": "Specific explanation", "area": "Completeness|Clarity|Testability"}}
+  ],
+  "risk_areas": [
+    {{"area": "Risk area name", "severity": "High|Medium|Low", "description": "Why this is risky"}}
+  ],
+  "recommendations": [
+    "Specific actionable recommendation"
+  ]
+}}
+
+Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to THIS story, not generic."""
+
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+
+        # Parse JSON
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start = raw.find('{')
+        end = raw.rfind('}') + 1
+        if start == -1 or end == 0:
+            return jsonify({'error': 'LLM did not return valid JSON'}), 500
+
+        result = json.loads(raw[start:end])
+
+        # Compute overall score
+        completeness = min(100, max(0, int(result.get('completeness', 70))))
+        clarity = min(100, max(0, int(result.get('clarity', 70))))
+        testability = min(100, max(0, int(result.get('testability', 70))))
+        overall = round(completeness * 0.35 + clarity * 0.35 + testability * 0.30)
+
+        quality = {
+            'overall_score': overall,
+            'completeness': completeness,
+            'clarity': clarity,
+            'testability': testability,
+            'issues': result.get('issues', [])[:4],
+            'risk_areas': result.get('risk_areas', [])[:3],
+            'recommendations': result.get('recommendations', [])[:4],
+        }
+
+        # Cache result in inputs column
+        try:
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE test_cases
+                        SET inputs = COALESCE(inputs, '{}'::jsonb) || %s::jsonb
+                        WHERE story_id = %s AND user_id = %s
+                    """, (json.dumps({'quality_analysis': quality}), story_id, user_id))
+                    conn.commit()
+        except Exception:
+            pass  # caching failure is non-fatal
+
+        return jsonify(quality), 200
+
+    except Exception as e:
+        print(f'❌ Error in quality analysis for {story_id}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Story Kanban status ───────────────────────────────────────────────────────
+
+@stories_bp.route('/<story_id>/status', methods=['PATCH'])
+@dev_jwt_required
+def update_story_status(story_id):
+    """Update the Kanban column for a story (in_review / in_progress / completed)."""
+    try:
+        user_id = get_current_user_id()
+        data = request.get_json(silent=True) or {}
+        new_status = data.get('status')
+        allowed = ('in_review', 'in_progress', 'completed')
+        if new_status not in allowed:
+            return jsonify({'error': f'status must be one of: {", ".join(allowed)}'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE test_cases
+                    SET story_status = %s
+                    WHERE story_id = %s AND user_id = %s
+                    RETURNING story_id
+                """, (new_status, story_id, user_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                conn.commit()
+
+        return jsonify({'story_id': story_id, 'status': new_status}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Story version history ─────────────────────────────────────────────────────
 
 @stories_bp.route('/<story_id>/versions', methods=['GET'])
@@ -1764,7 +1930,22 @@ def upload_new_version(story_id):
 @stories_bp.route('/impacts/<impact_id>/review', methods=['POST'])
 @dev_jwt_required
 def review_impact(impact_id):
-    """Accept, reject, or edit a single impact."""
+    """
+    Accept, reject, or edit a single impact.
+
+    When action = 'accept':
+      - Sets impact_status = 'accepted'
+      - Replaces the original test case in test_case_json with the modified version
+        from impact_analysis_json so the story's test suite reflects the change.
+
+    When action = 'reject':
+      - Sets impact_status = 'rejected'
+      - Leaves the original test case unchanged.
+
+    When action = 'edit':
+      - Sets impact_status = 'accepted'
+      - Uses the caller-supplied edited_test_case instead of impact_analysis_json.
+    """
     try:
         user_id = get_current_user_id()
         data = request.get_json(silent=True) or {}
@@ -1776,8 +1957,21 @@ def review_impact(impact_id):
         edited_tc = data.get('edited_test_case')
 
         with Config.get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                # Update impact status (constraint now allows 'accepted'/'rejected' — see create_dbs.py)
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Fetch the impact record to get the modified test case
+                cur.execute("""
+                    SELECT tci.impact_id, tci.original_story_id, tci.original_test_case_id,
+                           tci.impact_analysis_json, tci.user_id,
+                           tc.test_case_json
+                    FROM test_case_impacts tci
+                    JOIN test_cases tc ON tc.story_id = tci.original_story_id AND tc.user_id = tci.user_id
+                    WHERE tci.impact_id = %s AND tci.user_id = %s
+                """, (impact_id, user_id))
+                impact = cur.fetchone()
+                if not impact:
+                    return jsonify({'error': 'Impact not found or access denied'}), 404
+
+                # Update impact status
                 cur.execute("""
                     UPDATE test_case_impacts
                     SET impact_status = %s,
@@ -1786,7 +1980,6 @@ def review_impact(impact_id):
                             ELSE impact_details
                         END
                     WHERE impact_id = %s AND user_id = %s
-                    RETURNING impact_id
                 """, (
                     new_status,
                     json.dumps(edited_tc) if edited_tc else None,
@@ -1794,9 +1987,6 @@ def review_impact(impact_id):
                     impact_id,
                     user_id,
                 ))
-                row = cur.fetchone()
-                if not row:
-                    return jsonify({'error': 'Impact not found or access denied'}), 404
 
                 # Write to impact_history
                 cur.execute("""
@@ -1805,12 +1995,66 @@ def review_impact(impact_id):
                     VALUES (%s, %s, %s, 'active', %s, 'user_review')
                 """, (str(uuid.uuid4()), impact_id, user_id, new_status))
 
+                # If ACCEPTED: apply the modified test case to the story's test_case_json
+                if new_status == 'accepted':
+                    original_tc_id = impact['original_test_case_id']
+                    original_story_id = impact['original_story_id']
+                    tc_json = impact['test_case_json']
+
+                    # Determine which test case to apply
+                    if edited_tc:
+                        replacement = edited_tc
+                    else:
+                        # Parse the LLM-generated modified test case from impact_analysis_json
+                        analysis = impact['impact_analysis_json']
+                        if isinstance(analysis, str):
+                            try:
+                                analysis = json.loads(analysis)
+                            except Exception:
+                                analysis = {}
+                        replacement = analysis.get('modified_test_case') or analysis.get('modifiedTestCase')
+
+                    if replacement and tc_json:
+                        # Parse test_case_json if it's a string
+                        if isinstance(tc_json, str):
+                            try:
+                                tc_json = json.loads(tc_json)
+                            except Exception:
+                                tc_json = {}
+
+                        test_cases = tc_json.get('test_cases', [])
+                        updated = False
+                        new_cases = []
+                        for tc in test_cases:
+                            tc_id = tc.get('id') or tc.get('test_case_id', '')
+                            if tc_id == original_tc_id:
+                                # Replace with the modified version, preserving the original ID
+                                merged = {**tc, **{
+                                    'title': replacement.get('title', tc.get('title', '')),
+                                    'steps': replacement.get('steps', tc.get('steps', [])),
+                                    'expected_result': replacement.get('expected_result', tc.get('expected_result', '')),
+                                    'priority': replacement.get('priority', tc.get('priority', 'Medium')),
+                                    'id': tc_id,  # keep original ID
+                                }}
+                                new_cases.append(merged)
+                                updated = True
+                            else:
+                                new_cases.append(tc)
+
+                        if updated:
+                            tc_json['test_cases'] = new_cases
+                            cur.execute("""
+                                UPDATE test_cases
+                                SET test_case_json = %s
+                                WHERE story_id = %s AND user_id = %s
+                            """, (json.dumps(tc_json), original_story_id, user_id))
+
                 conn.commit()
 
         return jsonify({
             'impact_id': impact_id,
             'new_status': new_status,
-            'message': 'Impact review recorded'
+            'message': 'Impact accepted — test case updated in story' if new_status == 'accepted' else 'Impact rejected'
         }), 200
 
     except Exception as e:

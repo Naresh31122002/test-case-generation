@@ -53,6 +53,8 @@ export interface RawStory {
    */
   impactedTestCases?: number | string;
   impacted_test_cases_count?: number | string;
+  /** Kanban column status from backend */
+  story_status?: 'in_review' | 'in_progress' | 'completed';
 }
 
 /**
@@ -202,6 +204,8 @@ export interface Story {
    * Never sourced from the raw download_link field.
    */
   downloadUrl: string;
+  /** Kanban column: in_review | in_progress | completed. Default: in_review */
+  storyStatus: 'in_review' | 'in_progress' | 'completed';
 }
 
 /**

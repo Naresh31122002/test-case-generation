@@ -67,6 +67,13 @@ const JUNK_PATTERNS: { test: RegExp; reason: string }[] = [
 
 export function validateSource(src: RequirementSource): ValidationResult {
   const messages: string[] = [];
+  // Binary files (PDF/DOCX) are validated server-side after text extraction
+  if (src.file) {
+    const ext = src.file.name.toLowerCase().split(".").pop() ?? "";
+    if (ext === "pdf" || ext === "docx") {
+      return { valid: true, messages: [] };
+    }
+  }
   const t = src.text.trim();
   if (t.length < MIN_DOC_CHARS) {
     return { valid: false, messages: [`"${src.name}" is too short (${t.length} chars). Minimum ${MIN_DOC_CHARS}.`] };

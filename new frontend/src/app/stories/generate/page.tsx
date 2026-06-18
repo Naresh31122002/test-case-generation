@@ -104,6 +104,7 @@ export default function GenerateStoriesPage() {
         }
         setAnalysis(result);
         setErrors(warnOnly);
+        setPhase("input"); // go back to input phase so AnalysisPanel renders
       },
     });
   }
@@ -145,25 +146,39 @@ export default function GenerateStoriesPage() {
   const currentStep = phase === "review" ? 2 : 1;
   const projectId = typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default";
 
+  // Upload state for progress tracking
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+
   async function uploadApprovedStories() {
     const { api } = await import("@/lib/api");
     const approved = stories.filter((s) => s.status === "approved");
-    let lastStoryId = "";
+    const total = approved.length;
+    const uploadedIds: string[] = [];
+
+    setUploadProgress({ done: 0, total });
+
     for (let i = 0; i < approved.length; i++) {
       const s = approved[i];
       const words = s.title.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/).slice(0, 4).join("-").toUpperCase();
       const storyId = `STORY-${words || Date.now()}-${i}`;
-      lastStoryId = storyId;
       const content = `${s.narrative}\n\nAcceptance Criteria:\n${s.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`;
       const formData = new FormData();
       formData.append("story_id", storyId);
       formData.append("project_id", projectId);
       formData.append("content", content);
       formData.append("source", "requirements");
-      const result = await api.uploadStory(formData);
-      lastStoryId = result.storyId || storyId;
+      try {
+        const result = await api.uploadStory(formData);
+        uploadedIds.push(result.storyId || storyId);
+      } catch {
+        // continue uploading remaining stories even if one fails
+        uploadedIds.push(storyId);
+      }
+      setUploadProgress({ done: i + 1, total });
     }
-    return lastStoryId;
+
+    setUploadProgress(null);
+    return uploadedIds;
   }
 
   return (
@@ -332,24 +347,34 @@ export default function GenerateStoriesPage() {
 
                 <div className="flex items-center justify-between mt-6">
                   <button onClick={() => setPhase("input")} className="text-sm font-medium text-muted hover:text-navy transition-colors">Back</button>
-                  <button
-                    type="button"
-                    disabled={approvedCount === 0}
-                    onClick={() =>
-                      runAIAction({
-                        name: "Test Generation",
-                        credits: approvedCount * REQUIREMENT_CREDIT_RATES.testGeneration,
-                        description: `Generate tests for ${approvedCount} approved ${approvedCount === 1 ? "story" : "stories"}.`,
-                        run: async () => {
-                          const lastId = await uploadApprovedStories();
-                          router.push(lastId ? `/stories/${lastId}?analyzing=true` : "/stories");
-                        },
-                      })
-                    }
-                    className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
+                  <div className="flex items-center gap-3">
+                    {uploadProgress && (
+                      <span className="text-sm text-muted">
+                        Uploading {uploadProgress.done}/{uploadProgress.total}…
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={approvedCount === 0 || !!uploadProgress}
+                      onClick={() =>
+                        runAIAction({
+                          name: "Test Generation",
+                          credits: approvedCount * REQUIREMENT_CREDIT_RATES.testGeneration,
+                          description: `Upload ${approvedCount} approved ${approvedCount === 1 ? "story" : "stories"} and generate test cases for each.`,
+                          run: async () => {
+                            const ids = await uploadApprovedStories();
+                            // Redirect to Stories list filtered to current project
+                            // All stories are being processed in background — user can see them populate via polling
+                            const qs = projectId && projectId !== "default" ? `?project_id=${encodeURIComponent(projectId)}` : "";
+                            router.push(`/stories${qs}`);
+                          },
+                        })
+                      }
+                      className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
                   >
                     <Sparkles size={15} /> Generate Tests ({approvedCount})
                   </button>
+                  </div>
                 </div>
               </motion.div>
             )}

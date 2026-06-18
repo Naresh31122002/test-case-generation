@@ -172,6 +172,16 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
                       </div>
                       {diffLines.length > 0 ? <DiffViewer lines={diffLines} /> :
                         <p className="text-[13px] text-muted italic">No step-level diff available for this impact.</p>}
+                      {isAccepted && (
+                        <p className="text-sm text-success font-medium flex items-center gap-1.5">
+                          <CheckCircle2 size={14} /> Test case updated in story — change applied.
+                        </p>
+                      )}
+                      {isRejected && (
+                        <p className="text-sm text-error font-medium flex items-center gap-1.5">
+                          <XCircle size={14} /> Rejected — original test case kept unchanged.
+                        </p>
+                      )}
                       {!isAccepted && !isRejected && (
                         <div className="flex items-center gap-3">
                           <button onClick={async () => {

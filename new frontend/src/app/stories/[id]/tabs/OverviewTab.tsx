@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Sparkles, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Sparkles, Info, Loader2, RefreshCw } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -10,10 +10,33 @@ import { fadeInUp, staggerContainer, duration, easeOut } from "@/lib/motion";
 import { VersionTimeline } from "../VersionTimeline";
 import { api } from "@/lib/api";
 
+interface QualityData {
+  overall_score: number;
+  completeness: number;
+  clarity: number;
+  testability: number;
+  issues: Array<{ title: string; description: string; area: string }>;
+  risk_areas: Array<{ area: string; severity: string; description: string }>;
+  recommendations: string[];
+}
+
 export function OverviewTab({ story }: { story: Story }) {
   const [aiQuery, setAiQuery] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]);
+  const [quality, setQuality] = useState<QualityData | null>(null);
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityError, setQualityError] = useState(false);
+
+  useEffect(() => {
+    // Fetch real quality analysis from LLM on mount
+    setQualityLoading(true);
+    setQualityError(false);
+    api.getStoryQuality(story.id)
+      .then((q) => setQuality(q))
+      .catch(() => setQualityError(true))
+      .finally(() => setQualityLoading(false));
+  }, [story.id]);
 
   async function handleAsk() {
     if (!aiQuery.trim() || aiLoading) return;
@@ -64,62 +87,96 @@ export function OverviewTab({ story }: { story: Story }) {
         )}
       </motion.div>
 
-      {/* Story quality */}
+      {/* Story quality — real LLM analysis */}
       <motion.div variants={fadeInUp} className="bg-white border border-border rounded-card p-5">
-        <h3 className="text-[15px] font-semibold text-navy mb-4 flex items-center gap-1.5">
-          Story Quality Analysis
-          <Tooltip content="Health Score combines Completeness, Clarity and Testability into an overall quality rating for this story.">
-            <Info size={13} className="text-muted cursor-help" />
-          </Tooltip>
-        </h3>
-        <div className="flex gap-6 items-start">
-          <QualityDonut score={story.qualityScore} />
-          <div className="flex-1 space-y-3">
-            {[
-              { label: "Completeness", value: story.qualityBreakdown.completeness },
-              { label: "Clarity", value: story.qualityBreakdown.clarity },
-              { label: "Testability", value: story.qualityBreakdown.testability },
-            ].map((bar, i) => (
-              <div key={bar.label}>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-muted font-medium">{bar.label}</span>
-                  <span className="font-semibold text-navy">{bar.value}%</span>
-                </div>
-                <div className="h-2 bg-border rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full bg-cyan rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${bar.value}%` }}
-                    transition={{ duration: duration.slow, delay: 0.1 + i * 0.08, ease: easeOut }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[15px] font-semibold text-navy flex items-center gap-1.5">
+            Story Quality Analysis
+            <Tooltip content="AI-powered analysis of Completeness, Clarity and Testability using the Groq LLM.">
+              <Info size={13} className="text-muted cursor-help" />
+            </Tooltip>
+          </h3>
+          {!qualityLoading && (
+            <button
+              onClick={() => {
+                setQualityLoading(true);
+                setQualityError(false);
+                api.getStoryQuality(story.id)
+                  .then((q) => setQuality(q))
+                  .catch(() => setQualityError(true))
+                  .finally(() => setQualityLoading(false));
+              }}
+              className="text-muted hover:text-navy transition-colors"
+              title="Re-analyze"
+            >
+              <RefreshCw size={14} />
+            </button>
+          )}
         </div>
 
-        {story.qualityIssues.length > 0 && (
-          <div className="mt-5 space-y-3">
-            <h4 className="text-[13px] font-semibold text-muted uppercase tracking-wide">Issues Found</h4>
-            {story.qualityIssues.map((issue, i) => (
-              <div key={i} className="flex gap-3">
-                <AlertTriangle size={15} className="text-warning flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-navy">{issue.title}</p>
-                  <p className="text-xs text-muted mt-0.5">{issue.description}</p>
-                </div>
-              </div>
-            ))}
+        {qualityLoading ? (
+          <div className="flex items-center gap-3 py-6 justify-center text-muted">
+            <Loader2 size={18} className="animate-spin" />
+            <span className="text-sm">Analyzing story quality with AI…</span>
           </div>
-        )}
+        ) : qualityError ? (
+          <div className="py-4 text-center text-sm text-muted">
+            Quality analysis unavailable. <button onClick={() => {
+              setQualityLoading(true); setQualityError(false);
+              api.getStoryQuality(story.id).then(setQuality).catch(() => setQualityError(true)).finally(() => setQualityLoading(false));
+            }} className="text-cyan hover:underline">Retry</button>
+          </div>
+        ) : quality ? (
+          <>
+            <div className="flex gap-6 items-start">
+              <QualityDonut score={quality.overall_score} />
+              <div className="flex-1 space-y-3">
+                {[
+                  { label: "Completeness", value: quality.completeness },
+                  { label: "Clarity",       value: quality.clarity },
+                  { label: "Testability",   value: quality.testability },
+                ].map((bar, i) => (
+                  <div key={bar.label}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-muted font-medium">{bar.label}</span>
+                      <span className="font-semibold text-navy">{bar.value}%</span>
+                    </div>
+                    <div className="h-2 bg-border rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-cyan rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${bar.value}%` }}
+                        transition={{ duration: duration.slow, delay: 0.1 + i * 0.08, ease: easeOut }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {quality.issues.length > 0 && (
+              <div className="mt-5 space-y-3">
+                <h4 className="text-[13px] font-semibold text-muted uppercase tracking-wide">Issues Found</h4>
+                {quality.issues.map((issue, i) => (
+                  <div key={i} className="flex gap-3">
+                    <AlertTriangle size={15} className="text-warning flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-navy">{issue.title}</p>
+                      <p className="text-xs text-muted mt-0.5">{issue.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : null}
       </motion.div>
 
-      {/* Risk analysis */}
-      {story.riskAreas.length > 0 && (
+      {/* Risk analysis — real LLM data */}
+      {quality && quality.risk_areas.length > 0 && (
         <motion.div variants={fadeInUp} className="bg-white border border-border rounded-card p-5">
           <h3 className="text-[15px] font-semibold text-navy mb-4 flex items-center gap-1.5">
             Risk Analysis
-            <Tooltip content="Risk Analysis flags areas where missing or weak requirements could lead to defects, ranked by severity.">
+            <Tooltip content="AI-identified risk areas where missing or weak requirements could lead to defects.">
               <Info size={13} className="text-muted cursor-help" />
             </Tooltip>
           </h3>
@@ -133,10 +190,10 @@ export function OverviewTab({ story }: { story: Story }) {
                 </tr>
               </thead>
               <tbody>
-                {story.riskAreas.map((r, i) => (
-                  <tr key={i} className={i < story.riskAreas.length - 1 ? "border-b border-border" : ""}>
+                {quality.risk_areas.map((r, i) => (
+                  <tr key={i} className={i < quality.risk_areas.length - 1 ? "border-b border-border" : ""}>
                     <td className="px-4 py-3 font-medium text-navy">{r.area}</td>
-                    <td className="px-4 py-3"><SeverityBadge severity={r.severity} /></td>
+                    <td className="px-4 py-3"><SeverityBadge severity={r.severity as any} /></td>
                     <td className="px-4 py-3 text-muted">{r.description}</td>
                   </tr>
                 ))}
@@ -146,15 +203,15 @@ export function OverviewTab({ story }: { story: Story }) {
         </motion.div>
       )}
 
-      {/* AI recommendations */}
-      {story.aiRecommendations.length > 0 && (
+      {/* AI recommendations — real LLM data */}
+      {quality && quality.recommendations.length > 0 && (
         <motion.div variants={fadeInUp} className="bg-[#ECFDF5] border border-[#6EE7B7] rounded-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles size={15} className="text-success" />
             <h3 className="text-[15px] font-semibold text-navy">AI Recommendations</h3>
           </div>
           <ol className="space-y-2">
-            {story.aiRecommendations.map((r, i) => (
+            {quality.recommendations.map((r, i) => (
               <li key={i} className="flex gap-3 text-sm text-navy">
                 <span className="font-bold text-success flex-shrink-0">{i + 1}.</span>
                 <span>{r}</span>
