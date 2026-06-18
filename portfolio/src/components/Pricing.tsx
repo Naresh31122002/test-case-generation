@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
+import { SIGNUP_URL } from "@/lib/app";
 
 type Plan = {
   name: string;
@@ -219,7 +220,7 @@ export default function Pricing() {
               </ul>
 
               <motion.a
-                href="/signup"
+                href={SIGNUP_URL}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 className={`mt-8 rounded-full ${plan.buttonBg} py-3 text-center font-semibold text-white`}

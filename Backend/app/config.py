@@ -89,6 +89,19 @@ class Config:
         "performance": int(os.getenv('TEST_CASE_COUNT_PERFORMANCE', '10'))
     }
 
+    # AWS SES Configuration
+    AWS_SES_REGION = os.getenv("AWS_SES_REGION", "us-east-1")
+    AWS_SES_ACCESS_KEY = os.getenv("AWS_SES_ACCESS_KEY")
+    AWS_SES_SECRET_KEY = os.getenv("AWS_SES_SECRET_KEY")
+    MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "noreply@kynetropo.com")
+
+    # Admin Dashboard
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@kynetropo.com")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "supersecretadmin123")
+
+    # Security / Monitoring
+    SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+
     @property
     def EMBEDDING_MODEL(self):
         return get_embedding_model()

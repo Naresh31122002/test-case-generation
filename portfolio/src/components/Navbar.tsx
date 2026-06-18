@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
+import { SIGNUP_URL } from "@/lib/app";
 
 const NAV_LINKS = [
   { label: "Features", href: "/#features", id: "features" },
@@ -172,7 +173,7 @@ export default function Navbar() {
             Sign In
           </a>
           <motion.a
-            href="/signup"
+            href={SIGNUP_URL}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.97 }}
             className="rounded-full bg-secondary px-6 py-2 font-semibold text-white shadow-sm"
@@ -229,7 +230,7 @@ export default function Navbar() {
                   Sign In
                 </a>
                 <motion.a
-                  href="/signup"
+                  href={SIGNUP_URL}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setMenuOpen(false)}

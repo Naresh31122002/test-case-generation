@@ -37,6 +37,7 @@ class DatabaseService:
         except Exception:
             import pyarrow as pa
             schema = pa.schema([
+                ("workspace_id", pa.string()),
                 ("user_id", pa.string()),
                 ("project_id", pa.string()),
                 ("vector", pa.list_(pa.float32(), 768)),
@@ -52,19 +53,24 @@ class DatabaseService:
             self.lance_db.create_table(self.TABLE_NAME_LANCE, schema=schema)
             print(f"Created LanceDB table '{self.TABLE_NAME_LANCE}'")
 
-    def get_recent_stories(self, page: int = 1, per_page: int = 10, from_date: str = None, to_date: str = None, project_id: str = None, sort_order: str = 'desc', user_id: str = None) -> Dict[str, Any]:
+    def get_recent_stories(self, page: int = 1, per_page: int = 10, from_date: str = None, to_date: str = None, project_id: str = None, sort_order: str = 'desc', user_id: str = None, workspace_id: str = None) -> Dict[str, Any]:
         """
         Get paginated stories with test case information from both PostgreSQL and LanceDB.
-        Scoped to user_id when provided.
+        Scoped to workspace_id (preferred) or user_id.
         """
         try:
+            if not workspace_id:
+                raise ValueError("workspace_id is required")
+
             # Get stories from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
             lance_stories = stories_table.to_pandas()
 
-            # Filter by user_id if provided
-            if user_id and 'user_id' in lance_stories.columns:
-                lance_stories = lance_stories[lance_stories['user_id'] == user_id]
+            # Strict workspace filter
+            if 'workspace_id' not in lance_stories.columns:
+                return {'stories': [], 'total': 0, 'total_pages': 0, 'current_page': page, 'per_page': per_page}
+                
+            lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
 
             # Filter by project_id if provided
             if project_id:
@@ -85,7 +91,10 @@ class DatabaseService:
                         WHERE story_id = ANY(%s)
                     """
                     params = [story_ids]
-                    if user_id:
+                    if workspace_id:
+                        query += " AND workspace_id = %s"
+                        params.append(workspace_id)
+                    elif user_id:
                         query += " AND user_id = %s"
                         params.append(user_id)
                     query += " ORDER BY created_on DESC NULLS LAST"
@@ -164,17 +173,22 @@ class DatabaseService:
                 'per_page': per_page
             }
 
-    def get_story(self, story_id: str, user_id: str = None) -> Optional[Dict[str, Any]]:
-        """Get a specific story by ID. Scoped to user_id when provided."""
+    def get_story(self, story_id: str, user_id: str = None, workspace_id: str = None) -> Optional[Dict[str, Any]]:
+        """Get a specific story by ID. Scoped strictly to workspace_id."""
         try:
+            if not workspace_id:
+                raise ValueError("workspace_id is required")
+                
             # Get story from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
             story_data = stories_table.to_pandas()
             lance_story = story_data[story_data['storyID'] == story_id]
 
-            # Apply user filter in LanceDB if column exists
-            if user_id and 'user_id' in lance_story.columns:
-                lance_story = lance_story[lance_story['user_id'] == user_id]
+            # Strict workspace filter
+            if 'workspace_id' in lance_story.columns:
+                lance_story = lance_story[lance_story['workspace_id'] == workspace_id]
+            else:
+                return None
 
             if lance_story.empty:
                 print(f"Story not found in LanceDB: {story_id}")
@@ -189,7 +203,10 @@ class DatabaseService:
                         WHERE story_id = %s
                     """
                     params = [story_id]
-                    if user_id:
+                    if workspace_id:
+                        query += " AND workspace_id = %s"
+                        params.append(workspace_id)
+                    elif user_id:
                         query += " AND user_id = %s"
                         params.append(user_id)
                     query += " ORDER BY created_on DESC NULLS LAST LIMIT 1"
@@ -225,20 +242,21 @@ class DatabaseService:
             print(f"Error getting story {story_id}: {str(e)}")
             return None
 
-    def get_all_stories(self, user_id: str = None) -> List[Dict[str, Any]]:
+    def get_all_stories(self, workspace_id: str = None) -> List[Dict[str, Any]]:
         """Return all stories that have test cases generated.
-        Pass user_id to scope to a specific user (scheduler passes None to process all).
+        If workspace_id is provided, scopes to that workspace.
+        Otherwise (e.g. for the global scheduler), returns all.
         """
         try:
             with psycopg2.connect(**self.postgres_config) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                    if user_id:
+                    if workspace_id:
                         cur.execute("""
                             SELECT story_id, project_id, user_id
                             FROM test_cases
-                            WHERE test_case_generated = TRUE AND user_id = %s
+                            WHERE test_case_generated = TRUE AND workspace_id = %s
                             ORDER BY created_on DESC NULLS LAST
-                        """, (user_id,))
+                        """, (workspace_id,))
                     else:
                         cur.execute("""
                             SELECT story_id, project_id, user_id
@@ -254,39 +272,32 @@ class DatabaseService:
             print(f"Error getting all stories: {str(e)}")
             return []
 
-    def search_similar_stories(self, query: str, limit: int = 3, user_id: str = None) -> Dict[str, Any]:
+    def search_similar_stories(self, query: str, limit: int = 3, user_id: str = None, workspace_id: str = None) -> Dict[str, Any]:
         """
         Search for similar stories using vector similarity.
-        Scoped to user_id when provided.
+        Scoped to workspace_id (preferred) or user_id.
         """
         try:
             if not query or not query.strip():
                 return {'stories': [], 'error': 'Query cannot be empty'}
+                
+            if not workspace_id:
+                return {'stories': [], 'error': 'workspace_id is required'}
 
             # Get stories table from LanceDB
             stories_table = self.lance_db.open_table(self.TABLE_NAME_LANCE)
 
-            # Get all data first to ensure we have complete story content
-            lance_data = stories_table.to_pandas()
-
             # Encode the query using the embedding model
             query_vector = Config.EMBEDDING_MODEL.encode(query).tolist()
 
-            # Fetch more results than needed so we have enough after user filtering
-            fetch_limit = limit * 5 if user_id else limit
+            # Execute native LanceDB vector search with SQL pre-filter
             results = (
                 stories_table.search(query_vector)
+                .where(f"workspace_id = '{workspace_id}'")
                 .metric("cosine")
-                .limit(fetch_limit)
+                .limit(limit)
                 .to_list()
             )
-
-            # Filter results by user_id if provided
-            if user_id and results:
-                user_story_ids = set(
-                    lance_data[lance_data['user_id'] == user_id]['storyID'].tolist()
-                ) if 'user_id' in lance_data.columns else set()
-                results = [r for r in results if r['storyID'] in user_story_ids][:limit]
 
             if not results:
                 return {'stories': [], 'message': 'No matching stories found'}
@@ -297,15 +308,6 @@ class DatabaseService:
                     stories = []
                     for result in results:
                         story_id = result['storyID']
-
-                        # Get complete story data from LanceDB DataFrame
-                        lance_story = lance_data[lance_data['storyID'] == story_id].iloc[0]
-
-                        # Get story content from multiple possible sources
-                        story_content = (
-                            lance_story.get('doc_content_text', '') or
-                            lance_story.get('storyDescription', '')
-                        )
 
                         # Fetch test case data and impacted test cases count
                         query_sql = """
@@ -321,7 +323,10 @@ class DatabaseService:
                             WHERE story_id = %s
                         """
                         params = [story_id]
-                        if user_id:
+                        if workspace_id:
+                            query_sql += " AND workspace_id = %s"
+                            params.append(workspace_id)
+                        elif user_id:
                             query_sql += " AND user_id = %s"
                             params.append(user_id)
                         cur.execute(query_sql, params)
@@ -335,7 +340,8 @@ class DatabaseService:
 
                             # Use the most complete content available
                             content = (
-                                story_content or
+                                result.get('doc_content_text', '') or
+                                result.get('storyDescription', '') or
                                 pg_inputs.get('content', '') or
                                 pg_inputs.get('file_content', '') or
                                 pg_result['story_description']
@@ -354,7 +360,7 @@ class DatabaseService:
                                 'test_case_json': pg_result['test_case_json'],
                                 'similarity_score': result.get('_distance'),
                                 'source': {
-                                    'story': lance_story.get('source', 'backend'),
+                                    'story': result.get('source', 'backend'),
                                     'test_cases': pg_result['source'] or 'backend'
                                 }
                             }

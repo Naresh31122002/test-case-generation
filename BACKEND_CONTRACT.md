@@ -15,6 +15,13 @@ Items flagged **UNCLEAR — needs confirmation** are genuinely ambiguous in the 
 
 All API routes are prefixed with `/api`.
 
+**Multi-tenancy (workspaces):** every protected request must send an
+`X-Workspace-Id: <workspace uuid>` header identifying the active workspace. The
+backend verifies the user is a member of that workspace and scopes all data to it;
+a non-member workspace id returns `403`. If the header is omitted, the backend
+falls back to the workspace embedded in the JWT, then to the user's default
+(personal) workspace. See `MULTI_TENANCY.md` for the full model.
+
 **Runtime:** Python 3.x · Flask 3.0.2 · Gunicorn (production)
 
 **Environment variables required at startup:**
@@ -181,7 +188,38 @@ Exchange a valid refresh token for a new access token. Requires `refresh_token_c
 
 ---
 
+### 3.1b Workspace Routes — `/api/workspaces`
+
+All require a valid access token. They set/read the active workspace.
+
+#### `GET /api/workspaces`
+List the current user's workspaces.
+```json
+{ "workspaces": [ { "id": "uuid", "name": "...", "slug": "...", "owner_id": "uuid", "plan": "free", "role": "owner" } ] }
+```
+
+#### `POST /api/workspaces`
+Create a workspace (caller becomes owner). Body: `{ "name": "...", "plan": "free|pro|enterprise" }` → `201 { "workspace": {...} }`.
+
+#### `GET /api/workspaces/current`
+The workspace resolved for this request → `{ "workspace": {...} }`.
+
+#### `POST /api/workspaces/switch`
+Body: `{ "workspace_id": "uuid" }`. Validates membership (403 if not a member),
+re-issues the access cookie with the new `workspace_id` claim, returns
+`{ "workspace": {...} }`. The client must also send this id as `X-Workspace-Id`
+on subsequent requests.
+
+> **Auth additions:** `POST /api/auth/login` and `GET /api/auth/me` now also return
+> `current_workspace` (and `me` returns the full `workspaces` list). The access
+> token carries a `workspace_id` additional claim.
+
+---
+
 ### 3.2 Stories Routes — `/api/stories`
+
+> All stories/impacts routes are workspace-scoped: results are filtered by the
+> active workspace (`X-Workspace-Id`). Cross-workspace ids return `404`/`403`.
 
 All routes require a valid `access_token_cookie`.
 

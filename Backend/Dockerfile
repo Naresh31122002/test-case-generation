@@ -1,24 +1,40 @@
-FROM python:3.11-slim
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     libpq-dev \
-    libmupdf-dev \
-    mupdf-tools \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
+RUN pip install --user --no-cache-dir -r requirements.txt gunicorn
+
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install runtime system dependencies for PostgreSQL and others
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed python dependencies
+COPY --from=builder /root/.local /root/.local
+
+# Ensure the local bin is on PATH
+ENV PATH=/root/.local/bin:$PATH
+
+# Copy backend application code
 COPY . .
 
-RUN mkdir -p /app/data/lance_db
+# Set environment variables for production
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
 
-ENV PORT=5000
+# Expose port for Gunicorn
 EXPOSE 5000
 
-CMD gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 300 --access-logfile - run:app
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:create_app()"]

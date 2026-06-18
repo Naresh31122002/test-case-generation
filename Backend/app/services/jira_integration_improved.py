@@ -53,7 +53,7 @@ class JiraConfig:
     
     @classmethod
     def from_env(cls) -> 'JiraConfig':
-        """Create config from environment variables"""
+        """Create config from environment variables (global fallback)."""
         return cls(
             base_url=os.getenv('JIRA_BASE_URL', ''),
             email=os.getenv('JIRA_EMAIL', ''),
@@ -64,6 +64,37 @@ class JiraConfig:
             rate_limit_delay=float(os.getenv('JIRA_RATE_LIMIT_DELAY', '1.0')),
             retry_attempts=int(os.getenv('JIRA_RETRY_ATTEMPTS', '3')),
             retry_backoff_factor=float(os.getenv('JIRA_RETRY_BACKOFF_FACTOR', '2.0'))
+        )
+
+    @classmethod
+    def for_workspace(cls, workspace_id: str) -> 'JiraConfig':
+        """Create config from the workspace's stored integration (multi-tenant).
+
+        Reads workspace_integrations(integration_type='jira'); the api_token is
+        decrypted by IntegrationModel. Falls back to env vars when the workspace
+        has not configured Jira, so existing single-tenant setups keep working.
+        """
+        try:
+            from app.models.integration_model import IntegrationModel
+            record = IntegrationModel.get(workspace_id, 'jira')
+        except Exception as e:
+            logger.warning(f"Could not load Jira integration for workspace {workspace_id}: {e}")
+            record = None
+
+        if not record:
+            return cls.from_env()
+
+        config = record.get('config') or {}
+        return cls(
+            base_url=config.get('base_url', os.getenv('JIRA_BASE_URL', '')),
+            email=config.get('email', os.getenv('JIRA_EMAIL', '')),
+            api_token=record.get('secret') or os.getenv('JIRA_API_TOKEN', ''),
+            project_key=config.get('project_key', ''),
+            max_results=int(config.get('max_results', 100)),
+            batch_size=int(config.get('batch_size', 50)),
+            rate_limit_delay=float(config.get('rate_limit_delay', 1.0)),
+            retry_attempts=int(config.get('retry_attempts', 3)),
+            retry_backoff_factor=float(config.get('retry_backoff_factor', 2.0)),
         )
     
     def validate(self) -> bool:
@@ -337,7 +368,7 @@ class JiraIntegration:
             logger.error(f"❌ Error opening LanceDB table: {e}")
             raise
     
-    async def sync_stories(self, statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None, project_keys: List[str] = None) -> Dict[str, int]:
+    async def sync_stories(self, workspace_id: str, statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None, project_keys: List[str] = None) -> Dict[str, int]:
         """Sync stories from Jira to LanceDB"""
         
         # Test connection first
@@ -372,7 +403,7 @@ class JiraIntegration:
             
             for issue in issues:
                 stats["processed"] += 1
-                result = await self._process_issue(issue, existing_ids)
+                result = await self._process_issue(workspace_id, issue, existing_ids)
                 stats[result] += 1
             
             # Check if we've processed all issues
@@ -385,7 +416,7 @@ class JiraIntegration:
         logger.info(f"📊 Sync completed: {stats}")
         return stats
 
-    async def sync_stories_from_multiple_projects(self, project_keys: List[str], statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None) -> Dict[str, int]:
+    async def sync_stories_from_multiple_projects(self, workspace_id: str, project_keys: List[str], statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None) -> Dict[str, int]:
         """Sync stories from multiple Jira projects"""
         
         if not project_keys:
@@ -406,7 +437,7 @@ class JiraIntegration:
                     total_stats["failed"] += 1
                     continue
                 
-                project_stats = await self.sync_stories(statuses, issue_types, [project_key])
+                project_stats = await self.sync_stories(workspace_id, statuses, issue_types, [project_key])
                 
                 # Aggregate stats
                 for key in total_stats:
@@ -424,7 +455,7 @@ class JiraIntegration:
         logger.info(f"📊 Multi-project sync completed: {total_stats}")
         return total_stats
 
-    async def sync_all_available_projects(self, statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None) -> Dict[str, int]:
+    async def sync_all_available_projects(self, workspace_id: str, statuses: List[JiraStatus] = None, issue_types: List[JiraIssueType] = None) -> Dict[str, int]:
         """Sync stories from all available projects the user has access to"""
         
         logger.info("🔄 Discovering available projects...")
@@ -438,7 +469,7 @@ class JiraIntegration:
             project_keys = [project['key'] for project in projects]
             logger.info(f"🔄 Found {len(project_keys)} projects: {project_keys}")
             
-            return await self.sync_stories_from_multiple_projects(project_keys, statuses, issue_types)
+            return await self.sync_stories_from_multiple_projects(workspace_id, project_keys, statuses, issue_types)
             
         except Exception as e:
             logger.error(f"❌ Error discovering projects: {e}")
@@ -497,7 +528,7 @@ class JiraIntegration:
             logger.error(f"❌ Error getting existing story IDs: {e}")
             return set()
     
-    async def _process_issue(self, issue: Dict[str, Any], existing_ids: set) -> str:
+    async def _process_issue(self, workspace_id: str, issue: Dict[str, Any], existing_ids: set) -> str:
         """Process a single Jira issue"""
         try:
             story_id = issue.get('key', 'unknown')
@@ -530,6 +561,8 @@ class JiraIntegration:
             
             # Store in LanceDB
             self.table.add([{
+                "workspace_id": workspace_id,
+                "user_id": "",
                 "project_id": data.get("project", ""),
                 "vector": embedding,
                 "storyID": story_id,
@@ -589,8 +622,8 @@ async def main():
     try:
         integration = JiraIntegration()
         
-        # Sync stories with specific filters (using original working approach)
         stats = await integration.sync_stories(
+            workspace_id="00000000-0000-0000-0000-000000000000",
             statuses=[JiraStatus.SELECTED_FOR_DEV, JiraStatus.IN_PROGRESS],
             issue_types=[JiraIssueType.STORY]
         )

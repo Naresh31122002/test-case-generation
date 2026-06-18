@@ -4,6 +4,7 @@ import { Fragment, useState } from "react";
 import { motion } from "framer-motion";
 import { Play, FileText, ScanSearch, ListChecks, GitCompareArrows, Download, ChevronRight, ChevronDown } from "lucide-react";
 import DemoModal from "@/components/DemoModal";
+import { SIGNUP_URL } from "@/lib/app";
 
 const STATS = [
   "50 Free Generations",
@@ -150,7 +151,7 @@ export default function Hero() {
           className="mt-10 flex flex-col items-center gap-4 sm:flex-row"
         >
           <motion.a
-            href="/signup"
+            href={SIGNUP_URL}
             whileHover={{
               scale: 1.05,
               boxShadow: "0 0 0 8px rgba(255, 59, 107, 0.15)",

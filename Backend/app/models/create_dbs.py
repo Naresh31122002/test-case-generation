@@ -14,6 +14,7 @@ from app.config import Config
 db = lancedb.connect(Config.LANCE_DB_PATH)
 TABLE_NAME = Config.TABLE_NAME_LANCE
 schema = pa.schema([
+    ("workspace_id", pa.string()),
     ("user_id", pa.string()),
     ("project_id", pa.string()),
     ("vector", pa.list_(pa.float32(), 768)),
@@ -79,6 +80,227 @@ def create_postgres_db():
         """)
         print("✅ Table 'users' is ready.")
 
+        # Migrate users: add email_verified flag (signup journey). Idempotent.
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = 'email_verified'
+                ) THEN
+                    ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+            END $$;
+        """)
+        print("✅ Migrated 'users' email_verified column.")
+
+        # Auth tokens: email verification + password reset (single-use, expiring).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                token_hash  TEXT PRIMARY KEY,
+                user_id     UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                purpose     TEXT NOT NULL CHECK (purpose IN ('email_verify', 'password_reset')),
+                expires_at  TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                used_at     TIMESTAMP WITHOUT TIME ZONE,
+                created_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id, purpose);
+        """)
+        print("✅ Table 'auth_tokens' is ready.")
+
+        # ── Multi-tenancy: workspaces, members, integrations ───────────────────
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspaces (
+                id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                name        TEXT NOT NULL,
+                slug        TEXT NOT NULL UNIQUE,
+                owner_id    UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                plan        TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'starter', 'pro', 'team', 'enterprise')),
+                stripe_customer_id              TEXT,
+                stripe_subscription_id          TEXT,
+                stripe_price_id                 TEXT,
+                subscription_status             TEXT,
+                subscription_current_period_end TIMESTAMP WITHOUT TIME ZONE,
+                created_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_id);
+            CREATE INDEX IF NOT EXISTS idx_workspaces_stripe_sub ON workspaces(stripe_subscription_id);
+        """)
+        print("✅ Table 'workspaces' is ready.")
+
+        # Migrate existing plans in workspaces: 'enterprise' -> 'team' and update constraint
+        cursor.execute("""
+            DO $$
+            BEGIN
+                -- Update existing data
+                UPDATE workspaces SET plan = 'team' WHERE plan = 'enterprise';
+                
+                -- Attempt to drop old constraint
+                DECLARE
+                    constraint_name text;
+                BEGIN
+                    SELECT conname INTO constraint_name
+                    FROM pg_constraint
+                    WHERE conrelid = 'workspaces'::regclass AND contype = 'c' AND conname LIKE '%plan%';
+                    
+                    IF constraint_name IS NOT NULL THEN
+                        EXECUTE 'ALTER TABLE workspaces DROP CONSTRAINT ' || constraint_name;
+                    END IF;
+                END;
+                
+                -- Add new constraint
+                BEGIN
+                    ALTER TABLE workspaces ADD CONSTRAINT workspaces_plan_check 
+                    CHECK (plan IN ('free', 'starter', 'pro', 'team', 'enterprise'));
+                EXCEPTION WHEN duplicate_object THEN
+                    -- Constraint already exists
+                END;
+            END $$;
+        """)
+        
+        # Alter table for existing dbs to add new columns
+        cursor.execute("""
+            ALTER TABLE workspaces 
+            ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT,
+            ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
+            ADD COLUMN IF NOT EXISTS stripe_price_id TEXT,
+            ADD COLUMN IF NOT EXISTS subscription_status TEXT,
+            ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMP WITHOUT TIME ZONE;
+            
+            CREATE INDEX IF NOT EXISTS idx_workspaces_stripe_sub ON workspaces(stripe_subscription_id);
+        """)
+        
+        print("✅ Migrated 'workspaces' plans, constraints, and stripe columns.")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_members (
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id      UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                role         TEXT NOT NULL DEFAULT 'editor' CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+                created_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (workspace_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ws_members_user ON workspace_members(user_id);
+        """)
+        print("✅ Table 'workspace_members' is ready.")
+
+        # Migrate existing roles in workspace_members: 'member' -> 'editor' and update constraint
+        cursor.execute("""
+            DO $$
+            BEGIN
+                -- Update existing data
+                UPDATE workspace_members SET role = 'editor' WHERE role = 'member';
+                
+                -- Attempt to drop the old constraint if it exists (the default name in Postgres might vary,
+                -- so we try to find it dynamically or just alter the type if not possible, but since we didn't 
+                -- name it, we can query it)
+                DECLARE
+                    constraint_name text;
+                BEGIN
+                    SELECT conname INTO constraint_name
+                    FROM pg_constraint
+                    WHERE conrelid = 'workspace_members'::regclass AND contype = 'c' AND conname LIKE '%role%';
+                    
+                    IF constraint_name IS NOT NULL THEN
+                        EXECUTE 'ALTER TABLE workspace_members DROP CONSTRAINT ' || constraint_name;
+                    END IF;
+                END;
+                
+                -- Add the new constraint
+                BEGIN
+                    ALTER TABLE workspace_members ADD CONSTRAINT workspace_members_role_check 
+                    CHECK (role IN ('owner', 'admin', 'editor', 'viewer'));
+                EXCEPTION WHEN duplicate_object THEN
+                    -- Constraint already exists
+                END;
+                
+                -- Update default value
+                ALTER TABLE workspace_members ALTER COLUMN role SET DEFAULT 'editor';
+            END $$;
+        """)
+        print("✅ Migrated 'workspace_members' roles and constraints.")
+
+        # Workspace Invites
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_invites (
+                id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                email        TEXT NOT NULL,
+                role         TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+                token        TEXT NOT NULL UNIQUE,
+                invited_by   UUID NOT NULL REFERENCES users(user_id),
+                expires_at   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                created_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_invites_ws ON workspace_invites(workspace_id);
+            CREATE INDEX IF NOT EXISTS idx_workspace_invites_token ON workspace_invites(token);
+        """)
+        print("✅ Table 'workspace_invites' is ready.")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_integrations (
+                id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id     UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                integration_type TEXT NOT NULL,
+                config           JSONB NOT NULL DEFAULT '{}'::jsonb,
+                secret_enc       TEXT,
+                created_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (workspace_id, integration_type)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ws_integrations_ws ON workspace_integrations(workspace_id);
+        """)
+        print("✅ Table 'workspace_integrations' is ready.")
+
+        # Workspace Credits
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_credits (
+                workspace_id UUID PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+                monthly_limit INT NOT NULL,
+                credits_used INT NOT NULL DEFAULT 0,
+                reset_date TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        print("✅ Table 'workspace_credits' is ready.")
+
+        # Credit Transactions (Auditing)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                amount INT NOT NULL,
+                action TEXT NOT NULL,
+                story_id TEXT,
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_credit_trans_ws ON credit_transactions(workspace_id);
+        """)
+        print("✅ Table 'credit_transactions' is ready.")
+
+        # General Audit Logs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                action VARCHAR(100) NOT NULL,
+                details JSONB DEFAULT '{}',
+                ip_address VARCHAR(45),
+                timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+            
+            CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                admin_email VARCHAR(255) NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                details JSONB DEFAULT '{}',
+                ip_address VARCHAR(45),
+                timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        print("✅ Tables 'audit_logs' and 'admin_audit_logs' are ready.")
+
         # Create test_cases table if it doesn't exist
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_cases (
@@ -127,11 +349,18 @@ def create_postgres_db():
                 ) THEN
                     ALTER TABLE test_cases ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
                 END IF;
+                -- Legacy: drop the old single-column-ish unique constraint if present.
+                -- It may be referenced by FKs (test_case_impacts → story_id); if the
+                -- drop can't proceed, skip it rather than aborting the whole setup.
                 IF EXISTS (
                     SELECT 1 FROM information_schema.table_constraints
                     WHERE table_name = 'test_cases' AND constraint_name = 'unique_story_id'
                 ) THEN
-                    ALTER TABLE test_cases DROP CONSTRAINT unique_story_id;
+                    BEGIN
+                        ALTER TABLE test_cases DROP CONSTRAINT unique_story_id;
+                    EXCEPTION WHEN dependent_objects_still_exist THEN
+                        RAISE NOTICE 'Skipping drop of unique_story_id (FK dependency present).';
+                    END;
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.table_constraints
@@ -139,9 +368,19 @@ def create_postgres_db():
                 ) THEN
                     ALTER TABLE test_cases ADD CONSTRAINT unique_story_id_per_user UNIQUE (story_id, user_id);
                 END IF;
+                -- Multi-tenancy: workspace_id column. Kept nullable here; the
+                -- migration script (001_multi_tenant) backfills and sets NOT NULL
+                -- plus the (story_id, workspace_id) unique constraint.
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'test_cases' AND column_name = 'workspace_id'
+                ) THEN
+                    ALTER TABLE test_cases ADD COLUMN workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_test_cases_workspace ON test_cases(workspace_id);
+                END IF;
             END $$;
         """)
-        print("✅ Migrated 'test_cases' user_id column and constraint.")
+        print("✅ Migrated 'test_cases' user_id/workspace_id columns and constraint.")
 
         # Create test_case_impacts table with enhanced referential integrity
         cursor.execute("""
@@ -210,9 +449,17 @@ def create_postgres_db():
                     ALTER TABLE test_case_impacts ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
                     CREATE INDEX IF NOT EXISTS idx_test_case_impacts_user_id ON test_case_impacts(user_id);
                 END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'test_case_impacts' AND column_name = 'workspace_id'
+                ) THEN
+                    ALTER TABLE test_case_impacts ADD COLUMN workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_test_case_impacts_workspace ON test_case_impacts(workspace_id);
+                    CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story_ws ON test_case_impacts(new_story_id, workspace_id);
+                END IF;
             END $$;
         """)
-        print("✅ Migrated 'test_case_impacts' user_id column.")
+        print("✅ Migrated 'test_case_impacts' user_id/workspace_id columns.")
 
         # Create impact_history table
         cursor.execute("""
@@ -249,9 +496,16 @@ def create_postgres_db():
                     ALTER TABLE impact_history ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
                     CREATE INDEX IF NOT EXISTS idx_impact_history_user_id ON impact_history(user_id);
                 END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'impact_history' AND column_name = 'workspace_id'
+                ) THEN
+                    ALTER TABLE impact_history ADD COLUMN workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_impact_history_workspace ON impact_history(workspace_id);
+                END IF;
             END $$;
         """)
-        print("✅ Migrated 'impact_history' user_id column.")
+        print("✅ Migrated 'impact_history' user_id/workspace_id columns.")
 
         # Create view for impact metrics
         cursor.execute("""
@@ -366,6 +620,21 @@ def create_postgres_db():
             ON story_versions(story_id, user_id);
         """)
         print("✅ Table 'story_versions' is ready.")
+
+        # Migrate existing story_versions: add workspace_id column if missing
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'story_versions' AND column_name = 'workspace_id'
+                ) THEN
+                    ALTER TABLE story_versions ADD COLUMN workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS idx_story_versions_workspace ON story_versions(workspace_id);
+                END IF;
+            END $$;
+        """)
+        print("✅ Migrated 'story_versions' workspace_id column.")
 
         conn.commit()
         print("\n✅ All database structures have been created/updated successfully!")

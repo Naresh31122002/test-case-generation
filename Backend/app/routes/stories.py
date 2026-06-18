@@ -19,30 +19,20 @@ from app.models.db_service import get_db_service
 from app.LLM.impact_analyzer import analyze_test_case_impacts
 from app.utils.excel_util import generate_excel
 from app.LLM.Test_case_generator import Chat_RAG
+# Multi-tenancy: workspace resolution + scoping helpers (replaces the old inline
+# dev_jwt_required / get_current_user_id). `workspace_required` sets g.user_id and
+# g.workspace_id, honoring DEV_BYPASS_AUTH.
+from app.utils.limiter import limiter
+from app.utils.workspace import (
+    workspace_required,
+    get_current_user_id,
+    get_current_workspace_id,
+)
 stories_bp = Blueprint('stories', __name__)
 
-# ── Dev auth bypass ───────────────────────────────────────────────────────────
-# Set DEV_BYPASS_AUTH=1 in .env to skip JWT and use a fixed dev user_id.
-# REMOVE before deploying to production.
-_DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
-
-def _is_bypass():
-    return os.getenv("DEV_BYPASS_AUTH", "0") == "1"
-
-def dev_jwt_required(fn):
-    """Drop-in replacement for @dev_jwt_required that respects DEV_BYPASS_AUTH."""
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        if _is_bypass():
-            return fn(*args, **kwargs)
-        return jwt_required()(fn)(*args, **kwargs)
-    return wrapper
-
-def get_current_user_id():
-    """Return user_id from JWT or the fixed dev user when bypassing."""
-    if _is_bypass():
-        return _DEV_USER_ID
-    return get_jwt_identity()
+# Backwards-compatible alias: existing routes are decorated with @dev_jwt_required.
+# It now resolves the workspace too, so every route is tenant-scoped.
+dev_jwt_required = workspace_required
 # ─────────────────────────────────────────────────────────────────────────────
 
 def serialize_datetime(obj):
@@ -53,10 +43,12 @@ def serialize_datetime(obj):
 
 @stories_bp.route('/', methods=['GET'])
 @dev_jwt_required
+@limiter.limit("30 per minute")
 def get_stories():
     """Get all stories with pagination and sorting"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
         sort_order = request.args.get('sort_order', 'desc')
@@ -90,9 +82,9 @@ def get_stories():
                 COALESCE(story_status, 'in_review') as story_status
             FROM test_cases
             WHERE test_case_generated = TRUE
-            AND user_id = %s
+            AND workspace_id = %s
         """
-        params = [user_id]
+        params = [workspace_id]
 
         # Add project filter if specified
         if project_id:
@@ -114,9 +106,9 @@ def get_stories():
         db = lancedb.connect(Config.LANCE_DB_PATH)
         table = db.open_table(Config.TABLE_NAME_LANCE)
         lance_data = table.to_pandas()
-        # Filter LanceDB data to this user
-        if 'user_id' in lance_data.columns:
-            lance_data = lance_data[lance_data['user_id'] == user_id]
+        # Filter LanceDB data to this workspace
+        if 'workspace_id' in lance_data.columns:
+            lance_data = lance_data[lance_data['workspace_id'] == workspace_id]
         embedding_timestamps = dict(zip(lance_data['storyID'], lance_data['embedding_timestamp']))
         doc_content_texts = dict(zip(lance_data['storyID'], lance_data['doc_content_text']))
 
@@ -138,9 +130,9 @@ def get_stories():
                     SELECT COUNT(*)
                     FROM test_cases
                     WHERE test_case_generated = TRUE
-                    AND user_id = %s
+                    AND workspace_id = %s
                 """
-                count_params = [user_id]
+                count_params = [workspace_id]
                 if project_id:
                     count_query += " AND project_id = %s"
                     count_params.append(project_id)
@@ -216,13 +208,14 @@ def get_story(story_id):
     """Get a specific story"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         print("DEBUG:get_story: Request received", {'story_id': story_id})
         if not story_id:
             return jsonify({'error': 'Story ID is required'}), 400
 
         db_service = get_db_service()
         print("DEBUG:get_story: Fetching story from db_service")
-        story = db_service.get_story(story_id, user_id=user_id)
+        story = db_service.get_story(story_id, user_id=user_id, workspace_id=workspace_id)
 
         if story:
             print("DEBUG:get_story: Story found", {'story_id': story_id})
@@ -239,6 +232,7 @@ def search_stories():
     """Search for similar stories"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json()
         print("DEBUG:search_stories: Request received", {'data': data})
         if not data or 'query' not in data:
@@ -258,7 +252,7 @@ def search_stories():
             'query': query,
             'limit': limit
         })
-        results = db_service.search_similar_stories(query, limit, user_id=user_id)
+        results = db_service.search_similar_stories(query, limit, user_id=user_id, workspace_id=workspace_id)
         print("DEBUG:search_stories: Returning results", {
             'results_count': len(results) if isinstance(results, list) else 'n/a'
         })
@@ -273,12 +267,13 @@ def download_test_cases(story_id):
     """Download test cases for a story as Excel file"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         print("DEBUG:download_test_cases: Request received", {'story_id': story_id})
         db_service = get_db_service()
 
-        # Get story details from LanceDB (scoped to user)
+        # Get story details from LanceDB (scoped to workspace)
         print("DEBUG:download_test_cases: Fetching story details from db_service")
-        story = db_service.get_story(story_id, user_id=user_id)
+        story = db_service.get_story(story_id, user_id=user_id, workspace_id=workspace_id)
         if not story:
             return jsonify({
                 'error': f'Story not found with ID: {story_id}'
@@ -291,8 +286,8 @@ def download_test_cases(story_id):
                 cursor.execute("""
                     SELECT test_case_json, story_description
                     FROM test_cases
-                    WHERE story_id = %s AND user_id = %s
-                """, (story_id, user_id))
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
                 result = cursor.fetchone()
 
                 if not result:
@@ -360,18 +355,19 @@ def get_story_testcases(story_id):
     """Get test cases for a specific story"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         print(f"DEBUG:get_story_testcases: Request received for story {story_id}")
         db_service = get_db_service()
 
-        # Get test cases from PostgreSQL scoped to user
+        # Get test cases from PostgreSQL scoped to workspace
         print("DEBUG:get_story_testcases: Querying Postgres for test_case_json")
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT test_case_json, story_description, project_id
                     FROM test_cases
-                    WHERE story_id = %s AND user_id = %s
-                """, (story_id, user_id))
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
                 result = cur.fetchone()
 
                 print("DEBUG:get_story_testcases: Raw DB result exists?", {
@@ -484,6 +480,18 @@ def rag_chat():
         if not data or 'query' not in data:
             return jsonify({'error': 'Query is required'}), 400
         user_query = data['query']
+        
+        # Check and deduct credit before proceeding
+        workspace_id = get_current_workspace_id()
+        user_id = get_current_user_id()
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="rag_chat")
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+            
         # 1. Retrieve similar stories and their test cases
         try:
             print("DEBUG:rag_chat: Calling Chat_RAG", {'query': user_query})
@@ -564,18 +572,19 @@ Now, based on the following user story, generate new, comprehensive test cases i
 @stories_bp.route('/projects', methods=['GET'])
 @dev_jwt_required
 def get_projects():
-    """Get unique project IDs for the current user"""
+    """Get unique project IDs for the current workspace"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         db_service = get_db_service()
 
-        # Get stories from LanceDB filtered by user
+        # Get stories from LanceDB filtered by workspace
         stories_table = db_service.lance_db.open_table(Config.TABLE_NAME_LANCE)
         lance_stories = stories_table.to_pandas()
 
-        # Filter by user_id if column exists
-        if 'user_id' in lance_stories.columns:
-            lance_stories = lance_stories[lance_stories['user_id'] == user_id]
+        # Filter by workspace_id if column exists
+        if 'workspace_id' in lance_stories.columns:
+            lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
 
         # Get unique project IDs
         project_ids = lance_stories['project_id'].dropna().unique().tolist()
@@ -593,6 +602,7 @@ def upload_story():
     """Upload a new user story with project ID, story ID, content, and optional file. Description will be AI-generated."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         # Get form data
         project_id = request.form.get('project_id')
         story_id = request.form.get('story_id')
@@ -606,13 +616,22 @@ def upload_story():
                 'error': 'Project ID, Story ID, and either Content or File are required'
             }), 400
 
-        # Check if story already exists for this user
+        # Check if story already exists in this workspace
         db_service = get_db_service()
-        existing_story = db_service.get_story(story_id, user_id=user_id)
+        existing_story = db_service.get_story(story_id, user_id=user_id, workspace_id=workspace_id)
         if existing_story:
             return jsonify({
                 'error': f'Story with ID "{story_id}" already exists'
             }), 409
+
+        # Check and deduct credit before proceeding
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="generate_tests", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
         # Create project folder if it doesn't exist
         import os
@@ -712,6 +731,7 @@ def upload_story():
 
             # Add to LanceDB — storyDescription stores the short title for card display
             table.add([{
+                "workspace_id": workspace_id,
                 "user_id": user_id,
                 "project_id": project_id,
                 "vector": embedding,
@@ -735,10 +755,10 @@ def upload_story():
         # Frontend polls GET /api/stories/<id> until test_case_count > 0.
         import threading
 
-        def run_full_pipeline(sid, proj_id, uid, fpath, fname):
+        def run_full_pipeline(sid, proj_id, uid, wsid, fpath, fname):
             try:
                 from app.LLM.Test_case_generator import generate_test_case_for_story
-                generate_test_case_for_story(sid, user_id=uid)
+                generate_test_case_for_story(sid, user_id=uid, workspace_id=wsid)
 
                 # Move file to success folder after generation
                 if fpath and os.path.exists(fpath):
@@ -753,7 +773,7 @@ def upload_story():
                 # Run impact analysis
                 try:
                     from app.LLM.impact_analyzer import analyze_test_case_impacts
-                    analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid)
+                    analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid, workspace_id=wsid)
                 except Exception as ia_err:
                     print(f"[Pipeline] Impact analysis failed for {sid}: {ia_err}")
 
@@ -771,7 +791,7 @@ def upload_story():
 
         thread = threading.Thread(
             target=run_full_pipeline,
-            args=(story_id, project_id, user_id, file_path, filename if file else f"{story_id}.txt"),
+            args=(story_id, project_id, user_id, workspace_id, file_path, filename if file else f"{story_id}.txt"),
             daemon=True
         )
         thread.start()
@@ -799,6 +819,7 @@ def get_project_impacts(project_id):
     """Get all impact analyses for a project"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -815,9 +836,9 @@ def get_project_impacts(project_id):
                         tc.story_description as original_story_description
                     FROM test_case_impacts tci
                     JOIN test_cases tc ON tc.story_id = tci.original_story_id
-                    WHERE tci.project_id = %s AND tci.user_id = %s
+                    WHERE tci.project_id = %s AND tci.workspace_id = %s
                     ORDER BY tci.impact_created_on DESC
-                """, (project_id, user_id))
+                """, (project_id, workspace_id))
 
                 impacts = cursor.fetchall()
 
@@ -837,6 +858,7 @@ def get_story_impacts(story_id):
     """Get impacts where this story is either the source or target"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -849,9 +871,9 @@ def get_story_impacts(story_id):
                     JOIN test_cases tc_orig ON tc_orig.story_id = tci.original_story_id
                     JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
                     WHERE (tci.original_story_id = %s OR tci.new_story_id = %s)
-                    AND tci.user_id = %s
+                    AND tci.workspace_id = %s
                     ORDER BY tci.impact_created_on DESC
-                """, (story_id, story_id, user_id))
+                """, (story_id, story_id, workspace_id))
 
                 impacts = cursor.fetchall()
 
@@ -883,6 +905,7 @@ def get_impact_details(impact_id):
     """Get detailed view of a specific impact"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         db_service = get_db_service()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
@@ -896,8 +919,8 @@ def get_impact_details(impact_id):
                     FROM test_case_impacts tci
                     JOIN test_cases tc_orig ON tc_orig.story_id = tci.original_story_id
                     JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
-                    WHERE tci.impact_id = %s AND tci.user_id = %s
-                """, (impact_id, user_id))
+                    WHERE tci.impact_id = %s AND tci.workspace_id = %s
+                """, (impact_id, workspace_id))
 
                 impact = cursor.fetchone()
 
@@ -916,16 +939,17 @@ def get_project_impact_summary(project_id):
     """Get summary of impacts in a project"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM test_case_impact_summary
                     WHERE project_id = %s
                     AND story_id IN (
-                        SELECT story_id FROM test_cases WHERE user_id = %s
+                        SELECT story_id FROM test_cases WHERE workspace_id = %s
                     )
                     ORDER BY total_impacts DESC
-                """, (project_id, user_id))
+                """, (project_id, workspace_id))
                 summaries = cursor.fetchall()
 
         return jsonify({
@@ -945,6 +969,7 @@ def trigger_impact_analysis():
     """Manually trigger impact analysis for a story"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json()
         story_id = data.get('story_id')
         project_id = data.get('project_id')
@@ -954,7 +979,7 @@ def trigger_impact_analysis():
                 'error': 'Both story_id and project_id are required'
             }), 400
 
-        analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+        analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
 
         return jsonify({
             'message': 'Impact analysis triggered successfully',
@@ -972,20 +997,21 @@ def trigger_project_impact_analysis():
     """Trigger impact analysis for ALL stories in a project (background thread)."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json()
         project_id = data.get('project_id')
 
         if not project_id:
             return jsonify({'error': 'project_id is required'}), 400
 
-        # Get all stories with test cases in this project scoped to user
+        # Get all stories with test cases in this project scoped to workspace
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute("""
                     SELECT story_id FROM test_cases
-                    WHERE project_id = %s AND test_case_generated = TRUE AND user_id = %s
+                    WHERE project_id = %s AND test_case_generated = TRUE AND workspace_id = %s
                     ORDER BY created_on ASC
-                """, (project_id, user_id))
+                """, (project_id, workspace_id))
                 stories = [row['story_id'] for row in cursor.fetchall()]
 
         if not stories:
@@ -997,13 +1023,13 @@ def trigger_project_impact_analysis():
 
         # Run analysis in background thread
         import threading
-        def run_all_impact_analyses(story_list, proj_id, uid):
+        def run_all_impact_analyses(story_list, proj_id, uid, wsid):
             try:
                 print(f"[ImpactAnalysis] Starting project-wide impact analysis for {len(story_list)} stories in project {proj_id}")
                 from app.LLM.impact_analyzer import analyze_test_case_impacts
                 for sid in story_list:
                     try:
-                        analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid)
+                        analyze_test_case_impacts(new_story_id=sid, project_id=proj_id, user_id=uid, workspace_id=wsid)
                         print(f"[ImpactAnalysis] Completed impact analysis for story {sid}")
                     except Exception as story_err:
                         print(f"[ImpactAnalysis] Error analyzing story {sid}: {story_err}")
@@ -1013,7 +1039,7 @@ def trigger_project_impact_analysis():
 
         thread = threading.Thread(
             target=run_all_impact_analyses,
-            args=(stories, project_id, user_id),
+            args=(stories, project_id, user_id, workspace_id),
             daemon=True
         )
         thread.start()
@@ -1034,24 +1060,25 @@ def get_test_case(story_id, test_case_id):
     """Get a specific test case from a story"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         print(f"Fetching test case {test_case_id} from story {story_id}")
         db_service = get_db_service()
 
-        # Get test cases from PostgreSQL scoped to user
+        # Get test cases from PostgreSQL scoped to workspace
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     WITH test_cases_array AS (
                         SELECT jsonb_array_elements(test_case_json->'test_cases') as test_case
                         FROM test_cases
-                        WHERE story_id = %s AND user_id = %s
+                        WHERE story_id = %s AND workspace_id = %s
                     )
                     SELECT test_case
                     FROM test_cases_array
                     WHERE test_case->>'id' = %s
                     OR test_case->>'test_case_id' = %s
                     LIMIT 1
-                """, (story_id, user_id, test_case_id, test_case_id))
+                """, (story_id, workspace_id, test_case_id, test_case_id))
                 result = cur.fetchone()
 
                 if not result:
@@ -1079,6 +1106,7 @@ def get_story_test_case_impacts(story_id):
     """Get details of how test cases in this story were impacted by other stories"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
@@ -1095,15 +1123,15 @@ def get_story_test_case_impacts(story_id):
                     WHERE original_story_id = %s
                     AND project_id = %s
                     AND impact_status = 'active'
-                    AND user_id = %s
-                """, (story_id, project_id, user_id))
+                    AND workspace_id = %s
+                """, (story_id, project_id, workspace_id))
                 db_impacted_count = cursor.fetchone()['impacted_count']
 
                 cursor.execute("""
                     SELECT story_description, test_case_json
                     FROM test_cases
-                    WHERE story_id = %s AND user_id = %s
-                """, (story_id, user_id))
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
                 story_info = cursor.fetchone()
 
                 if not story_info:
@@ -1148,9 +1176,9 @@ def get_story_test_case_impacts(story_id):
                         WHERE tci.project_id = %s
                         AND tci.original_test_case_id IN ({placeholders})
                         AND tci.impact_status = 'active'
-                        AND tci.user_id = %s
+                        AND tci.workspace_id = %s
                         ORDER BY tci.original_test_case_id, tci.impact_created_on DESC
-                    """, (project_id,) + tuple(test_case_ids) + (user_id,))
+                    """, (project_id,) + tuple(test_case_ids) + (workspace_id,))
                     impacts = cursor.fetchall()
                     print(f"DEBUG: Found {len(impacts)} impacts")
                 else:
@@ -1230,6 +1258,7 @@ def get_story_impact_details(story_id):
     """Get detailed impact information for a story"""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         project_id = request.args.get('project_id')
         if not project_id:
             return jsonify({'error': 'project_id is required as query parameter'}), 400
@@ -1241,8 +1270,8 @@ def get_story_impact_details(story_id):
                 cursor.execute("""
                     SELECT story_description, test_case_json
                     FROM test_cases
-                    WHERE story_id = %s AND user_id = %s
-                """, (story_id, user_id))
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
                 story_info = cursor.fetchone()
 
                 if not story_info:
@@ -1256,7 +1285,7 @@ def get_story_impact_details(story_id):
                             jsonb_array_elements(test_case_json->'test_cases') as test_case,
                             (jsonb_array_elements(test_case_json->'test_cases')->>'id') as test_case_id
                         FROM test_cases
-                        WHERE story_id = %s AND user_id = %s
+                        WHERE story_id = %s AND workspace_id = %s
                     ),
                     impact_details AS (
                         SELECT
@@ -1282,7 +1311,7 @@ def get_story_impact_details(story_id):
                         LEFT JOIN test_case_impacts tci ON tci.original_test_case_id = tc.test_case_id
                             AND tci.project_id = %s
                             AND tci.impact_status = 'active'
-                            AND tci.user_id = %s
+                            AND tci.workspace_id = %s
                         GROUP BY tc.test_case_id, tc.test_case
                     )
                     SELECT
@@ -1308,7 +1337,7 @@ def get_story_impact_details(story_id):
                             ELSE 4
                         END,
                         test_case_title
-                """, (story_id, user_id, project_id, user_id))
+                """, (story_id, workspace_id, project_id, workspace_id))
 
                 test_cases = cursor.fetchall()
 
@@ -1523,6 +1552,7 @@ def get_story_quality(story_id):
     """
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -1532,8 +1562,8 @@ def get_story_quality(story_id):
                            inputs->>'content'      AS input_content,
                            inputs->>'story_description' AS input_desc
                     FROM test_cases
-                    WHERE story_id = %s AND user_id = %s
-                """, (story_id, user_id))
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
                 row = cur.fetchone()
 
         if not row:
@@ -1543,8 +1573,8 @@ def get_story_quality(story_id):
             table = db.open_table(Config.TABLE_NAME_LANCE)
             all_rows = table.to_pandas()
             story_rows = all_rows[all_rows['storyID'] == story_id]
-            if 'user_id' in story_rows.columns:
-                story_rows = story_rows[story_rows['user_id'] == user_id]
+            if 'workspace_id' in story_rows.columns:
+                story_rows = story_rows[story_rows['workspace_id'] == workspace_id]
             if story_rows.empty:
                 return jsonify({'error': 'Story not found'}), 404
             content = str(story_rows.iloc[0].get('doc_content_text', ''))
@@ -1647,8 +1677,8 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
                     cur.execute("""
                         UPDATE test_cases
                         SET inputs = COALESCE(inputs, '{}'::jsonb) || %s::jsonb
-                        WHERE story_id = %s AND user_id = %s
-                    """, (json.dumps({'quality_analysis': quality}), story_id, user_id))
+                        WHERE story_id = %s AND workspace_id = %s
+                    """, (json.dumps({'quality_analysis': quality}), story_id, workspace_id))
                     conn.commit()
         except Exception:
             pass  # caching failure is non-fatal
@@ -1668,6 +1698,7 @@ def update_story_status(story_id):
     """Update the Kanban column for a story (in_review / in_progress / completed)."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json(silent=True) or {}
         new_status = data.get('status')
         allowed = ('in_review', 'in_progress', 'completed')
@@ -1679,9 +1710,9 @@ def update_story_status(story_id):
                 cur.execute("""
                     UPDATE test_cases
                     SET story_status = %s
-                    WHERE story_id = %s AND user_id = %s
+                    WHERE story_id = %s AND workspace_id = %s
                     RETURNING story_id
-                """, (new_status, story_id, user_id))
+                """, (new_status, story_id, workspace_id))
                 row = cur.fetchone()
                 if not row:
                     return jsonify({'error': 'Story not found'}), 404
@@ -1700,15 +1731,16 @@ def get_story_versions(story_id):
     """Return all versions for a story, newest first."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute("""
                     SELECT version_id, story_id, version_number, description,
                            file_name, created_on, run_id
                     FROM story_versions
-                    WHERE story_id = %s AND user_id = %s
+                    WHERE story_id = %s AND workspace_id = %s
                     ORDER BY version_number DESC
-                """, (story_id, user_id))
+                """, (story_id, workspace_id))
                 rows = cur.fetchall()
                 versions = []
                 for r in rows:
@@ -1727,10 +1759,11 @@ def regenerate_tests(story_id):
     """Re-run test case generation for an existing story using its stored content."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
 
         # Fetch existing story content from LanceDB
         db_service = get_db_service()
-        story = db_service.get_story(story_id, user_id=user_id)
+        story = db_service.get_story(story_id, user_id=user_id, workspace_id=workspace_id)
         if not story:
             return jsonify({'error': f'Story {story_id} not found'}), 404
 
@@ -1739,19 +1772,28 @@ def regenerate_tests(story_id):
         table = db.open_table(Config.TABLE_NAME_LANCE)
         all_rows = table.to_pandas()
         row_data = all_rows[all_rows['storyID'] == story_id]
-        if 'user_id' in row_data.columns:
-            row_data = row_data[row_data['user_id'] == user_id]
+        if 'workspace_id' in row_data.columns:
+            row_data = row_data[row_data['workspace_id'] == workspace_id]
         if row_data.empty:
             return jsonify({'error': 'Story content not found in vector store'}), 404
 
         project_id = str(row_data.iloc[0].get('project_id', ''))
 
+        # Check and deduct credit before proceeding
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="regenerate_tests", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
         # Delete existing test cases so generation creates fresh ones
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM test_cases WHERE story_id = %s AND user_id = %s",
-                    (story_id, user_id)
+                    "DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                    (story_id, workspace_id)
                 )
                 conn.commit()
 
@@ -1759,10 +1801,10 @@ def regenerate_tests(story_id):
         from app.LLM.Test_case_generator import generate_test_case_for_story
         import threading
         def run_regen():
-            generate_test_case_for_story(story_id, user_id=user_id)
+            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
             from app.LLM.impact_analyzer import analyze_test_case_impacts
             try:
-                analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+                analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
             except Exception as e:
                 print(f"[Regen] Impact analysis failed: {e}")
 
@@ -1784,10 +1826,11 @@ def upload_new_version(story_id):
     """Upload a new version of an existing story, archive the old one, and regenerate tests."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         db_service = get_db_service()
 
-        # Story must exist
-        existing_story = db_service.get_story(story_id, user_id=user_id)
+        # Story must exist in this workspace
+        existing_story = db_service.get_story(story_id, user_id=user_id, workspace_id=workspace_id)
         if not existing_story:
             return jsonify({'error': f'Story {story_id} not found'}), 404
 
@@ -1823,26 +1866,26 @@ def upload_new_version(story_id):
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT COALESCE(MAX(version_number), 0) FROM story_versions WHERE story_id = %s AND user_id = %s",
-                    (story_id, user_id)
+                    "SELECT COALESCE(MAX(version_number), 0) FROM story_versions WHERE story_id = %s AND workspace_id = %s",
+                    (story_id, workspace_id)
                 )
                 max_version = cur.fetchone()[0]
                 next_version = max_version + 1
 
                 # Get current run_id to archive
                 cur.execute(
-                    "SELECT run_id FROM test_cases WHERE story_id = %s AND user_id = %s",
-                    (story_id, user_id)
+                    "SELECT run_id FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                    (story_id, workspace_id)
                 )
                 existing_run = cur.fetchone()
                 current_run_id = existing_run[0] if existing_run else None
 
                 # Archive current version
                 cur.execute("""
-                    INSERT INTO story_versions (story_id, user_id, version_number, content, description, file_name, run_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO story_versions (story_id, user_id, workspace_id, version_number, content, description, file_name, run_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (story_id, user_id, version_number) DO NOTHING
-                """, (story_id, user_id, next_version - 1 if next_version > 1 else 1,
+                """, (story_id, user_id, workspace_id, next_version - 1 if next_version > 1 else 1,
                       existing_story.get('document_content', ''),
                       existing_story.get('description', ''),
                       None, current_run_id))
@@ -1876,17 +1919,17 @@ def upload_new_version(story_id):
             from app.config import get_embedding_model
             db = lancedb.connect(Config.LANCE_DB_PATH)
             table = db.open_table(Config.TABLE_NAME_LANCE)
-            # Delete old entry and re-add
+            # Drop only THIS story's row within THIS workspace, then re-add it.
             all_rows = table.to_pandas()
-            mask = all_rows['storyID'] != story_id
-            if 'user_id' in all_rows.columns:
-                mask = mask | (all_rows['user_id'] != user_id)
-            kept = all_rows[mask]
+            drop = all_rows['storyID'] == story_id
+            if 'workspace_id' in all_rows.columns:
+                drop = drop & (all_rows['workspace_id'] == workspace_id)
+            kept = all_rows[~drop]
             table = db.create_table(Config.TABLE_NAME_LANCE, data=kept, mode='overwrite')
             embedding = get_embedding_model().encode(story_content).tolist()
             from datetime import datetime as _dt
             table.add([{
-                'user_id': user_id, 'project_id': project_id,
+                'workspace_id': workspace_id, 'user_id': user_id, 'project_id': project_id,
                 'vector': embedding, 'storyID': story_id,
                 'storyDescription': short_title, 'test_case_content': '',
                 'filename': filename or f"{story_id}.txt",
@@ -1899,16 +1942,16 @@ def upload_new_version(story_id):
         # Delete old test cases and regenerate
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM test_cases WHERE story_id = %s AND user_id = %s", (story_id, user_id))
+                cur.execute("DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s", (story_id, workspace_id))
                 conn.commit()
 
         import threading
         def run_regen_version():
             from app.LLM.Test_case_generator import generate_test_case_for_story
-            generate_test_case_for_story(story_id, user_id=user_id)
+            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
             from app.LLM.impact_analyzer import analyze_test_case_impacts
             try:
-                analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+                analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
             except Exception as e:
                 print(f"[UploadVersion] Impact analysis failed: {e}")
 
@@ -1948,6 +1991,7 @@ def review_impact(impact_id):
     """
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json(silent=True) or {}
         action = data.get('action')
         if action not in ('accept', 'reject', 'edit'):
@@ -1958,15 +2002,15 @@ def review_impact(impact_id):
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                # Fetch the impact record to get the modified test case
+                # Fetch the impact record to get the modified test case (workspace-scoped)
                 cur.execute("""
                     SELECT tci.impact_id, tci.original_story_id, tci.original_test_case_id,
                            tci.impact_analysis_json, tci.user_id,
                            tc.test_case_json
                     FROM test_case_impacts tci
-                    JOIN test_cases tc ON tc.story_id = tci.original_story_id AND tc.user_id = tci.user_id
-                    WHERE tci.impact_id = %s AND tci.user_id = %s
-                """, (impact_id, user_id))
+                    JOIN test_cases tc ON tc.story_id = tci.original_story_id AND tc.workspace_id = tci.workspace_id
+                    WHERE tci.impact_id = %s AND tci.workspace_id = %s
+                """, (impact_id, workspace_id))
                 impact = cur.fetchone()
                 if not impact:
                     return jsonify({'error': 'Impact not found or access denied'}), 404
@@ -1979,21 +2023,21 @@ def review_impact(impact_id):
                             WHEN %s IS NOT NULL THEN %s::jsonb
                             ELSE impact_details
                         END
-                    WHERE impact_id = %s AND user_id = %s
+                    WHERE impact_id = %s AND workspace_id = %s
                 """, (
                     new_status,
                     json.dumps(edited_tc) if edited_tc else None,
                     json.dumps({'edited_test_case': edited_tc, 'reviewed_by': user_id}) if edited_tc else None,
                     impact_id,
-                    user_id,
+                    workspace_id,
                 ))
 
-                # Write to impact_history
+                # Write to impact_history (changed_by records the acting user)
                 cur.execute("""
                     INSERT INTO impact_history
-                        (history_id, impact_id, changed_by, previous_status, new_status, change_reason)
-                    VALUES (%s, %s, %s, 'active', %s, 'user_review')
-                """, (str(uuid.uuid4()), impact_id, user_id, new_status))
+                        (history_id, impact_id, user_id, workspace_id, changed_by, previous_status, new_status, change_reason)
+                    VALUES (%s, %s, %s, %s, %s, 'active', %s, 'user_review')
+                """, (str(uuid.uuid4()), impact_id, user_id, workspace_id, user_id, new_status))
 
                 # If ACCEPTED: apply the modified test case to the story's test_case_json
                 if new_status == 'accepted':
@@ -2046,8 +2090,8 @@ def review_impact(impact_id):
                             cur.execute("""
                                 UPDATE test_cases
                                 SET test_case_json = %s
-                                WHERE story_id = %s AND user_id = %s
-                            """, (json.dumps(tc_json), original_story_id, user_id))
+                                WHERE story_id = %s AND workspace_id = %s
+                            """, (json.dumps(tc_json), original_story_id, workspace_id))
 
                 conn.commit()
 
@@ -2068,6 +2112,7 @@ def batch_review_impacts():
     """Accept/reject/edit multiple impacts in one call (partial-acceptance workflow)."""
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         data = request.get_json(silent=True) or {}
         project_id = data.get('project_id')
         new_story_id = data.get('new_story_id')
@@ -2096,20 +2141,20 @@ def batch_review_impacts():
                                 WHEN %s IS NOT NULL THEN %s::jsonb
                                 ELSE impact_details
                             END
-                        WHERE impact_id = %s AND user_id = %s
+                        WHERE impact_id = %s AND workspace_id = %s
                     """, (
                         new_status,
                         json.dumps(edited_tc) if edited_tc else None,
                         json.dumps({'edited_test_case': edited_tc, 'reviewed_by': user_id}) if edited_tc else None,
                         iid,
-                        user_id,
+                        workspace_id,
                     ))
 
                     cur.execute("""
                         INSERT INTO impact_history
-                            (history_id, impact_id, changed_by, previous_status, new_status, change_reason)
-                        VALUES (%s, %s, %s, 'active', %s, 'batch_review')
-                    """, (str(uuid.uuid4()), iid, user_id, new_status))
+                            (history_id, impact_id, user_id, workspace_id, changed_by, previous_status, new_status, change_reason)
+                        VALUES (%s, %s, %s, %s, %s, 'active', %s, 'batch_review')
+                    """, (str(uuid.uuid4()), iid, user_id, workspace_id, user_id, new_status))
 
                     if action == 'accept': accepted += 1
                     elif action == 'reject': rejected += 1
@@ -2143,6 +2188,7 @@ def get_changes():
     """
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
         project_id = request.args.get('project_id')
         status_filter = request.args.get('status', 'all')
         page = request.args.get('page', 1, type=int)
@@ -2178,9 +2224,9 @@ def get_changes():
                     FROM test_case_impacts tci
                     JOIN test_cases tc_new
                         ON tc_new.story_id = tci.new_story_id
-                    WHERE tci.user_id = %s
+                    WHERE tci.workspace_id = %s
                 """
-                params = [user_id]
+                params = [workspace_id]
 
                 if project_id:
                     base_query += " AND tci.project_id = %s"
@@ -2207,9 +2253,9 @@ def get_changes():
                         SELECT tci.new_story_id
                         FROM test_case_impacts tci
                         JOIN test_cases tc_new ON tc_new.story_id = tci.new_story_id
-                        WHERE tci.user_id = %s
+                        WHERE tci.workspace_id = %s
                 """
-                count_params = [user_id]
+                count_params = [workspace_id]
                 if project_id:
                     count_q += " AND tci.project_id = %s"
                     count_params.append(project_id)
