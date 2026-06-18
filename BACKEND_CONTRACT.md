@@ -1090,4 +1090,277 @@ Configured in `app/__init__.py`. Applied to all `/api/*` routes.
 
 **No wildcard origins.** `*` is never used because credentials require an explicit origin list.
 
-> **UNCLEAR — needs confirmation:** Vercel preview deploy URLs (e.g. `https://my-app-abc123.vercel.app`) are only allowed if `VERCEL_URL` is set to that specific deployment URL. Dynamic preview deploys with different URLs would be blocked unless `VERCEL_URL` is updated.
+> **RESOLVED:** In development mode (`FLASK_ENV=development` or `DEV_BYPASS_AUTH=1`), all `http://localhost:*` and `http://127.0.0.1:*` origins are allowed via regex. This means any dev port (3000–3999 etc.) works without updating the allowed list.
+
+---
+
+## 9. New Endpoints Added Post-Initial-Contract
+
+These endpoints were added during v1 implementation and are not in the original sections above.
+
+### 9.1 Story Version History
+
+#### `GET /api/stories/<story_id>/versions`
+
+Return all saved versions for a story, newest first.
+
+**Success — 200:**
+```json
+{
+  "story_id": "STORY-001",
+  "versions": [
+    {
+      "version_id": "uuid",
+      "version_number": 2,
+      "description": "OAuth Login Flow",
+      "file_name": null,
+      "created_on": "2024-01-15T11:00:00",
+      "run_id": "uuid"
+    }
+  ]
+}
+```
+
+---
+
+#### `POST /api/stories/<story_id>/regenerate`
+
+Delete existing test cases and re-run the full test generation pipeline for an existing story. Uses stored content from LanceDB.
+
+**Request body:** empty `{}`
+
+**Success — 202:**
+```json
+{
+  "message": "Test regeneration started",
+  "story_id": "STORY-001",
+  "project_id": "default"
+}
+```
+
+Impact analysis is also re-triggered after generation completes (background thread).
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 404 | Story not found |
+| 404 | Story content not in vector store |
+
+---
+
+#### `POST /api/stories/<story_id>/upload-version`
+
+Upload a new version of an existing story. Archives the current content to `story_versions`, generates a new AI description and short title, updates LanceDB, deletes old test cases, and re-runs generation in the background.
+
+**Request format:** `multipart/form-data`
+
+| Field | Type | Required |
+|---|---|---|
+| `content` | string | Conditional — required if no `file` |
+| `file` | file | Conditional — `.pdf`, `.docx`, `.txt` |
+| `source` | string | No — defaults to `"frontend"` |
+
+**Success — 202:**
+```json
+{
+  "message": "New version uploaded. Test regeneration started.",
+  "story_id": "STORY-001",
+  "version_number": 2,
+  "description": "OAuth Login Flow"
+}
+```
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 400 | Neither content nor file provided |
+| 400 | Unsupported file type |
+| 404 | Story not found |
+
+---
+
+### 9.2 Review Endpoints
+
+#### `POST /api/stories/impacts/<impact_id>/review`
+
+Accept, reject, or edit a single impact. Persists to `impact_status` column and writes to `impact_history`.
+
+**Request body (JSON):**
+```json
+{
+  "action": "accept",
+  "edited_test_case": null
+}
+```
+
+`action` must be `"accept"`, `"reject"`, or `"edit"`. `edited_test_case` is required only when `action = "edit"`.
+
+**Success — 200:**
+```json
+{
+  "impact_id": "uuid",
+  "new_status": "accepted",
+  "message": "Impact review recorded"
+}
+```
+
+---
+
+#### `POST /api/stories/impacts/batch-review`
+
+Submit reviews for multiple impacts at once (partial-acceptance workflow).
+
+**Request body (JSON):**
+```json
+{
+  "project_id": "my-project",
+  "new_story_id": "STORY-002",
+  "reviews": [
+    { "impact_id": "uuid", "action": "accept" },
+    { "impact_id": "uuid", "action": "reject" },
+    { "impact_id": "uuid", "action": "edit", "edited_test_case": { ... } }
+  ]
+}
+```
+
+**Success — 202:**
+```json
+{
+  "message": "Review submitted",
+  "accepted": 7,
+  "rejected": 2,
+  "edited": 1,
+  "change_request_status": "approved"
+}
+```
+
+`change_request_status` is `"approved"` if ≥1 was accepted, `"rejected"` if all were rejected.
+
+---
+
+#### `GET /api/stories/changes`
+
+List change requests (impacts grouped by `new_story_id`), filterable by review status.
+
+**Query parameters:**
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `project_id` | string | — | Filter to a project |
+| `status` | string | `"all"` | `"pending"`, `"approved"`, `"rejected"`, `"all"` |
+| `page` | int | `1` | |
+| `per_page` | int | `20` | |
+
+**Success — 200:**
+```json
+{
+  "changes": [
+    {
+      "change_id": "STORY-002",
+      "new_story_id": "STORY-002",
+      "new_story_description": "OAuth Login Update",
+      "project_id": "default",
+      "created_on": "2024-01-15T11:00:00",
+      "stories_affected": 3,
+      "tests_affected": 18,
+      "overall_severity": "high",
+      "status": "pending"
+    }
+  ],
+  "pagination": { "total": 5, "page": 1, "per_page": 20, "total_pages": 1 }
+}
+```
+
+Status derivation: `pending` = all impacts still `active`, `approved` = ≥1 `accepted`, `rejected` = all `rejected`.
+
+---
+
+### 9.3 Updated Route
+
+#### `GET /api/stories/impacts/story-details/<story_id>`
+
+**Previously** registered as `/impacts/details/<story_id>` — this caused a route collision with `GET /impacts/details/<impact_id>`. **Renamed** to `/impacts/story-details/<story_id>` to resolve the collision.
+
+Requires `?project_id=` query parameter. Returns full test-case-level impact breakdown for a story (same response shape as documented in §3.3 `get_story_impact_details`).
+
+---
+
+## 10. Database Schema Updates
+
+### 10.1 story_versions Table (new)
+
+```sql
+CREATE TABLE story_versions (
+    version_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    story_id       TEXT NOT NULL,
+    user_id        UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    version_number INTEGER NOT NULL DEFAULT 1,
+    content        TEXT,
+    description    TEXT,
+    file_name      TEXT,
+    created_on     TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    run_id         UUID REFERENCES test_cases(run_id) ON DELETE SET NULL,
+    CONSTRAINT uq_story_version UNIQUE (story_id, user_id, version_number)
+);
+```
+
+Each row represents one saved version of a story. When `POST /<story_id>/upload-version` is called, the current content is archived here before replacement.
+
+### 10.2 test_case_impacts.impact_status Constraint Updated
+
+**Before:** `CHECK (impact_status IN ('active', 'inactive'))`
+**After:** `CHECK (impact_status IN ('active', 'inactive', 'accepted', 'rejected'))`
+
+The `accepted` and `rejected` values are written by the review endpoints. The DDL-per-request workaround has been removed — the constraint is correct in the schema definition.
+
+### 10.3 New Index
+
+```sql
+CREATE INDEX idx_test_case_impacts_new_story_user
+ON test_case_impacts(new_story_id, user_id);
+```
+
+Improves performance of the `GET /api/stories/changes` query which groups by `new_story_id` and filters by `user_id`.
+
+---
+
+## 11. Security Changes
+
+### 11.1 Production Guards in `__init__.py`
+
+Two startup checks abort the process if misconfigured:
+
+```python
+# Fatal if DEV_BYPASS_AUTH is enabled in production
+if is_production and is_dev_bypass:
+    sys.exit(1)
+
+# Fatal if JWT secret is missing or uses the default value
+if is_production and (not jwt_secret or jwt_secret == "dev-secret-change-in-production"):
+    sys.exit(1)
+```
+
+### 11.2 Security Headers
+
+All API responses include:
+
+| Header | Value |
+|---|---|
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` (production only) |
+
+### 11.3 JWT Cookie Configuration
+
+```python
+app.config["JWT_COOKIE_HTTPONLY"] = True   # explicitly set (was implicit default)
+app.config["JWT_COOKIE_SECURE"] = is_production  # boolean, not fragile string compare
+```
+
+### 11.4 Cross-User Data Isolation Fix
+
+`store_impact_analysis()` in `impact_analyzer.py` previously fetched `run_id` without scoping by `user_id`, creating a potential cross-user data leak. Fixed — query now includes `AND user_id = %s` when `user_id` is available.
+

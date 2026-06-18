@@ -1,4 +1,4 @@
-# TestSurge — Product Design Document
+  # TestSurge — Product Design Document
 
 **AI Requirement Intelligence Platform**
 v1.0 — Full specification for engineering and design. This is the single source of truth for this build. Follow it exactly; where it's ambiguous, make the smallest reasonable decision and note it.
@@ -731,3 +731,96 @@ Acceptance Criteria:
 ---
 
 *End of specification. Build against this document section by section. Reference section numbers when asking for changes (e.g. "redo the diff viewer per section 2.4 / 7.4").*
+
+---
+
+## 20. Implementation Amendments (post-v1 build)
+
+The following decisions were made during implementation and deviate from the original spec. They are recorded here so the spec stays as the single source of truth.
+
+### 20.1 Test Types — Accessibility replaced by Performance
+
+**Original spec (§6.2, §7.3):** Listed Accessibility as one of 5 test types.
+**Actual implementation:** Backend LLM generates `positive`, `negative`, `boundary`, `security`, `performance` — never Accessibility. UI was updated to match:
+- Coverage tab breakdown bars: Functional / Negative / Boundary / Security / **Performance**
+- Create Story Step 2 checkboxes: same 5 types, Accessibility removed
+- Accessibility will be added in v2 when a dedicated prompt is built.
+
+### 20.2 Coverage Tab — Heuristic data, not real backend coverage
+
+**Original spec (§7.3):** Shows exact per-type percentages (Functional 100%, Negative 85%, etc.) and named coverage gaps (Session Timeout, Rate Limiting, etc.).
+**Actual implementation:**
+- Overall coverage % = `min(100, round(testCaseCount / 40 * 100))` — estimated from test count
+- Per-type bars = keyword classifier over test case titles (see `inferCategory()` in `adapters.ts`)
+- Named gaps = info panel saying "Detailed coverage gap analysis not yet available. Use AI assistant."
+- "Generate Missing Tests" button calls `POST /api/stories/rag-chat` with story content as query
+- "(estimated)" badge shown on the overall ring
+- Real coverage analysis endpoint planned for v2: `GET /api/stories/<id>/coverage`
+
+### 20.3 Story Version History — Dropped from v1
+
+**Original spec (§7.4 Impact tab, §8.4 Change Review):** Shows version chips (v1/v2/v3), version picker, story version increment on change approval.
+**Actual implementation:**
+- Version history is **not shown** in the UI. Stats row shows "Updated X ago" only.
+- Backend: `story_versions` table exists in the DB and `GET /<id>/versions` + `POST /<id>/upload-version` endpoints are built.
+- Frontend: "Upload New Version" modal calls `POST /<id>/upload-version` which archives the old content and regenerates tests.
+- Version picker UI will be added in v2 once enough version data accumulates.
+
+### 20.4 Export Formats — Only Excel works in v1
+
+**Original spec (§7.5):** Shows 6 format cards: Playwright, Cypress, PyTest, BDD/Gherkin, Selenium, Postman.
+**Actual implementation:**
+- Only **Excel (.xlsx)** downloads real data via `GET /api/stories/testcases/download/<id>` with `credentials: include`.
+- All other 5 format cards render as disabled with "In development" tooltip.
+- Real code generation for other formats is v2 scope.
+
+### 20.5 Modals — One exception to "no modals" rule
+
+**Original spec (§2.3):** "Modals are never used."
+**Actual implementation:** `StoryActions` uses a lightweight modal pattern (`UploadVersionModal`, `CompareModal`, `ExportModal`) for story-level actions. These are panel-style overlays with backdrop, not full-page navigation. All other creation/review flows remain full pages or slide-in panels as specified.
+
+### 20.6 Project Picker — Added as pre-stories screen
+
+**Not in original spec.**
+**Added:** `/projects` route acts as a landing page after login. Backend scopes all data by `project_id`. Users select or create a project before entering the Stories page. Auto-selects if only one project exists. Project ID is stored in `localStorage` and passed as `?project_id=` query param.
+
+### 20.7 Story Short Title — LLM-generated on upload
+
+**Not in original spec.**
+**Added:** On `POST /api/stories/upload`, a second LLM call generates a 3-5 word title from the story content (e.g. "Email Password Login Flow"). This is stored as `storyDescription` in LanceDB and used as the display title on story cards and in the workspace header. The full content is preserved in `doc_content_text`.
+
+### 20.8 Authentication — Deferred to after v1 feature complete
+
+**Original spec (§3 route tree):** Shows `/login` and `/signup` routes.
+**Actual implementation:**
+- Login/Register pages exist (`/login`, `/signup`) and are correctly wired to `POST /api/auth/login` and `POST /api/auth/register`.
+- **Dev bypass:** `DEV_BYPASS_AUTH=1` in `.env` skips JWT entirely and uses a fixed dev `user_id`. This must be removed before production.
+- Auth cookies: HTTP-only, `SameSite=Lax`, `Secure` only in production (`FLASK_ENV=production`).
+- Frontend: `credentials: 'include'` on all requests, 401 → auto-refresh → redirect to `/login`.
+
+### 20.9 "Generate Tests" button — Re-runs test generation
+
+**Original spec (§7 Workspace header):** Shows "Generate Tests" secondary button.
+**Actual implementation:** Calls `POST /api/stories/<id>/regenerate` which:
+1. Deletes existing test cases for the story
+2. Re-runs the full LLM test generation pipeline in a background thread
+3. Triggers impact re-analysis after generation
+Frontend shows the button in the workspace action strip; after clicking, the polling loop starts and the status chip shows "Analyzing".
+
+### 20.10 Accept/Reject impacts — Persist to database
+
+**Original spec (§7.4, §8):** Shows Accept/Reject/Edit buttons.
+**Actual implementation:**
+- Per-impact: `POST /api/stories/impacts/<impact_id>/review` with `{"action": "accept"|"reject"|"edit"}`
+- Batch: `POST /api/stories/impacts/batch-review` — used by "Submit Review" and "Approve All"/"Reject All"
+- These update `impact_status` to `'accepted'` or `'rejected'` in the `test_case_impacts` table and write an audit record to `impact_history`.
+- The "Submit Review" button in `/changes/:id` calls batch-review for all pending impacts.
+
+### 20.11 Security hardening — Production guards added
+
+**Not in original spec.**
+**Added to backend `__init__.py`:**
+- `sys.exit(1)` if `DEV_BYPASS_AUTH=1` + `FLASK_ENV=production` — prevents accidental auth bypass in production
+- `sys.exit(1)` if `JWT_SECRET_KEY` is missing or is the default string in production
+- Security headers on every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security` (production only)
+- `JWT_COOKIE_HTTPONLY = True` set explicitly

@@ -533,3 +533,99 @@ Based on risk and dependency:
 | 8 | **Backend: review endpoints** (Gap 2 — 3 new endpoints) | **Blocks full Changes screen** |
 | 9 | Changes — full review page once backend endpoints are ready | Blocked on phase 8 |
 | 10 | Version history — drop in v1, design backend table in parallel | N/A for v1 |
+
+---
+
+## Implementation Status (v1 Complete)
+
+All phases above are now implemented. The following table reflects the final v1 state.
+
+| Phase | Work | Status |
+|---|---|---|
+| 1 | API client + normalizers + 401 refresh | ✅ Done |
+| 2 | Stories list + Create Story (real upload) | ✅ Done |
+| 3 | Story Workspace (Overview, Tests, Export) | ✅ Done |
+| 4 | Polling hook (inline in workspace page) | ✅ Done |
+| 5 | Impact tab (real `getStoryTestCaseImpacts`) | ✅ Done |
+| 6 | Coverage tab (heuristic + keyword classifier) | ✅ Done |
+| 7 | Changes list (`GET /api/stories/changes`) | ✅ Done |
+| 8 | Backend review endpoints (3 new) | ✅ Done |
+| 9 | Changes full review page (`/changes/:id`) | ✅ Done |
+| 10 | Version history (backend table + endpoints) | ✅ Done (DB + API, UI v2) |
+
+---
+
+## Additional Gaps Resolved Post-Planning
+
+### AG-1 — "Generate Tests" button for existing stories
+
+**Gap:** No backend route to re-run test generation for an existing story. "Generate Tests" button called a mock function.
+
+**Resolution:** Added `POST /api/stories/<story_id>/regenerate` — deletes existing test cases, re-runs full generation pipeline + impact analysis in a background thread. Frontend "Generate Tests" button in `StoryActions` now calls this endpoint.
+
+### AG-2 — "Upload New Version" modal
+
+**Gap:** `upload_story` returned 409 on re-upload. "Upload New Version" button called a mock.
+
+**Resolution:** Added `POST /api/stories/<story_id>/upload-version` — archives current content to `story_versions`, regenerates short title, updates LanceDB, deletes old test cases, re-runs generation. `UploadVersionModal` now calls this endpoint.
+
+### AG-3 — story_versions table
+
+**Gap:** No version history storage. INTEGRATION_PLAN §3 dropped versions from v1 UI but left DB work deferred.
+
+**Resolution:** `story_versions` table created with `(story_id, user_id, version_number)` unique constraint. `GET /<story_id>/versions` endpoint added. Frontend `VersionTimeline` component now reflects actual upload history (v2 will add version picker UI).
+
+### AG-4 — Security production guards
+
+**Gap:** `JWT_SECRET_KEY` fell back to a public string; `DEV_BYPASS_AUTH` had no production guard.
+
+**Resolution:** `__init__.py` now calls `sys.exit(1)` at startup if either condition is met in production. Security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `HSTS`) added to all responses via `@app.after_request`.
+
+### AG-5 — impact_status DDL-per-request
+
+**Gap:** Every review call ran DDL (`ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT`) to extend `impact_status` values, causing table locks.
+
+**Resolution:** Schema updated once at DB level. Constraint now includes `'accepted'` and `'rejected'` from the start. DDL removed from review endpoints.
+
+### AG-6 — Cross-user data leak in impact_analyzer
+
+**Gap:** `store_impact_analysis` fetched `run_id` with `WHERE story_id = %s` only, without `user_id` scope.
+
+**Resolution:** Query now includes `AND user_id = %s` when `user_id` is available.
+
+### AG-7 — Route collision resolved
+
+**Gap:** `GET /impacts/details/<story_id>` was shadowed by `GET /impacts/details/<impact_id>`.
+
+**Resolution:** `get_story_impact_details` route renamed to `GET /impacts/story-details/<story_id>`. Frontend never calls the old `/impacts/details/` path (per Gap 6 decision).
+
+### AG-8 — Coverage AI input disconnected
+
+**Gap:** Coverage tab left panel had an `<input>` for "What coverage is missing?" with no button and no handler.
+
+**Resolution:** Input now has `useState` + `handleAiSend()` wired to `api.ragChat()`. A `Send` button was added. Results display below the input.
+
+### AG-9 — story.content missing on domain type
+
+**Gap:** `CoverageTab` RAG query used `story.content` which doesn't exist on the domain `Story` type — always fell back to `story.title`.
+
+**Resolution:** Changed to `story.content ?? story.title ?? ""` and ensured the seed adapter maps `docContentText` to `content` correctly.
+
+### AG-10 — Compound index for changes query
+
+**Gap:** `GET /api/stories/changes` groups by `new_story_id` and filters by `user_id`. No compound index existed.
+
+**Resolution:** `CREATE INDEX idx_test_case_impacts_new_story_user ON test_case_impacts(new_story_id, user_id)` added to `create_dbs.py` and applied to the live DB.
+
+### AG-11 — ExportModal download not wired
+
+**Gap:** `ExportModal` in `StoryActions` called `runMockAsync()`. No real download.
+
+**Resolution:** `ExportModal.submit()` now uses `fetch(BASE_URL + downloadUrl, { credentials: "include" })` for Excel format. Other formats show an error message "only Excel is supported" if selected.
+
+### AG-12 — Changes /[id] review page not persisting
+
+**Gap:** `changes/[id]/page.tsx` used seed data (`changeRequests` from `@/lib/seed`). "Submit Review" button had no `onClick`. Accept/Reject only updated local state.
+
+**Resolution:** Page fully rewritten — fetches real impact data via `api.getStoryImpacts()`, per-impact Accept/Reject calls `api.reviewImpact()`, Submit Review calls `api.batchReviewImpacts()`, Approve All / Reject All call batch-review with all impacts.
+
