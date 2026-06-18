@@ -1,14 +1,33 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Sparkles, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Sparkles, Info, Loader2 } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { fadeInUp, staggerContainer, duration, easeOut } from "@/lib/motion";
 import { VersionTimeline } from "../VersionTimeline";
+import { api } from "@/lib/api";
 
 export function OverviewTab({ story }: { story: Story }) {
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResults, setAiResults] = useState<string[]>([]);
+
+  async function handleAsk() {
+    if (!aiQuery.trim() || aiLoading) return;
+    setAiLoading(true);
+    setAiResults([]);
+    try {
+      const res = await api.ragChat("Ask about this story: " + aiQuery.trim());
+      setAiResults(res.testCases.map((tc) => tc.title));
+    } catch {
+      setAiResults(["Could not reach AI assistant. Try again."]);
+    } finally {
+      setAiLoading(false);
+    }
+  }
   return (
     <motion.div
       variants={staggerContainer}
@@ -146,17 +165,32 @@ export function OverviewTab({ story }: { story: Story }) {
       )}
 
       {/* AI assistant inline */}
-      <motion.div variants={fadeInUp} className="bg-white border border-border rounded-card p-4">
+      <motion.div variants={fadeInUp} className="bg-white border border-border rounded-card p-4 space-y-3">
         <div className="flex gap-2">
           <input
             type="text"
+            value={aiQuery}
+            onChange={(e) => setAiQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAsk()}
             placeholder="Ask about this story…"
             className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink focus:ring-1 focus:ring-pink/20 transition-colors"
           />
-          <button className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors">
-            <Sparkles size={15} />
+          <button
+            onClick={handleAsk}
+            disabled={aiLoading}
+            className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-50"
+          >
+            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
           </button>
         </div>
+        {aiResults.length > 0 && (
+          <div className="bg-surface-cyan rounded-lg p-3 space-y-1.5">
+            <p className="text-[11px] font-semibold text-muted uppercase tracking-wide">Suggestions</p>
+            {aiResults.map((r, i) => (
+              <p key={i} className="text-sm text-navy">• {r}</p>
+            ))}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );

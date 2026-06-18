@@ -4,14 +4,6 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
-
-/** Shared mock async op (~1.8s, ~10% failure) for the Create Story flow. */
-function mockRunNewStory(ms = 1800): Promise<void> {
-  return new Promise((resolve, reject) =>
-    setTimeout(() => (Math.random() < 0.1 ? reject(new Error("Generation failed. Please try again.")) : resolve()), ms)
-  );
-}
 import {
   ArrowLeft,
   Upload,
@@ -112,10 +104,13 @@ export default function CreateStoryPage() {
   const [storyText, setStoryText] = useState("");
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
-  /** Detected stories awaiting selection in the Step-1 preview phase. */
   const [detected, setDetected] = useState<DetectedStory[] | null>(null);
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
+  );
+  // Active project from localStorage
+  const [projectId] = useState<string>(
+    typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default"
   );
 
   const goTo = (next: StepId) => {
@@ -210,6 +205,10 @@ export default function CreateStoryPage() {
                 key="step3"
                 direction={direction}
                 onBack={() => goTo(1)}
+                detected={detected}
+                files={files}
+                storyText={storyText}
+                projectId={projectId}
               />
             )}
           </AnimatePresence>
@@ -642,28 +641,66 @@ function StepSettings({
 }
 
 /* ─── Step 3 ─── */
-function StepGenerate({ direction, onBack }: { direction: number; onBack: () => void }) {
+function StepGenerate({
+  direction, onBack, detected, files, storyText, projectId,
+}: {
+  direction: number;
+  onBack: () => void;
+  detected: DetectedStory[] | null;
+  files: File[];
+  storyText: string;
+  projectId: string;
+}) {
   const router = useRouter();
-  const { runAIAction } = useAIAction();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string>("");
 
-  const generateOnly = () =>
-    runAIAction({
-      name: "Generate Tests",
-      credits: AI_ACTION_COSTS.generateTests,
-      description: "Generate a new test suite for this story.",
-      run: () => mockRunNewStory(),
-    });
+  async function handleGenerate(analyzeImpact: boolean) {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const { api } = await import("@/lib/api");
+      const selectedStories = detected?.filter((s) => s.selected && s.valid) ?? [];
 
-  const generateAndImpact = () =>
-    runAIAction({
-      name: "Generate + Analyze Impact",
-      credits: AI_ACTION_COSTS.generateTests + AI_ACTION_COSTS.impactAnalysis,
-      description: "Generate tests and run impact analysis against existing stories.",
-      run: async () => {
-        await mockRunNewStory();
-        router.push("/stories/LOGIN-001");
-      },
-    });
+      // If no detected stories, fall back to raw storyText or first file
+      const stories = selectedStories.length > 0 ? selectedStories : [null];
+      let lastStoryId = "";
+
+      for (let i = 0; i < stories.length; i++) {
+        const s = stories[i];
+        const formData = new FormData();
+        // Generate a story ID from first words of title or content
+        const rawTitle = s?.title ?? storyText.trim().split(/\s+/).slice(0, 4).join(" ");
+        const words = rawTitle.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/).slice(0, 4).join("-").toUpperCase();
+        const storyId = `STORY-${words || Date.now()}-${i}`;
+        lastStoryId = storyId;
+
+        formData.append("story_id", storyId);
+        formData.append("project_id", projectId);
+        formData.append("source", "frontend");
+
+        if (s?.source === "upload" && files[i]) {
+          formData.append("file", files[i]);
+        } else {
+          const content = s?.content ?? storyText.trim();
+          formData.append("content", content);
+        }
+
+        if (stories.length > 1) {
+          setProgress(`Uploading story ${i + 1} of ${stories.length}…`);
+        }
+
+        const result = await api.uploadStory(formData);
+        lastStoryId = result.storyId || storyId;
+      }
+
+      router.push(`/stories/${lastStoryId}?analyzing=true`);
+    } catch (err: any) {
+      setSubmitError(err?.message ?? "Upload failed. Try again.");
+      setSubmitting(false);
+    }
+  }
 
   return (
     <StepWrapper direction={direction}>
@@ -750,22 +787,31 @@ function StepGenerate({ direction, onBack }: { direction: number; onBack: () => 
       <div className="flex items-center justify-between">
         <button
           onClick={onBack}
-          className="text-sm font-medium text-muted hover:text-navy transition-colors"
+          disabled={submitting}
+          className="text-sm font-medium text-muted hover:text-navy transition-colors disabled:opacity-40"
         >
           Improve Story First
         </button>
         <div className="flex gap-3">
+          {submitError && (
+            <p className="text-sm text-error self-center">{submitError}</p>
+          )}
+          {progress && submitting && (
+            <p className="text-sm text-muted self-center">{progress}</p>
+          )}
           <button
-            onClick={generateOnly}
-            className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors"
+            onClick={() => handleGenerate(false)}
+            disabled={submitting}
+            className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Generate New Tests Only
+            {submitting ? "Uploading…" : "Generate New Tests Only"}
           </button>
           <button
-            onClick={generateAndImpact}
-            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors inline-flex items-center gap-2"
+            onClick={() => handleGenerate(true)}
+            disabled={submitting}
+            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Generate + Analyze Impact
+            {submitting ? "Uploading…" : "Generate + Analyze Impact"}
           </button>
         </div>
       </div>

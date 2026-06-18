@@ -1,187 +1,192 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, CheckCircle2, XCircle, Pencil, Sparkles, GitCompare, Upload, Info } from "lucide-react";
-import { type ImpactedTest } from "@/lib/seed";
+import { ChevronDown, CheckCircle2, XCircle, Pencil, Sparkles, GitCompare, Loader2 } from "lucide-react";
 import { DiffViewer } from "@/components/ui/DiffViewer";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
-import { Tooltip } from "@/components/ui/Tooltip";
-import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
 import { staggerContainer, fadeInUp, duration, easeStandard, spring } from "@/lib/motion";
+import { api } from "@/lib/api";
+import type { StoryTestCaseImpacts, ImpactEvent } from "@/types/domain";
+import type { DiffLine } from "@/lib/seed";
 
-const versionPairs = [
-  { label: "v1 May 1", id: "v1" },
-  { label: "v2 May 14 (current)", id: "v2" },
-];
+function capitalize(s: string): "High" | "Medium" | "Low" {
+  const l = s.toLowerCase();
+  if (l === "high") return "High";
+  if (l === "low") return "Low";
+  return "Medium";
+}
 
-export function ImpactTab({ impacts }: { impacts: ImpactedTest[] }) {
-  const [version, setVersion] = useState("v2");
-  const [expanded, setExpanded] = useState<string | null>(impacts[0]?.id ?? null);
+function buildDiffLines(originalSteps: string[], modifiedSteps: string[]): DiffLine[] {
+  const lines: DiffLine[] = [];
+  let lineNum = 1;
+  for (const step of originalSteps) { lines.push({ type: "removed", lineNum, content: step }); lineNum++; }
+  for (const step of modifiedSteps) { lines.push({ type: "added", lineNum, content: step }); lineNum++; }
+  return lines;
+}
+
+function parseModifiedSteps(analysisJson: string): string[] {
+  try {
+    const obj = JSON.parse(analysisJson);
+    const mt = obj?.modified_test_case ?? obj?.modifiedTestCase;
+    if (!mt) return [];
+    return Array.isArray(mt?.steps) ? mt.steps : [];
+  } catch { return []; }
+}
+
+function parseModificationReason(analysisJson: string): string {
+  try {
+    const obj = JSON.parse(analysisJson);
+    return obj?.modification_reason ?? obj?.modificationReason ?? "";
+  } catch { return ""; }
+}
+
+export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: string }) {
+  const [data, setData] = useState<StoryTestCaseImpacts | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
-  if (impacts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="w-16 h-16 rounded-full bg-surface-pink text-pink flex items-center justify-center mb-5">
-          <GitCompare size={28} />
-        </div>
-        <h2 className="text-h2 text-navy mb-2">No impact detected</h2>
-        <p className="text-sm text-muted max-w-sm mb-6">
-          When you upload a new version of this story, AI compares it against
-          existing tests and flags which ones need to change.
-        </p>
-        <button className="inline-flex items-center gap-2 h-10 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors">
-          <Upload size={16} />
-          Upload New Version
-        </button>
-      </div>
-    );
+  useEffect(() => {
+    if (!projectId) { setLoading(false); setError("no-project"); return; }
+    let cancelled = false;
+    setLoading(true);
+    api.getStoryTestCaseImpacts(storyId, projectId)
+      .then((result) => {
+        if (!cancelled) {
+          setData(result);
+          const first = result.testCases.find((tc) => tc.impacts.length > 0);
+          if (first) setExpanded(first.testCaseId);
+        }
+      })
+      .catch(() => { if (!cancelled) setError("fetch-error"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [storyId, projectId]);
+
+  async function handleAiQuery() {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    setAiResponse(null);
+    try {
+      const result = await api.ragChat("Why did this test change? " + aiQuery.trim());
+      setAiResponse(result.testCases.length > 0
+        ? result.testCases.map((tc) => `• ${tc.title}`).join("\n")
+        : "No related test cases found for that query.");
+    } catch { setAiResponse("Could not reach the AI assistant. Please try again."); }
+    finally { setAiLoading(false); }
   }
 
-  const modified = impacts.filter((i) => i.impactType === "Modify Existing").length;
-  const added = impacts.filter((i) => i.impactType === "Create New Test").length;
-  const deprecated = impacts.filter((i) => i.impactType === "Deprecate").length;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted">
+      <Loader2 size={32} className="animate-spin" />
+      <p className="text-sm">Loading impact analysis…</p>
+    </div>
+  );
+
+  if (error === "no-project" || !projectId) return (
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <GitCompare size={48} className="text-muted mb-4" />
+      <h2 className="text-h2 text-navy mb-2">No project ID available</h2>
+      <p className="text-sm text-muted">Open this story from the Stories list to load impact analysis.</p>
+    </div>
+  );
+
+  if (error || !data) return (
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <GitCompare size={48} className="text-muted mb-4" />
+      <h2 className="text-h2 text-navy mb-2">Could not load impact data</h2>
+      <p className="text-sm text-muted">Please try again later.</p>
+    </div>
+  );
+
+  const impactedTestCases = data.testCases.filter((tc) => tc.impacts.length > 0);
+
+  if (impactedTestCases.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <GitCompare size={48} className="text-muted mb-4" />
+      <h2 className="text-h2 text-navy mb-2">No impact detected</h2>
+      <p className="text-sm text-muted">Upload a new version of this story to see impact analysis.</p>
+    </div>
+  );
 
   return (
     <div className="px-8 py-6 max-w-content mx-auto space-y-5">
-      {/* Version selector */}
-      <div className="flex items-center gap-3">
-        {versionPairs.map((v) => (
-          <button
-            key={v.id}
-            onClick={() => setVersion(v.id)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-btn border transition-colors ${
-              version === v.id
-                ? "bg-surface-pink border-pink text-pink"
-                : "bg-white border-border text-muted hover:text-navy"
-            }`}
-          >
-            {v.label}
-          </button>
-        ))}
-        <span className="text-sm text-muted ml-2">Comparing v1 → v2</span>
-      </div>
-
-      {/* Metric cards */}
-      <div className="flex items-center gap-1.5">
-        <h3 className="text-[15px] font-semibold text-navy">Impact Summary</h3>
-        <Tooltip content="Impact Analysis shows how this story's changes affect existing tests — which must be modified, added, or deprecated.">
-          <Info size={13} className="text-muted cursor-help" />
-        </Tooltip>
-      </div>
+      {/* Metric cards — no version chips (Gap 3) */}
+      <h2 className="text-h2 text-navy font-semibold">Impact Analysis</h2>
       <div className="grid grid-cols-3 gap-4">
-        <MetricCard label="Modified" value={modified} color="warning" />
-        <MetricCard label="Added" value={added} color="success" />
-        <MetricCard label="Deprecated" value={deprecated} color="error" />
+        <MetricCard label="Modified" value={data.impactedTestCasesCount} color="warning" />
+        <MetricCard label="High Severity" value={data.severitySummary.high} color="error" />
+        <MetricCard label="Low Severity" value={data.severitySummary.low} color="success" />
       </div>
 
       {/* Impact list */}
-      <motion.div
-        variants={staggerContainer}
-        initial="initial"
-        animate="animate"
-        className="space-y-3"
-      >
-        {impacts.map((impact) => {
-          const isExpanded = expanded === impact.id;
-          const isAccepted = accepted.has(impact.id);
-          const isRejected = rejected.has(impact.id);
+      <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-3">
+        {impactedTestCases.map((tc) => {
+          const isExpanded = expanded === tc.testCaseId;
+          const isAccepted = accepted.has(tc.testCaseId);
+          const isRejected = rejected.has(tc.testCaseId);
+          const firstImpact: ImpactEvent = tc.impacts[0];
+          const severityLabel = capitalize(firstImpact.severity);
+          const modifiedSteps = parseModifiedSteps(firstImpact.analysisJson);
+          const diffLines = buildDiffLines(tc.originalSteps, modifiedSteps);
+          const modificationReason = parseModificationReason(firstImpact.analysisJson);
+          const detailsPreview = firstImpact.details.length > 120 ? firstImpact.details.slice(0, 120) + "…" : firstImpact.details;
 
           return (
-            <motion.div
-              key={impact.id}
-              variants={fadeInUp}
-              layout
-              className={`bg-white border rounded-card overflow-hidden ${
-                isAccepted ? "border-success/40" : isRejected ? "border-error/30 opacity-60" : "border-border"
-              }`}
-            >
-              {/* Row header */}
-              <button
-                onClick={() => setExpanded(isExpanded ? null : impact.id)}
-                className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 transition-colors"
-              >
-                <SeverityBadge severity={impact.severity} />
+            <motion.div key={tc.testCaseId} variants={fadeInUp} layout
+              className={`bg-white border rounded-card overflow-hidden ${isAccepted ? "border-success/40" : isRejected ? "border-error/30 opacity-60" : "border-border"}`}>
+              <button onClick={() => setExpanded(isExpanded ? null : tc.testCaseId)}
+                className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 transition-colors">
+                <SeverityBadge severity={severityLabel} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-navy truncate">{impact.title}</p>
-                  <p className="text-[13px] text-muted mt-0.5">{impact.reason}</p>
+                  <p className="text-sm font-semibold text-navy truncate">{tc.originalTitle}</p>
+                  <p className="text-[13px] text-muted mt-0.5">{detailsPreview}</p>
                 </div>
-                <span className="text-[11px] font-semibold text-muted bg-gray-100 px-2 py-0.5 rounded">
-                  {impact.impactType}
-                </span>
                 {isAccepted && <CheckCircle2 size={16} className="text-success flex-shrink-0" />}
                 {isRejected && <XCircle size={16} className="text-error flex-shrink-0" />}
-                <motion.div
-                  animate={{ rotate: isExpanded ? 180 : 0 }}
-                  transition={spring.snappy}
-                >
+                <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={spring.snappy}>
                   <ChevronDown size={16} className="text-muted flex-shrink-0" />
                 </motion.div>
               </button>
 
-              {/* Expanded detail */}
               <AnimatePresence>
                 {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: duration.base, ease: easeStandard }}
-                    className="overflow-hidden"
-                  >
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }} transition={{ duration: duration.base, ease: easeStandard }}
+                    className="overflow-hidden">
                     <div className="px-5 pb-5 space-y-4 border-t border-border pt-4">
-                      {/* AI recommendation */}
                       <div className="bg-surface-cyan border border-cyan/30 rounded-lg p-3 flex items-start gap-2">
                         <Sparkles size={14} className="text-cyan flex-shrink-0 mt-0.5" />
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="text-[13px] font-semibold text-cyan">
-                              AI Recommendation: {impact.impactType}
-                            </p>
-                            <AIConfidenceBadge
-                              level={confidenceLevel(impact.aiConfidence)}
-                              score={impact.aiConfidence}
-                            />
-                          </div>
-                          <p className="text-[13px] text-muted">{impact.aiReason}</p>
+                          <p className="text-[13px] font-semibold text-cyan mb-1">
+                            Impacting story: {firstImpact.impactingStoryDescription || firstImpact.impactingStoryId}
+                          </p>
+                          {modificationReason && <p className="text-[13px] text-muted">{modificationReason}</p>}
                         </div>
                       </div>
-
-                      {/* Diff viewer */}
-                      <DiffViewer lines={impact.diffLines} />
-
-                      {/* Actions */}
+                      {diffLines.length > 0 ? <DiffViewer lines={diffLines} /> :
+                        <p className="text-[13px] text-muted italic">No step-level diff available for this impact.</p>}
                       {!isAccepted && !isRejected && (
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => {
-                              const next = new Set(accepted);
-                              next.add(impact.id);
-                              setAccepted(next);
-                              setExpanded(null);
-                            }}
-                            className="h-9 px-4 text-sm font-medium bg-success/10 text-success border border-success/30 rounded-btn hover:bg-success/20 transition-colors flex items-center gap-2"
-                          >
-                            <CheckCircle2 size={14} />
-                            Accept Change
+                          <button onClick={async () => {
+                            try { await api.reviewImpact(firstImpact.impactId, 'accept'); } catch {}
+                            setAccepted((p) => new Set(Array.from(p).concat(tc.testCaseId)));
+                            setExpanded(null);
+                          }} className="h-9 px-4 text-sm font-medium bg-success/10 text-success border border-success/30 rounded-btn hover:bg-success/20 transition-colors flex items-center gap-2">
+                            <CheckCircle2 size={14} /> Accept Change
                           </button>
-                          <button
-                            onClick={() => {
-                              const next = new Set(rejected);
-                              next.add(impact.id);
-                              setRejected(next);
-                              setExpanded(null);
-                            }}
-                            className="h-9 px-4 text-sm font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-2"
-                          >
-                            <XCircle size={14} />
-                            Reject Change
-                          </button>
-                          <button className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-2">
-                            <Pencil size={13} />
-                            Edit Change
+                          <button onClick={async () => {
+                            try { await api.reviewImpact(firstImpact.impactId, 'reject'); } catch {}
+                            setRejected((p) => new Set(Array.from(p).concat(tc.testCaseId)));
+                            setExpanded(null);
+                          }} className="h-9 px-4 text-sm font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-2">
+                            <XCircle size={14} /> Reject Change
                           </button>
                         </div>
                       )}
@@ -195,32 +200,29 @@ export function ImpactTab({ impacts }: { impacts: ImpactedTest[] }) {
       </motion.div>
 
       {/* AI assistant */}
-      <div className="flex gap-2 pt-2">
-        <input
-          type="text"
-          placeholder="Why did this test change?"
-          className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink focus:ring-1 focus:ring-pink/20 transition-colors"
-        />
-        <button className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors">
-          <Sparkles size={15} />
-        </button>
+      <div className="space-y-2 pt-2">
+        <div className="flex gap-2">
+          <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAiQuery()}
+            placeholder="Why did this test change?"
+            className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink focus:ring-1 focus:ring-pink/20 transition-colors" />
+          <button onClick={handleAiQuery} disabled={aiLoading}
+            className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-50">
+            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+          </button>
+        </div>
+        {aiResponse && (
+          <div className="bg-surface-cyan border border-cyan/30 rounded-lg p-3">
+            <p className="text-[13px] text-navy whitespace-pre-wrap">{aiResponse}</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function MetricCard({
-  label, value, color,
-}: {
-  label: string;
-  value: number;
-  color: "warning" | "success" | "error";
-}) {
-  const colorMap = {
-    warning: "text-warning bg-[#FFFBEB] border-[#FCD34D]",
-    success: "text-success bg-[#ECFDF5] border-[#6EE7B7]",
-    error: "text-error bg-[#FEF2F2] border-[#FCA5A5]",
-  };
+function MetricCard({ label, value, color }: { label: string; value: number; color: "warning" | "success" | "error" }) {
+  const colorMap = { warning: "text-warning bg-[#FFFBEB] border-[#FCD34D]", success: "text-success bg-[#ECFDF5] border-[#6EE7B7]", error: "text-error bg-[#FEF2F2] border-[#FCA5A5]" };
   return (
     <div className={`border rounded-card p-4 ${colorMap[color]}`}>
       <p className="text-2xl font-bold">{value}</p>

@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import type { Story } from "@/lib/seed";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
+import { api } from "@/lib/api";
+import { BASE_URL } from "@/lib/apiClient";
 
 /* ─────────────────────────── Async lifecycle ─────────────────────────── */
 
@@ -194,7 +196,15 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
     setPhase("loading");
     setError("");
     try {
-      await runMockAsync();
+      const formData = new FormData();
+      if (file) {
+        formData.append("file", file);
+      } else if (notes.trim()) {
+        formData.append("content", notes.trim());
+      } else {
+        throw new Error("Please provide a file or notes for the new version.");
+      }
+      await api.uploadNewVersion(story.id, formData);
       setPhase("success");
     } catch (err) {
       setError((err as Error).message);
@@ -388,13 +398,30 @@ const EXPORT_FORMATS: { id: string; label: string; icon: LucideIcon; ext: string
 function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
-  const [format, setFormat] = useState(EXPORT_FORMATS[0]);
+  const [format, setFormat] = useState(EXPORT_FORMATS[1]); // default to Excel (the only working format)
 
   async function submit() {
+    // Only Excel is supported via the real backend endpoint
+    if (format.id !== "excel") {
+      setError(`${format.label} export is not yet available. Only Excel (.xlsx) is supported.`);
+      setPhase("error");
+      return;
+    }
     setPhase("loading");
     setError("");
     try {
-      await runMockAsync();
+      const downloadUrl = (story as any).downloadUrl ?? `/api/stories/testcases/download/${story.id}`;
+      const res = await fetch(BASE_URL + downloadUrl, { credentials: "include" });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `test-cases-${story.id}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
       setPhase("success");
     } catch (err) {
       setError((err as Error).message);
@@ -473,13 +500,13 @@ export function StoryActions({ story }: { story: Story }) {
   const { runAIAction } = useAIAction();
   const close = () => setActive(null);
 
-  // Generate Tests is an AI action — route through the global credit-aware flow.
+  // Generate Tests — calls real backend regenerate endpoint
   const generateTests = () =>
     runAIAction({
       name: "Generate Tests",
       credits: AI_ACTION_COSTS.generateTests,
       description: `Generate a Functional, Negative, Boundary and Security test suite for ${story.id}.`,
-      run: () => runMockAsync(1800),
+      run: () => api.regenerateTests(story.id).then(() => undefined),
     });
 
   const buttons: { id: string; label: string; icon: LucideIcon; onClick: () => void }[] = [

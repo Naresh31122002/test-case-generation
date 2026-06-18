@@ -1245,7 +1245,7 @@ def get_story_test_case_impacts(story_id):
         print(f"❌ Error fetching story test case impacts: {e}")
         return jsonify({'error': str(e)}), 500
 
-@stories_bp.route('/impacts/details/<story_id>', methods=['GET'])
+@stories_bp.route('/impacts/story-details/<story_id>', methods=['GET'])
 @dev_jwt_required
 def get_story_impact_details(story_id):
     """Get detailed impact information for a story"""
@@ -1385,6 +1385,239 @@ def get_story_impact_details(story_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ── Story version history ─────────────────────────────────────────────────────
+
+@stories_bp.route('/<story_id>/versions', methods=['GET'])
+@dev_jwt_required
+def get_story_versions(story_id):
+    """Return all versions for a story, newest first."""
+    try:
+        user_id = get_current_user_id()
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT version_id, story_id, version_number, description,
+                           file_name, created_on, run_id
+                    FROM story_versions
+                    WHERE story_id = %s AND user_id = %s
+                    ORDER BY version_number DESC
+                """, (story_id, user_id))
+                rows = cur.fetchall()
+                versions = []
+                for r in rows:
+                    d = dict(r)
+                    if d.get('created_on'):
+                        d['created_on'] = d['created_on'].isoformat()
+                    versions.append(d)
+        return jsonify({'story_id': story_id, 'versions': versions}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/regenerate', methods=['POST'])
+@dev_jwt_required
+def regenerate_tests(story_id):
+    """Re-run test case generation for an existing story using its stored content."""
+    try:
+        user_id = get_current_user_id()
+
+        # Fetch existing story content from LanceDB
+        db_service = get_db_service()
+        story = db_service.get_story(story_id, user_id=user_id)
+        if not story:
+            return jsonify({'error': f'Story {story_id} not found'}), 404
+
+        import lancedb
+        db = lancedb.connect(Config.LANCE_DB_PATH)
+        table = db.open_table(Config.TABLE_NAME_LANCE)
+        all_rows = table.to_pandas()
+        row_data = all_rows[all_rows['storyID'] == story_id]
+        if 'user_id' in row_data.columns:
+            row_data = row_data[row_data['user_id'] == user_id]
+        if row_data.empty:
+            return jsonify({'error': 'Story content not found in vector store'}), 404
+
+        project_id = str(row_data.iloc[0].get('project_id', ''))
+
+        # Delete existing test cases so generation creates fresh ones
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM test_cases WHERE story_id = %s AND user_id = %s",
+                    (story_id, user_id)
+                )
+                conn.commit()
+
+        # Re-generate
+        from app.LLM.Test_case_generator import generate_test_case_for_story
+        import threading
+        def run_regen():
+            generate_test_case_for_story(story_id, user_id=user_id)
+            from app.LLM.impact_analyzer import analyze_test_case_impacts
+            try:
+                analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+            except Exception as e:
+                print(f"[Regen] Impact analysis failed: {e}")
+
+        threading.Thread(target=run_regen, daemon=True).start()
+
+        return jsonify({
+            'message': 'Test regeneration started',
+            'story_id': story_id,
+            'project_id': project_id,
+        }), 202
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/upload-version', methods=['POST'])
+@dev_jwt_required
+def upload_new_version(story_id):
+    """Upload a new version of an existing story, archive the old one, and regenerate tests."""
+    try:
+        user_id = get_current_user_id()
+        db_service = get_db_service()
+
+        # Story must exist
+        existing_story = db_service.get_story(story_id, user_id=user_id)
+        if not existing_story:
+            return jsonify({'error': f'Story {story_id} not found'}), 404
+
+        project_id = existing_story.get('project_id', 'default')
+        content = request.form.get('content')
+        file = request.files.get('file')
+        source = request.form.get('source', 'frontend')
+
+        if not content and not file:
+            return jsonify({'error': 'content or file is required'}), 400
+
+        # Extract text
+        story_content = content
+        filename = None
+        if file and file.filename:
+            import os
+            allowed_extensions = {'.pdf', '.docx', '.txt'}
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            if file_ext not in allowed_extensions:
+                return jsonify({'error': f'File type {file_ext} not supported'}), 400
+            upload_dir = os.getenv("UPLOAD_FOLDER", "./data/uploaded_docs")
+            project_dir = os.path.join(upload_dir, project_id)
+            os.makedirs(project_dir, exist_ok=True)
+            filename = f"{story_id}_v{uuid.uuid4().hex[:6]}{file_ext}"
+            file_path = os.path.join(project_dir, filename)
+            file.save(file_path)
+            from app.datapipeline.text_extractor import extract_text
+            story_content = extract_text(file_path)
+            if not story_content:
+                return jsonify({'error': 'Could not extract text from file'}), 400
+
+        # Determine next version number
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(version_number), 0) FROM story_versions WHERE story_id = %s AND user_id = %s",
+                    (story_id, user_id)
+                )
+                max_version = cur.fetchone()[0]
+                next_version = max_version + 1
+
+                # Get current run_id to archive
+                cur.execute(
+                    "SELECT run_id FROM test_cases WHERE story_id = %s AND user_id = %s",
+                    (story_id, user_id)
+                )
+                existing_run = cur.fetchone()
+                current_run_id = existing_run[0] if existing_run else None
+
+                # Archive current version
+                cur.execute("""
+                    INSERT INTO story_versions (story_id, user_id, version_number, content, description, file_name, run_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (story_id, user_id, version_number) DO NOTHING
+                """, (story_id, user_id, next_version - 1 if next_version > 1 else 1,
+                      existing_story.get('document_content', ''),
+                      existing_story.get('description', ''),
+                      None, current_run_id))
+                conn.commit()
+
+        # Generate new AI description
+        try:
+            chunks = [story_content[i:i+4000] for i in range(0, len(story_content), 4000)]
+            summaries = []
+            for chunk in chunks[:3]:
+                try:
+                    resp = Config.llm.invoke("Summarize in 1 sentence:\n\n" + chunk)
+                    summaries.append(resp.content.strip())
+                except Exception:
+                    pass
+            description = " ".join(summaries) if summaries else story_content[:150]
+        except Exception:
+            description = story_content[:150]
+
+        # Short title
+        try:
+            title_resp = Config.llm.invoke(
+                "Generate a 3-5 word title (no punctuation) for: " + description[:500]
+            )
+            short_title = title_resp.content.strip().strip('"').strip("'")[:60]
+        except Exception:
+            short_title = " ".join(description.split()[:5])
+
+        # Update LanceDB entry
+        try:
+            from app.config import get_embedding_model
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            table = db.open_table(Config.TABLE_NAME_LANCE)
+            # Delete old entry and re-add
+            all_rows = table.to_pandas()
+            mask = all_rows['storyID'] != story_id
+            if 'user_id' in all_rows.columns:
+                mask = mask | (all_rows['user_id'] != user_id)
+            kept = all_rows[mask]
+            table = db.create_table(Config.TABLE_NAME_LANCE, data=kept, mode='overwrite')
+            embedding = get_embedding_model().encode(story_content).tolist()
+            from datetime import datetime as _dt
+            table.add([{
+                'user_id': user_id, 'project_id': project_id,
+                'vector': embedding, 'storyID': story_id,
+                'storyDescription': short_title, 'test_case_content': '',
+                'filename': filename or f"{story_id}.txt",
+                'original_path': None, 'doc_content_text': story_content,
+                'embedding_timestamp': _dt.now(), 'source': source
+            }])
+        except Exception as e:
+            return jsonify({'error': f'Vector store update failed: {str(e)}'}), 500
+
+        # Delete old test cases and regenerate
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM test_cases WHERE story_id = %s AND user_id = %s", (story_id, user_id))
+                conn.commit()
+
+        import threading
+        def run_regen_version():
+            from app.LLM.Test_case_generator import generate_test_case_for_story
+            generate_test_case_for_story(story_id, user_id=user_id)
+            from app.LLM.impact_analyzer import analyze_test_case_impacts
+            try:
+                analyze_test_case_impacts(story_id, project_id, user_id=user_id)
+            except Exception as e:
+                print(f"[UploadVersion] Impact analysis failed: {e}")
+
+        threading.Thread(target=run_regen_version, daemon=True).start()
+
+        return jsonify({
+            'message': 'New version uploaded. Test regeneration started.',
+            'story_id': story_id,
+            'version_number': next_version,
+            'description': short_title,
+        }), 202
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Review endpoints (INTEGRATION_PLAN Gap 2) ────────────────────────────────
 
 @stories_bp.route('/impacts/<impact_id>/review', methods=['POST'])
@@ -1403,20 +1636,7 @@ def review_impact(impact_id):
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                # Extend the check constraint if needed (idempotent)
-                cur.execute("""
-                    DO $$
-                    BEGIN
-                        ALTER TABLE test_case_impacts
-                            DROP CONSTRAINT IF EXISTS test_case_impacts_impact_status_check;
-                        ALTER TABLE test_case_impacts
-                            ADD CONSTRAINT test_case_impacts_impact_status_check
-                            CHECK (impact_status IN ('active','inactive','accepted','rejected'));
-                    EXCEPTION WHEN others THEN NULL;
-                    END $$;
-                """)
-
-                # Update impact status
+                # Update impact status (constraint now allows 'accepted'/'rejected' — see create_dbs.py)
                 cur.execute("""
                     UPDATE test_case_impacts
                     SET impact_status = %s,
@@ -1475,19 +1695,6 @@ def batch_review_impacts():
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                # Ensure extended check constraint exists
-                cur.execute("""
-                    DO $$
-                    BEGIN
-                        ALTER TABLE test_case_impacts
-                            DROP CONSTRAINT IF EXISTS test_case_impacts_impact_status_check;
-                        ALTER TABLE test_case_impacts
-                            ADD CONSTRAINT test_case_impacts_impact_status_check
-                            CHECK (impact_status IN ('active','inactive','accepted','rejected'));
-                    EXCEPTION WHEN others THEN NULL;
-                    END $$;
-                """)
-
                 for review in reviews:
                     iid = review.get('impact_id')
                     action = review.get('action')

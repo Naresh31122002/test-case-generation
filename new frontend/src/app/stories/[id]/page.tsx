@@ -12,6 +12,7 @@ import {
   FileText,
   PieChart,
   type LucideIcon,
+  Loader2,
 } from "lucide-react";
 import type { Story as SeedStory, TestCase as SeedTestCase, CoverageGap, ImpactedTest } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
@@ -24,7 +25,6 @@ import { StoryActions } from "./StoryActions";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
-import { Loader2 } from "lucide-react";
 import type { TestCase as DomainTestCase } from "@/types/domain";
 
 // Tabs — lazy-loaded so only the active tab's bundle is fetched.
@@ -120,10 +120,23 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   const storyId = params.id;
 
   const [story, setStory] = useState<SeedStory | null>(null);
+  const [domainTestCases, setDomainTestCases] = useState<DomainTestCase[]>([]);
   const [storyTests, setStoryTests] = useState<SeedTestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const storyGaps: CoverageGap[] = [];
-  const storyImpact: ImpactedTest[] = [];
+
+  // Derive project ID: URL param > ProjectContext > "default"
+  const projectId =
+    (typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("project_id")
+      : null) ??
+    selectedProject?.id ??
+    "default";
+
+  // Check if we arrived from the Create Story wizard
+  const isAnalyzing =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("analyzing") === "true";
 
   function inferCategory(title: string): SeedTestCase["type"] {
     const t = title.toLowerCase();
@@ -135,7 +148,8 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   }
 
   const handleUpdate = useCallback((updated: any) => {
-    setStory(domainStoryToSeed(updated));
+    const seed = domainStoryToSeed(updated);
+    setStory(seed);
   }, []);
 
   useEffect(() => {
@@ -145,6 +159,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
       .then(([s, tc]) => {
         if (!cancelled) {
           setStory(domainStoryToSeed(s));
+          setDomainTestCases(tc.testCases);
           setStoryTests(tc.testCases.map((t: DomainTestCase) => ({
             id: t.id, storyId,
             title: t.title,
@@ -160,6 +175,44 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [storyId]);
+
+  // Polling — starts when testCount is 0 OR arriving from wizard (?analyzing=true)
+  useEffect(() => {
+    if (loading) return;
+    if (!isAnalyzing && (story?.testCount ?? 0) > 0) return;
+
+    let stopped = false;
+    let attempts = 0;
+    const MAX = 30; // 30 × 4s = 2 minutes
+
+    const interval = setInterval(async () => {
+      if (stopped || attempts++ >= MAX) {
+        clearInterval(interval);
+        return;
+      }
+      try {
+        const [s, tc] = await Promise.all([api.getStory(storyId), api.getTestCases(storyId)]);
+        const seed = domainStoryToSeed(s);
+        setStory(seed);
+        setDomainTestCases(tc.testCases);
+        setStoryTests(tc.testCases.map((t: DomainTestCase) => ({
+          id: t.id, storyId,
+          title: t.title,
+          type: inferCategory(t.title),
+          priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
+          status: "Approved" as const,
+          steps: t.steps,
+          expectedResult: t.expectedResult,
+        })));
+        // Stop when tests AND impacts are present
+        if (s.testCaseCount > 0 && s.impactedTestCasesCount > 0) {
+          clearInterval(interval);
+        }
+      } catch { /* keep polling silently */ }
+    }, 4000);
+
+    return () => { stopped = true; clearInterval(interval); };
+  }, [storyId, loading, isAnalyzing, story?.testCount]);
 
   if (loading) {
     return (
@@ -239,8 +292,14 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted">{story.version} · Updated {story.lastUpdated}</span>
-              <StatusChip status={story.status} />
+              <span className="text-xs text-muted">Updated {story.lastUpdated}</span>
+              <StatusChip status={
+                (story.testCount === 0 || isAnalyzing)
+                  ? "Analyzing"
+                  : story.impactCount > 0
+                  ? "Impact Detected"
+                  : "Ready"
+              } />
             </div>
           </div>
 
@@ -293,8 +352,8 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
               >
                 {activeTab === "overview" && <OverviewTab story={story} />}
                 {activeTab === "tests" && <TestsTab tests={storyTests} />}
-                {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} />}
-                {activeTab === "impact" && <ImpactTab impacts={storyImpact} />}
+                {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} realTests={domainTestCases} />}
+                {activeTab === "impact" && <ImpactTab storyId={storyId} projectId={projectId} />}
                 {activeTab === "export" && <ExportTab story={story} testCount={story.testCount} />}
               </motion.div>
             </AnimatePresence>

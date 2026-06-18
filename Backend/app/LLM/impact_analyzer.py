@@ -281,11 +281,14 @@ def store_impact_analysis(
         
         with conn:
             with conn.cursor() as cur:
-                # First get the run_id for the original story
-                cur.execute("""
-                    SELECT run_id FROM test_cases 
-                    WHERE story_id = %s
-                """, (existing_story_id,))
+                # Get the run_id for the original story — scope by user_id to prevent cross-user data leak
+                query_run = "SELECT run_id FROM test_cases WHERE story_id = %s"
+                params_run = [existing_story_id]
+                if user_id:
+                    query_run += " AND user_id = %s"
+                    params_run.append(user_id)
+                query_run += " LIMIT 1"
+                cur.execute(query_run, params_run)
                 result = cur.fetchone()
                 if not result:
                     raise DatabaseError(f"Could not find run_id for story {existing_story_id}")

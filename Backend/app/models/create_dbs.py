@@ -159,7 +159,7 @@ def create_postgres_db():
                 impact_analysis_json JSONB NOT NULL,
                 previous_impact_id UUID,
                 impact_version INT DEFAULT 1,
-                impact_status TEXT DEFAULT 'active' CHECK (impact_status IN ('active', 'inactive')),
+                impact_status TEXT DEFAULT 'active' CHECK (impact_status IN ('active', 'inactive', 'accepted', 'rejected')),
                 impact_type TEXT NOT NULL CHECK (impact_type IN ('modification', 'deletion', 'addition')),
                 impact_severity TEXT NOT NULL CHECK (impact_severity IN ('high', 'medium', 'low')),
                 impact_priority INTEGER CHECK (impact_priority BETWEEN 1 AND 5),
@@ -182,10 +182,10 @@ def create_postgres_db():
             CREATE INDEX IF NOT EXISTS idx_test_case_impacts_original_story 
             ON test_case_impacts(original_story_id);
             
-            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story 
+            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story
             ON test_case_impacts(new_story_id);
-            
-            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_project 
+
+            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_project
             ON test_case_impacts(project_id);
 
             CREATE INDEX IF NOT EXISTS idx_test_case_impacts_chain
@@ -193,6 +193,9 @@ def create_postgres_db():
 
             CREATE INDEX IF NOT EXISTS idx_test_case_impacts_status
             ON test_case_impacts(impact_status);
+
+            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story_user
+            ON test_case_impacts(new_story_id, user_id);
         """)
         print("✅ Table 'test_case_impacts' is ready.")
 
@@ -344,7 +347,26 @@ def create_postgres_db():
         ORDER BY cc.total_impacts DESC;
         """)
         print("✅ View 'test_case_impact_summary' is ready.")
-            
+
+        # Create story_versions table for version history
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS story_versions (
+                version_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                story_id       TEXT NOT NULL,
+                user_id        UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                version_number INTEGER NOT NULL DEFAULT 1,
+                content        TEXT,
+                description    TEXT,
+                file_name      TEXT,
+                created_on     TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                run_id         UUID REFERENCES test_cases(run_id) ON DELETE SET NULL,
+                CONSTRAINT uq_story_version UNIQUE (story_id, user_id, version_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_story_versions_story_user
+            ON story_versions(story_id, user_id);
+        """)
+        print("✅ Table 'story_versions' is ready.")
+
         conn.commit()
         print("\n✅ All database structures have been created/updated successfully!")
         
