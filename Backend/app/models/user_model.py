@@ -36,13 +36,13 @@ class UserModel:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT user_id, email, password_hash FROM users WHERE email = %s",
+                "SELECT user_id, email, password_hash, email_verified FROM users WHERE email = %s",
                 (email.lower().strip(),),
             )
             row = cursor.fetchone()
             if not row:
                 return None
-            return {"user_id": str(row[0]), "email": row[1], "password_hash": row[2]}
+            return {"user_id": str(row[0]), "email": row[1], "password_hash": row[2], "email_verified": bool(row[3])}
         finally:
             cursor.close()
             conn.close()
@@ -53,13 +53,42 @@ class UserModel:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT user_id, email FROM users WHERE user_id = %s",
+                "SELECT user_id, email, email_verified FROM users WHERE user_id = %s",
                 (user_id,),
             )
             row = cursor.fetchone()
             if not row:
                 return None
-            return {"user_id": str(row[0]), "email": row[1]}
+            return {"user_id": str(row[0]), "email": row[1], "email_verified": bool(row[2])}
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
+    def set_email_verified(user_id: str) -> None:
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET email_verified = TRUE WHERE user_id = %s",
+                (user_id,),
+            )
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
+    def update_password(user_id: str, new_password: str) -> None:
+        password_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                (password_hash, user_id),
+            )
+            conn.commit()
         finally:
             cursor.close()
             conn.close()

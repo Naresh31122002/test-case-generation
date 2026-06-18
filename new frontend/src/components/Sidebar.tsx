@@ -16,6 +16,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 
 const navItems = [
   { label: "Stories", icon: BookOpen, href: "/stories" },
@@ -68,16 +69,24 @@ export function Sidebar() {
       className="flex-shrink-0 h-screen sticky top-0 bg-white border-r border-border flex flex-col overflow-hidden z-40"
     >
       {/* Logo + collapse toggle */}
-      <div className="px-4 py-5 border-b border-border flex items-center justify-between gap-2">
-        <Link href="/" className="flex items-center gap-2 min-w-0">
-          <Image
-            src="/icon.png"
-            alt="TestSurge"
-            width={28}
-            height={28}
-            className="flex-shrink-0"
-            priority
-          />
+      <div className="px-2 py-5 border-b border-border flex items-center justify-between gap-2">
+        <Link
+          href="/"
+          className="flex items-center gap-3 min-w-0 px-4 h-10 flex-1"
+        >
+          {/* Icon slot is centered on the same x-axis as the nav icons below
+              (which are 18px wide). The logo image is larger but stays centered
+              within this 18px slot, so all sidebar icons line up when collapsed. */}
+          <span className="flex-shrink-0 w-[18px] flex items-center justify-center">
+            <Image
+              src="/icon.png"
+              alt="TestSurge"
+              width={28}
+              height={28}
+              className="w-7 h-7 max-w-none"
+              priority
+            />
+          </span>
           <motion.span
             animate={{ opacity: expanded ? 1 : 0 }}
             transition={{ duration: 0.15 }}
@@ -148,8 +157,13 @@ export function Sidebar() {
         </ul>
       </nav>
 
+      {/* Workspace switcher (multi-tenant) */}
+      <div className="px-3 pt-3 border-t border-border">
+        <WorkspaceSwitcher collapsed={!expanded} />
+      </div>
+
       {/* Footer: user profile + Settings entry point */}
-      <div className="px-4 py-4 border-t border-border flex items-center gap-3">
+      <div className="px-4 py-4 flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
           JD
         </div>

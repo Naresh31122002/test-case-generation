@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { SIGNUP_URL } from "@/lib/app";
 
 const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
   id: i,
@@ -49,7 +50,7 @@ export default function CTABanner() {
           Free for 7 days. No credit card needed.
         </p>
         <motion.a
-          href="/signup"
+          href={SIGNUP_URL}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.97 }}
           className="mt-8 rounded-full bg-white px-8 py-4 text-lg font-semibold text-secondary shadow-lg"

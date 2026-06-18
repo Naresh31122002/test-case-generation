@@ -68,14 +68,21 @@ def get_all_generated_story_ids(user_id=None):
         if conn:
             conn.close()
 
-def insert_test_case(story_id, story_description, test_case_json, project_id=None, source='backend', inputs=None, user_id=None):
-    """Insert or update generated test case JSON into PostgreSQL."""
+def insert_test_case(story_id, story_description, test_case_json, project_id=None, source='backend', inputs=None, user_id=None, workspace_id=None):
+    """Insert or update generated test case JSON into PostgreSQL.
+
+    Tenancy: when workspace_id is provided, the existence check is scoped to the
+    workspace (the (story_id, workspace_id) unique constraint), and the row stores
+    workspace_id. Falls back to user-scoping for legacy callers.
+    """
     conn = None
     try:
         conn = Config.get_postgres_connection()
         with conn.cursor() as cur:
-            # Check if a record exists for this story_id (scoped to user when provided)
-            if user_id:
+            # Check if a record exists for this story_id (scoped to workspace when provided)
+            if workspace_id:
+                cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s AND workspace_id = %s", (story_id, workspace_id))
+            elif user_id:
                 cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s AND user_id = %s", (story_id, user_id))
             else:
                 cur.execute("SELECT run_id FROM test_cases WHERE story_id = %s AND user_id IS NULL", (story_id,))
@@ -97,8 +104,9 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                     test_case_generated,
                     source,
                     inputs,
-                    user_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s)
+                    user_id,
+                    workspace_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s)
                 ON CONFLICT (run_id)
                 DO UPDATE SET
                     project_id = EXCLUDED.project_id,
@@ -109,7 +117,8 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                     test_case_generated = TRUE,
                     source = EXCLUDED.source,
                     inputs = EXCLUDED.inputs,
-                    user_id = EXCLUDED.user_id
+                    user_id = EXCLUDED.user_id,
+                    workspace_id = EXCLUDED.workspace_id
             """
 
             cur.execute(query, (
@@ -123,6 +132,7 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
                 source,
                 json.dumps(inputs) if inputs else None,
                 user_id,
+                workspace_id,
             ))
             conn.commit()
     except Exception as e:

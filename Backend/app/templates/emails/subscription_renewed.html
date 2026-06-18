@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f6f9fc; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h1 { font-size: 24px; font-weight: 600; margin-bottom: 20px; color: #16a34a; }
+        p { font-size: 16px; line-height: 1.5; color: #555; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #6366f1; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: 500; margin-top: 20px; margin-bottom: 20px; }
+        .footer { margin-top: 30px; font-size: 12px; color: #999; text-align: center; }
+        .receipt-table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px; }
+        .receipt-table th, .receipt-table td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Payment Successful!</h1>
+        <p>Hi {{ name }},</p>
+        <p>Great news! Your Kynetropo subscription has been successfully renewed.</p>
+        <table class="receipt-table">
+            <tr>
+                <th>Plan</th>
+                <td>{{ plan_name }}</td>
+            </tr>
+            <tr>
+                <th>Amount Paid</th>
+                <td>{{ amount }}</td>
+            </tr>
+        </table>
+        <p>You can view your full billing history and download invoices from your dashboard.</p>
+        <a href="{{ billing_url }}" class="btn">View Billing Dashboard</a>
+        <div class="footer">
+            &copy; 2026 Kynetropo. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>

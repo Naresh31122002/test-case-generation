@@ -1,5 +1,6 @@
 from app.config import Config, get_llm, get_embedding_model
 import os
+import sys
 import shutil
 from app.datapipeline.text_extractor import extract_text
 from app.models.create_dbs import create_LanceDB
@@ -57,7 +58,7 @@ def ensure_project_folders(project_name):
     
     return project_success_folder, project_failure_folder
 
-def process_project_folder(project_folder_path, project_name):
+def process_project_folder(project_folder_path, project_name, workspace_id):
     """Process all files in a project folder"""
     files_processed = 0
     files_success = 0
@@ -111,6 +112,8 @@ def process_project_folder(project_folder_path, project_name):
             print(f"🔢 Vector length: {len(embedding)} for {file}")
 
             table.add([{
+                "workspace_id": workspace_id,
+                "user_id": "",
                 "project_id": project_name,
                 "vector": embedding,
                 "storyID": story_id,
@@ -134,7 +137,7 @@ def process_project_folder(project_folder_path, project_name):
     print(f"📊 [Project {project_name}] Summary: {files_processed} files processed, {files_success} successful, {files_failed} failed")
     return files_processed, files_success, files_failed
 
-def generate_embeddings():
+def generate_embeddings(workspace_id: str):
     """Process all project folders in the upload directory"""
     total_files_processed = 0
     total_files_success = 0
@@ -169,7 +172,7 @@ def generate_embeddings():
             project_path = os.path.join(UPLOAD_FOLDER, project_folder)
             
             # Process each project folder
-            files_processed, files_success, files_failed = process_project_folder(project_path, project_folder)
+            files_processed, files_success, files_failed = process_project_folder(project_path, project_folder, workspace_id)
             
             total_files_processed += files_processed
             total_files_success += files_success
@@ -198,4 +201,7 @@ def generate_embeddings():
         print(f"❌ Error processing upload folder: {e}")
 
 if __name__ == "__main__":
-    generate_embeddings()
+    if len(sys.argv) < 2:
+        print("Usage: python embedding_generator.py <workspace_id>")
+        sys.exit(1)
+    generate_embeddings(sys.argv[1])

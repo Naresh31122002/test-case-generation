@@ -269,22 +269,29 @@ def store_impact_analysis(
     new_story_id: str,
     existing_story_id: str,
     similarity_score: float,
-    user_id: str = None
+    user_id: str = None,
+    workspace_id: str = None
 ) -> int:
     """
-    Store impact analysis results in the database with enhanced tracking
+    Store impact analysis results in the database with enhanced tracking.
+    Tenancy: rows are written with workspace_id; the original-story lookup is
+    scoped to the workspace to prevent cross-tenant data leaks.
     """
     try:
         db_service = get_db_service()
         conn = psycopg2.connect(**db_service.postgres_config)
         impacts_stored = 0
-        
+
         with conn:
             with conn.cursor() as cur:
-                # Get the run_id for the original story — scope by user_id to prevent cross-user data leak
+                # Get the run_id for the original story — scope by workspace (preferred)
+                # or user_id to prevent cross-tenant data leak.
                 query_run = "SELECT run_id FROM test_cases WHERE story_id = %s"
                 params_run = [existing_story_id]
-                if user_id:
+                if workspace_id:
+                    query_run += " AND workspace_id = %s"
+                    params_run.append(workspace_id)
+                elif user_id:
                     query_run += " AND user_id = %s"
                     params_run.append(user_id)
                 query_run += " LIMIT 1"
@@ -372,9 +379,10 @@ def store_impact_analysis(
                             impact_severity,
                             impact_priority,
                             impact_details,
-                            user_id
+                            user_id,
+                            workspace_id
                         ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         RETURNING impact_id
                     """, (
@@ -394,7 +402,8 @@ def store_impact_analysis(
                         severity,
                         priority,
                         json.dumps(impact_details),
-                        user_id
+                        user_id,
+                        workspace_id
                     ))
 
                     inserted_impact_id = cur.fetchone()[0]
@@ -403,14 +412,18 @@ def store_impact_analysis(
                         INSERT INTO impact_history (
                             history_id,
                             impact_id,
+                            user_id,
+                            workspace_id,
                             changed_by,
                             previous_status,
                             new_status,
                             change_reason
-                        ) VALUES (%s, %s, %s, %s, %s, %s)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         str(uuid.uuid4()),
                         inserted_impact_id,
+                        user_id,
+                        workspace_id,
                         'system',
                         None,
                         'active',
@@ -450,7 +463,7 @@ def store_impact_analysis(
         if conn:
             conn.close()
 
-def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story_id: str = None, similarity_score: float = None, llm_ref=None, user_id: str = None):
+def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story_id: str = None, similarity_score: float = None, llm_ref=None, user_id: str = None, workspace_id: str = None):
     """
     Analyze how a new story impacts existing test cases
     Args:
@@ -459,6 +472,9 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
         existing_story_id: Optional ID of specific story to analyze against
         similarity_score: Optional similarity score between the stories
         llm_ref: Optional LLM reference
+        user_id: author scope (legacy)
+        workspace_id: tenant scope — candidate stories and stored impacts are
+            confined to this workspace
     """
     if llm_ref is None:
         llm_ref = Config.llm_impact
@@ -520,8 +536,17 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
         # First check if stories have test cases generated
         conn = psycopg2.connect(**Config.postgres_config())
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Get all stories from the same project with test cases
-            if user_id:
+            # Get all stories from the same project with test cases, scoped to the
+            # workspace (preferred) or user.
+            if workspace_id:
+                cur.execute("""
+                    SELECT story_id, test_case_generated
+                    FROM test_cases
+                    WHERE project_id = %s
+                    AND test_case_generated = TRUE
+                    AND workspace_id = %s
+                """, (project_id, workspace_id))
+            elif user_id:
                 cur.execute("""
                     SELECT story_id, test_case_generated
                     FROM test_cases
@@ -549,14 +574,14 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                 logger.warning(f"Existing story {existing_story_id} does not have test cases generated yet")
                 return
         
-        # Get the new story's details
-        new_story = db_service.get_story(new_story_id)
+        # Get the new story's details (workspace-scoped)
+        new_story = db_service.get_story(new_story_id, user_id=user_id, workspace_id=workspace_id)
         if not new_story:
             raise StoryNotFoundError(f"New story {new_story_id} not found")
-            
+
         # If existing_story_id is provided, only analyze that story
         if existing_story_id:
-            existing_story = db_service.get_story(existing_story_id)
+            existing_story = db_service.get_story(existing_story_id, user_id=user_id, workspace_id=workspace_id)
             if not existing_story:
                 raise StoryNotFoundError(f"Existing story {existing_story_id} not found")
             stories_to_analyze = [existing_story]
@@ -672,7 +697,8 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                         new_story_id=new_story_id,
                         existing_story_id=existing_story["id"],
                         similarity_score=similarity_score if similarity_score is not None else 0.0,
-                        user_id=user_id
+                        user_id=user_id,
+                        workspace_id=workspace_id
                     )
                     
                     logger.info(f"Stored {impacts_stored} impacts for {existing_story['id']}")

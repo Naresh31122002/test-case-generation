@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import os
 import sys
 from datetime import timedelta
+import sentry_sdk
+from flask_talisman import Talisman
 from app.models.db_service import DatabaseService, get_db_service
 from app.config import Config
 
@@ -36,7 +38,7 @@ def create_app():
             r"/api/*": {
                 "origins": allowed_origins_re,
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                "allow_headers": ["Content-Type", "Authorization"],
+                "allow_headers": ["Content-Type", "Authorization", "X-Workspace-Id"],
                 "supports_credentials": True,
             }
         })
@@ -54,23 +56,41 @@ def create_app():
             r"/api/*": {
                 "origins": allowed_origins,
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                "allow_headers": ["Content-Type", "Authorization"],
+                "allow_headers": ["Content-Type", "Authorization", "X-Workspace-Id"],
                 "supports_credentials": True,
             }
         })
 
     # Security headers for every response
-    @app.after_request
-    def set_security_headers(response):
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        if is_production:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
+    csp = {
+        'default-src': [
+            '\'self\'',
+            '\'unsafe-inline\'',
+            '*.stripe.com',
+            '*.kynetropo.com'
+        ]
+    }
+    Talisman(app, 
+             force_https=is_production, 
+             content_security_policy=csp,
+             session_cookie_secure=is_production,
+             strict_transport_security=is_production)
 
     # Configure app
     app.config.from_object(Config)
+    
+    # Initialize Sentry
+    if app.config.get("SENTRY_DSN"):
+        sentry_sdk.init(
+            dsn=app.config["SENTRY_DSN"],
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=os.getenv("FLASK_ENV", "development")
+        )
+
+    # Rate Limiting
+    from app.utils.limiter import limiter
+    limiter.init_app(app)
 
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = jwt_secret or "dev-secret-change-in-production"
@@ -80,9 +100,15 @@ def create_app():
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
     app.config["JWT_COOKIE_SECURE"] = is_production
     app.config["JWT_COOKIE_SAMESITE"] = "Lax"
-    app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # SameSite=Lax + explicit origins mitigates CSRF
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = True
 
-    JWTManager(app)
+    jwt = JWTManager(app)
+
+    # Configure Redis blocklist for session revocation
+    from app.utils.jwt_blocklist import check_if_token_is_revoked
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload: dict) -> bool:
+        return check_if_token_is_revoked(jwt_header, jwt_payload)
 
     # Initialize database service
     db_service = get_db_service()
@@ -94,6 +120,39 @@ def create_app():
 
     from app.routes.stories import stories_bp
     app.register_blueprint(stories_bp, url_prefix='/api/stories')
+
+    from app.routes.workspaces import workspaces_bp
+    app.register_blueprint(workspaces_bp, url_prefix='/api/workspaces')
+
+    from app.routes.stripe_routes import stripe_bp
+    app.register_blueprint(stripe_bp, url_prefix='/api/stripe')
+    
+    from app.routes.admin import admin_bp
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        status = {"status": "ok", "db": "unknown", "lancedb": "unknown"}
+        try:
+            # Check Postgres
+            import psycopg2
+            with psycopg2.connect(**db_service.postgres_config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            status["db"] = "ok"
+        except Exception:
+            status["db"] = "error"
+            status["status"] = "error"
+            
+        try:
+            # Check LanceDB
+            db_service.lance_db.open_table(db_service.TABLE_NAME_LANCE)
+            status["lancedb"] = "ok"
+        except Exception:
+            status["lancedb"] = "error"
+            status["status"] = "error"
+
+        return status, 200 if status["status"] == "ok" else 503
 
     return app
 

@@ -401,13 +401,13 @@ Remember:
         
         return formatted
 
-def generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
+def generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None):
     """Synchronous wrapper for async function"""
     if llm_ref is None:
         llm_ref = Config.llm
-    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id))
+    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id, workspace_id=workspace_id))
 
-async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
+async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None):
     """Async implementation of test case generation"""
     if llm_ref is None:
         llm_ref = Config.llm
@@ -422,8 +422,10 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
         all_rows = table.to_pandas()
         row_data = all_rows[all_rows['storyID'] == story_id]
 
-        # Scope to user if user_id provided and column exists
-        if user_id and 'user_id' in row_data.columns:
+        # Scope to workspace if provided (preferred), else fall back to user scope.
+        if workspace_id and 'workspace_id' in row_data.columns:
+            row_data = row_data[row_data['workspace_id'] == workspace_id]
+        elif user_id and 'user_id' in row_data.columns:
             row_data = row_data[row_data['user_id'] == user_id]
 
         if row_data.empty:
@@ -434,8 +436,10 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
         project_id = row.get("project_id", "")
         story_description = row["storyDescription"]
         main_text = row.get("doc_content_text", "").strip()
-        # Carry user_id from LanceDB row if not passed explicitly (scheduler case)
+        # Carry user_id / workspace_id from the LanceDB row if not passed explicitly
+        # (scheduler case, where there is no request context).
         resolved_user_id = user_id or row.get("user_id")
+        resolved_workspace_id = workspace_id or row.get("workspace_id")
 
         if not main_text:
             print(f"❌ Skipping {story_id} — missing doc_content_text.")
@@ -459,13 +463,14 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None):
                     "main_text": main_text,
                     "project_id": project_id
                 },
-                user_id=resolved_user_id
+                user_id=resolved_user_id,
+                workspace_id=resolved_workspace_id
             )
             print(f"✅ Inserted test cases for {story_id} into Postgres.\n")
 
             # Trigger impact analysis after storing test cases
             print(f"🔄 Triggering impact analysis for {story_id}")
-            analyze_test_case_impacts(story_id, project_id, user_id=resolved_user_id)
+            analyze_test_case_impacts(story_id, project_id, user_id=resolved_user_id, workspace_id=resolved_workspace_id)
             print(f"✅ Impact analysis completed for {story_id}\n")
 
             return test_cases
@@ -513,13 +518,17 @@ async def _generate_test_cases_for_all_stories():
         return
 
     for story_id in records:
-        # Pass user_id from LanceDB row so each story is stored under the correct user
+        # Pass user_id + workspace_id from the LanceDB row so each story is stored
+        # under the correct user and tenant.
         row_uid = None
-        if 'user_id' in all_rows.columns:
-            row_match = all_rows[all_rows['storyID'] == story_id]
-            if not row_match.empty:
+        row_wsid = None
+        row_match = all_rows[all_rows['storyID'] == story_id]
+        if not row_match.empty:
+            if 'user_id' in all_rows.columns:
                 row_uid = row_match.iloc[0].get('user_id')
-        await _generate_test_case_for_story(story_id, user_id=row_uid)
+            if 'workspace_id' in all_rows.columns:
+                row_wsid = row_match.iloc[0].get('workspace_id')
+        await _generate_test_case_for_story(story_id, user_id=row_uid, workspace_id=row_wsid)
 
 def Chat_RAG(user_query, top_k=3):
     """

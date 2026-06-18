@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f6f9fc; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h1 { font-size: 24px; font-weight: 600; margin-bottom: 20px; color: #dc2626; }
+        p { font-size: 16px; line-height: 1.5; color: #555; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #6366f1; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: 500; margin-top: 20px; margin-bottom: 20px; }
+        .footer { margin-top: 30px; font-size: 12px; color: #999; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Action Required: Payment Failed</h1>
+        <p>Hi {{ name }},</p>
+        <p>We were unable to process your most recent payment for your Kynetropo subscription.</p>
+        <p>Please update your billing information as soon as possible to avoid any interruption to your service.</p>
+        <a href="{{ billing_url }}" class="btn">Update Billing Details</a>
+        <p>If you've already updated your payment method, you can ignore this message.</p>
+        <div class="footer">
+            &copy; 2026 Kynetropo. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
