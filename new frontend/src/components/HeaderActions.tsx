@@ -25,9 +25,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useProject } from "@/contexts/ProjectContext";
 import { CreateProjectModal } from "@/components/projects/CreateProjectModal";
+import { NewStoryModal } from "@/components/stories/NewStoryModal";
 import { type Project } from "@/lib/projects";
 import { useAIAction } from "@/contexts/AIActionContext";
 import {
@@ -81,7 +81,6 @@ function ProjectSelector() {
     selectedProject,
     projectList,
     archivedProjects,
-    recentProjects,
     selectProject,
     archiveProject,
     unarchiveProject,
@@ -100,7 +99,6 @@ function ProjectSelector() {
   const filteredArchived = archivedProjects.filter((p) =>
     p.name.toLowerCase().includes(query.toLowerCase())
   );
-  const recent = recentProjects.filter((p) => p.id !== active?.id).slice(0, 3);
 
   function handleAction(action: "rename" | "archive" | "delete", project: Project) {
     if (action === "archive") {
@@ -172,23 +170,6 @@ function ProjectSelector() {
                   </div>
                   <Check size={15} className="text-pink flex-shrink-0" />
                 </div>
-              </>
-            )}
-
-            {/* Recent projects */}
-            {!query && recent.length > 0 && (
-              <>
-                <div className="border-t border-border px-3 pt-2 pb-1 text-[11px] font-semibold text-muted uppercase tracking-wide">
-                  Recent projects
-                </div>
-                {recent.map((p) => (
-                  <ProjectRow
-                    key={p.id}
-                    project={p}
-                    onSelect={() => { selectProject(p.id); setOpen(false); }}
-                    onAction={(a) => handleAction(a, p)}
-                  />
-                ))}
               </>
             )}
 
@@ -894,9 +875,9 @@ function NotificationBell() {
 /* ---------------- New Story button (route-aware) ---------------- */
 
 export function NewStoryButton() {
-  const router = useRouter();
   const { selectedProject } = useProject();
   const [showCreate, setShowCreate] = useState(false);
+  const [showPaths, setShowPaths] = useState(false);
 
   return (
     <>
@@ -908,17 +889,19 @@ export function NewStoryButton() {
             setShowCreate(true);
             return;
           }
-          router.push("/stories/new");
+          // Open the two-path chooser (Import vs Generate-from-requirements).
+          setShowPaths(true);
         }}
         className="flex-shrink-0 inline-flex items-center gap-2 bg-pink text-white text-sm font-medium px-4 h-9 rounded-btn hover:bg-[#e0005f] transition-colors whitespace-nowrap max-w-[180px]"
       >
         <Plus size={16} />
         New Story
       </button>
+      <NewStoryModal open={showPaths} onClose={() => setShowPaths(false)} />
       <CreateProjectModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreated={() => router.push("/stories/new")}
+        onCreated={() => setShowPaths(true)}
       />
     </>
   );

@@ -4,6 +4,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
+
+/** Shared mock async op (~1.8s, ~10% failure) for the Create Story flow. */
+function mockRunNewStory(ms = 1800): Promise<void> {
+  return new Promise((resolve, reject) =>
+    setTimeout(() => (Math.random() < 0.1 ? reject(new Error("Generation failed. Please try again.")) : resolve()), ms)
+  );
+}
 import {
   ArrowLeft,
   Upload,
@@ -13,6 +21,7 @@ import {
   FileText,
   X,
   Zap,
+  Plus,
 } from "lucide-react";
 import { easeStandard, easeOut, duration, spring } from "@/lib/motion";
 
@@ -24,16 +33,18 @@ const CREDITS_PER_STORY = 25;
 /** Minimum characters required for a pasted story to be valid. */
 const MIN_STORY_CHARS = 50;
 
+type StorySource = "paste" | "upload" | "jira";
+
 /** A single detected/selected story heading into the wizard. */
 interface DetectedStory {
   id: string;
   /** Display title (first meaningful line). */
   title: string;
-  /** Raw story text (for paste) or file description (for upload). */
+  /** Raw story text (for paste) or descriptive subtitle (upload / jira). */
   content: string;
   charCount: number;
   valid: boolean;
-  source: "paste" | "upload";
+  source: StorySource;
   selected: boolean;
 }
 
@@ -101,9 +112,10 @@ export default function CreateStoryPage() {
   const [step, setStep] = useState<StepId>(1);
   const [prevStep, setPrevStep] = useState<StepId>(1);
   const [inputTab, setInputTab] = useState<InputTab>("paste");
-  const [storyText, setStoryText] = useState("");
+  const [pasteBlocks, setPasteBlocks] = useState<string[]>([""]);
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [jiraKeys, setJiraKeys] = useState<string[]>([]);
   const [detected, setDetected] = useState<DetectedStory[] | null>(null);
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
@@ -179,12 +191,14 @@ export default function CreateStoryPage() {
                 direction={direction}
                 inputTab={inputTab}
                 setInputTab={setInputTab}
-                storyText={storyText}
-                setStoryText={setStoryText}
+                pasteBlocks={pasteBlocks}
+                setPasteBlocks={setPasteBlocks}
                 dragging={dragging}
                 setDragging={setDragging}
                 files={files}
                 setFiles={setFiles}
+                jiraKeys={jiraKeys}
+                setJiraKeys={setJiraKeys}
                 detected={detected}
                 setDetected={setDetected}
                 onContinue={() => goTo(2)}
@@ -207,7 +221,7 @@ export default function CreateStoryPage() {
                 onBack={() => goTo(1)}
                 detected={detected}
                 files={files}
-                storyText={storyText}
+                pasteBlocks={pasteBlocks}
                 projectId={projectId}
               />
             )}
@@ -233,61 +247,87 @@ function formatSize(bytes: number): string {
 }
 
 function StepInput({
-  direction, inputTab, setInputTab, storyText, setStoryText,
-  dragging, setDragging, files, setFiles, detected, setDetected, onContinue,
+  direction, inputTab, setInputTab, pasteBlocks, setPasteBlocks,
+  dragging, setDragging, files, setFiles, jiraKeys, setJiraKeys, detected, setDetected, onContinue,
 }: {
   direction: number;
   inputTab: InputTab;
   setInputTab: (t: InputTab) => void;
-  storyText: string;
-  setStoryText: (v: string) => void;
+  pasteBlocks: string[];
+  setPasteBlocks: (v: string[]) => void;
   dragging: boolean;
   setDragging: (v: boolean) => void;
   files: File[];
   setFiles: (f: File[]) => void;
+  jiraKeys: string[];
+  setJiraKeys: (v: string[]) => void;
   detected: DetectedStory[] | null;
   setDetected: (d: DetectedStory[] | null) => void;
   onContinue: () => void;
 }) {
-  // Live-parsed preview of pasted stories (before committing to the select phase).
-  const pastedStories = parsePastedStories(storyText);
+  const [jiraInput, setJiraInput] = useState("");
 
+  // Each paste block may itself contain multiple stories (--- or "As a…").
+  const pastedStories = pasteBlocks.flatMap((b) => parsePastedStories(b));
+
+  // Continue is enabled if ANY source has usable content (sources combine).
   const hasContent =
-    inputTab === "paste"
-      ? pastedStories.some((s) => s.length >= MIN_STORY_CHARS)
-      : inputTab === "upload"
-      ? files.length > 0
-      : true;
+    pastedStories.some((s) => s.length >= MIN_STORY_CHARS) ||
+    files.length > 0 ||
+    jiraKeys.length > 0;
 
-  /** Build the detected-stories list and move to the preview/select phase. */
+  /* ── Paste block helpers ── */
+  const updateBlock = (i: number, v: string) =>
+    setPasteBlocks(pasteBlocks.map((b, idx) => (idx === i ? v : b)));
+  const addBlock = () => setPasteBlocks([...pasteBlocks, ""]);
+  const removeBlock = (i: number) =>
+    setPasteBlocks(pasteBlocks.length === 1 ? [""] : pasteBlocks.filter((_, idx) => idx !== i));
+
+  /* ── Jira helpers ── */
+  const addJiraKey = () => {
+    const key = jiraInput.trim().toUpperCase();
+    if (key && !jiraKeys.includes(key)) setJiraKeys([...jiraKeys, key]);
+    setJiraInput("");
+  };
+  const removeJiraKey = (key: string) => setJiraKeys(jiraKeys.filter((k) => k !== key));
+
+  /** Combine ALL sources into one detected list, then go to the select phase. */
   function buildPreview() {
     const list: DetectedStory[] = [];
-    if (inputTab === "paste") {
-      pastedStories.forEach((content, i) => {
-        const charCount = content.trim().length;
-        list.push({
-          id: `paste-${i}`,
-          title: deriveTitle(content),
-          content,
-          charCount,
-          valid: charCount >= MIN_STORY_CHARS,
-          source: "paste",
-          selected: charCount >= MIN_STORY_CHARS,
-        });
+    pastedStories.forEach((content, i) => {
+      const charCount = content.trim().length;
+      list.push({
+        id: `paste-${i}`,
+        title: deriveTitle(content),
+        content,
+        charCount,
+        valid: charCount >= MIN_STORY_CHARS,
+        source: "paste",
+        selected: charCount >= MIN_STORY_CHARS,
       });
-    } else if (inputTab === "upload") {
-      files.forEach((file, i) => {
-        list.push({
-          id: `file-${i}`,
-          title: file.name,
-          content: `${formatSize(file.size)} · ${file.type || "document"}`,
-          charCount: file.size,
-          valid: true,
-          source: "upload",
-          selected: true,
-        });
+    });
+    files.forEach((file, i) => {
+      list.push({
+        id: `file-${i}`,
+        title: file.name,
+        content: `${formatSize(file.size)} · ${file.type || "document"}`,
+        charCount: file.size,
+        valid: true,
+        source: "upload",
+        selected: true,
       });
-    }
+    });
+    jiraKeys.forEach((key, i) => {
+      list.push({
+        id: `jira-${i}`,
+        title: key,
+        content: "Imported from Jira",
+        charCount: 0,
+        valid: true,
+        source: "jira",
+        selected: true,
+      });
+    });
     setDetected(list);
   }
 
@@ -329,24 +369,49 @@ function StepInput({
 
       {inputTab === "paste" && (
         <div className="space-y-4">
-          <div className="relative">
-            <textarea
-              value={storyText}
-              onChange={(e) => setStoryText(e.target.value)}
-              placeholder={`As a [user type], I want to [do something] so that [I get some benefit].\n\nAcceptance Criteria:\n- [Criterion 1]\n- [Criterion 2]\n\n---\n\nAs a [user type], I want to [do another thing]…`}
-              className="w-full h-[240px] p-4 font-mono text-[13px] border border-border rounded-btn resize-none text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/30 transition-colors leading-relaxed"
-            />
-            <span className="absolute bottom-3 right-3 text-[11px] text-muted">
-              {storyText.length} chars
-            </span>
-          </div>
+          {pasteBlocks.map((block, i) => (
+            <div key={i} className="relative">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-muted">Story {i + 1}</span>
+                {(pasteBlocks.length > 1 || block.trim().length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => removeBlock(i)}
+                    className="text-muted hover:text-error transition-colors inline-flex items-center gap-1 text-[11px] font-medium"
+                  >
+                    <X size={12} /> Remove
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={block}
+                onChange={(e) => updateBlock(i, e.target.value)}
+                placeholder={`As a [user type], I want to [do something] so that [I get some benefit].\n\nAcceptance Criteria:\n- [Criterion 1]\n- [Criterion 2]`}
+                className="w-full h-[180px] p-4 font-mono text-[13px] border border-border rounded-btn resize-none text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/30 transition-colors leading-relaxed"
+              />
+              <span className="absolute bottom-3 right-3 text-[11px] text-muted">
+                {block.trim().length} chars
+              </span>
+            </div>
+          ))}
+
+          {/* Add another story */}
+          <button
+            type="button"
+            onClick={addBlock}
+            className="w-full h-10 flex items-center justify-center gap-2 border border-dashed border-border rounded-btn text-sm font-medium text-muted hover:text-pink hover:border-pink hover:bg-surface-pink/30 transition-colors"
+          >
+            <Plus size={15} />
+            Add another story
+          </button>
+
           <p className="text-xs text-muted">
-            Separate multiple stories with a line containing <code className="px-1 py-0.5 rounded bg-gray-100 text-navy">---</code>, or we&apos;ll auto-detect the
-            <span className="font-medium text-navy"> &ldquo;As a…&rdquo;</span> format. Minimum {MIN_STORY_CHARS} characters per story.
+            Add a block per story, or paste several in one block separated by a line containing{" "}
+            <code className="px-1 py-0.5 rounded bg-gray-100 text-navy">---</code>. Minimum {MIN_STORY_CHARS} characters per story.
           </p>
 
           {/* Detected stories preview (live) */}
-          {storyText.trim().length > 0 && (
+          {pastedStories.length > 0 && (
             <div className="border border-border rounded-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border bg-gray-50">
                 <p className="text-[13px] font-semibold text-navy">
@@ -445,15 +510,51 @@ function StepInput({
           <div className="flex gap-3">
             <input
               type="text"
+              value={jiraInput}
+              onChange={(e) => setJiraInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addJiraKey(); } }}
               placeholder="Jira Issue Key (e.g. AUTH-001)"
               className="w-[200px] px-3 h-9 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
             />
-            <button className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors">
+            <button
+              type="button"
+              onClick={addJiraKey}
+              disabled={!jiraInput.trim()}
+              className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
               Import
             </button>
           </div>
+
+          {/* Imported keys */}
+          {jiraKeys.length > 0 && (
+            <div className="border border-border rounded-card overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border bg-gray-50">
+                <p className="text-[13px] font-semibold text-navy">Imported Issues ({jiraKeys.length})</p>
+              </div>
+              <div className="divide-y divide-border max-h-44 overflow-y-auto">
+                {jiraKeys.map((key) => (
+                  <div key={key} className="flex items-center gap-3 px-4 py-2.5">
+                    <span className="w-8 h-8 rounded-lg bg-surface-cyan text-cyan flex items-center justify-center flex-shrink-0">
+                      <FileText size={15} />
+                    </span>
+                    <span className="text-sm font-medium text-navy flex-1">{key}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeJiraKey(key)}
+                      className="text-muted hover:text-error transition-colors flex-shrink-0"
+                      title="Remove issue"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <p className="text-sm text-muted">
-            Not connected?{" "}
+            Add multiple issue keys, one at a time. Not connected?{" "}
             <Link href="/settings/integrations" className="text-cyan hover:underline">Connect Jira</Link>
           </p>
         </div>
@@ -492,15 +593,38 @@ function StoryPreview({
   const toggle = (id: string) =>
     setDetected(detected.map((s) => (s.id === id ? { ...s, selected: !s.selected } : s)));
 
+  const validItems = detected.filter((s) => s.valid);
   const selectedCount = detected.filter((s) => s.valid && s.selected).length;
+  const allSelected = validItems.length > 0 && selectedCount === validItems.length;
   const estimatedCredits = selectedCount * CREDITS_PER_STORY;
+
+  const toggleAll = () =>
+    setDetected(detected.map((s) => (s.valid ? { ...s, selected: !allSelected } : s)));
+
+  const sourceLabel: Record<StorySource, string> = {
+    paste: "Pasted",
+    upload: "File",
+    jira: "Jira",
+  };
 
   return (
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Select stories to process</h2>
-      <p className="text-sm text-muted mb-6">
-        We detected {detected.length} {detected.length === 1 ? "story" : "stories"}. Choose which to include.
+      <p className="text-sm text-muted mb-4">
+        We detected {detected.length} {detected.length === 1 ? "story" : "stories"} across all sources. Choose which to include.
       </p>
+
+      {/* Common select-all toggle */}
+      <div className="flex items-center justify-between mb-3">
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="text-sm font-medium text-pink hover:underline"
+        >
+          {allSelected ? "Deselect all" : "Select all"}
+        </button>
+        <span className="text-xs text-muted">{selectedCount} of {validItems.length} selected</span>
+      </div>
 
       <div className="space-y-2.5 mb-5">
         {detected.map((s, i) => (
@@ -527,13 +651,16 @@ function StoryPreview({
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-navy truncate">
-                Story {i + 1}{s.source === "upload" ? "" : ""} · <span className="text-muted font-normal">{s.title}</span>
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-navy truncate">
+                  Story {i + 1} · <span className="text-muted font-normal">{s.title}</span>
+                </p>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-muted flex-shrink-0">
+                  {sourceLabel[s.source]}
+                </span>
+              </div>
               <p className="text-xs text-muted mt-0.5">
-                {s.source === "paste"
-                  ? `${s.charCount} characters`
-                  : s.content}
+                {s.source === "paste" ? `${s.charCount} characters` : s.content}
               </p>
             </div>
             {!s.valid && (
@@ -642,59 +769,49 @@ function StepSettings({
 
 /* ─── Step 3 ─── */
 function StepGenerate({
-  direction, onBack, detected, files, storyText, projectId,
+  direction, onBack, detected, files, pasteBlocks, projectId,
 }: {
   direction: number;
   onBack: () => void;
   detected: DetectedStory[] | null;
   files: File[];
-  storyText: string;
+  pasteBlocks: string[];
   projectId: string;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<string>("");
+  const [progress, setProgress] = useState("");
 
-  async function handleGenerate(analyzeImpact: boolean) {
+  async function handleGenerate() {
     setSubmitting(true);
     setSubmitError(null);
     try {
       const { api } = await import("@/lib/api");
       const selectedStories = detected?.filter((s) => s.selected && s.valid) ?? [];
-
-      // If no detected stories, fall back to raw storyText or first file
       const stories = selectedStories.length > 0 ? selectedStories : [null];
       let lastStoryId = "";
 
       for (let i = 0; i < stories.length; i++) {
         const s = stories[i];
-        const formData = new FormData();
-        // Generate a story ID from first words of title or content
-        const rawTitle = s?.title ?? storyText.trim().split(/\s+/).slice(0, 4).join(" ");
+        const rawTitle = s?.title ?? pasteBlocks[0]?.trim().split(/\s+/).slice(0, 4).join(" ") ?? "story";
         const words = rawTitle.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/).slice(0, 4).join("-").toUpperCase();
         const storyId = `STORY-${words || Date.now()}-${i}`;
         lastStoryId = storyId;
-
+        const formData = new FormData();
         formData.append("story_id", storyId);
         formData.append("project_id", projectId);
         formData.append("source", "frontend");
-
         if (s?.source === "upload" && files[i]) {
           formData.append("file", files[i]);
         } else {
-          const content = s?.content ?? storyText.trim();
+          const content = s?.content ?? pasteBlocks.join("\n---\n").trim();
           formData.append("content", content);
         }
-
-        if (stories.length > 1) {
-          setProgress(`Uploading story ${i + 1} of ${stories.length}…`);
-        }
-
+        if (stories.length > 1) setProgress(`Uploading story ${i + 1} of ${stories.length}…`);
         const result = await api.uploadStory(formData);
         lastStoryId = result.storyId || storyId;
       }
-
       router.push(`/stories/${lastStoryId}?analyzing=true`);
     } catch (err: any) {
       setSubmitError(err?.message ?? "Upload failed. Try again.");
@@ -792,26 +909,22 @@ function StepGenerate({
         >
           Improve Story First
         </button>
-        <div className="flex gap-3">
-          {submitError && (
-            <p className="text-sm text-error self-center">{submitError}</p>
-          )}
-          {progress && submitting && (
-            <p className="text-sm text-muted self-center">{progress}</p>
-          )}
+        <div className="flex items-center gap-3">
+          {submitError && <p className="text-sm text-error">{submitError}</p>}
+          {progress && submitting && <p className="text-sm text-muted">{progress}</p>}
           <button
-            onClick={() => handleGenerate(false)}
+            onClick={handleGenerate}
             disabled={submitting}
-            className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="h-9 px-4 text-sm font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors disabled:opacity-40"
           >
             {submitting ? "Uploading…" : "Generate New Tests Only"}
           </button>
           <button
-            onClick={() => handleGenerate(true)}
+            onClick={handleGenerate}
             disabled={submitting}
-            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors inline-flex items-center gap-2 disabled:opacity-40"
           >
-            {submitting ? "Uploading…" : "Generate + Analyze Impact"}
+            Generate + Analyze Impact
           </button>
         </div>
       </div>

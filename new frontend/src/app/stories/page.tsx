@@ -20,7 +20,6 @@ import {
   Trash2,
   Sparkles,
   X,
-  Loader2,
 } from "lucide-react";
 import { testCases, type Story } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
@@ -30,11 +29,14 @@ import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import dynamic from "next/dynamic";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { useProject } from "@/contexts/ProjectContext";
+import { storiesForProject } from "@/lib/projects";
+import { NoProjects } from "@/components/projects/EmptyState";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
-import { NoProjects } from "@/components/projects/EmptyState";
+import { Loader2 } from "lucide-react";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { NewStoryButton } from "@/components/HeaderActions";
+import { NewStoryModal } from "@/components/stories/NewStoryModal";
 
 // Kanban is heavy (drag-and-drop) and only shown in kanban view — lazy-load it.
 const KanbanView = dynamic(
@@ -184,26 +186,19 @@ export default function StoriesPage() {
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Only filter by project_id if it comes from the URL (set by real project selection).
-  // Ignore ProjectContext — it contains sample project IDs that don't exist in the real backend.
-  const [projectId, setProjectId] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParam = new URLSearchParams(window.location.search).get("project_id");
-      setProjectId(urlParam ?? undefined);
-    }
-  }, []);
-
-  // Stories scoped to the active project (or all stories if no project selected).
+  // Real stories from backend — keyed to URL project_id or no filter
   const [projectStories, setProjectStories] = useState<Story[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   useEffect(() => {
+    const urlParam = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("project_id") ?? undefined
+      : undefined;
     setStoriesLoading(true);
-    api.getStories(1, 200, undefined, undefined, projectId)
-      .then(res => setProjectStories(res.data.map(domainStoryToSeed)))
+    api.getStories(1, 200, undefined, undefined, urlParam)
+      .then((res) => setProjectStories(res.data.map(domainStoryToSeed)))
       .catch(() => setProjectStories([]))
       .finally(() => setStoriesLoading(false));
-  }, [projectId]);
+  }, []);
   const projectStoryIds = useMemo(
     () => new Set(projectStories.map((s) => s.id)),
     [projectStories]
@@ -260,25 +255,16 @@ export default function StoriesPage() {
   const selectedStories = filtered.filter((s) => selected.has(s.id));
 
   // Empty state: no projects yet.
-  if (ready && !hasProjects) {
-    return <NoProjects />;
-  }
-
-  // Loading state: waiting for stories from the API.
   if (storiesLoading) {
     return (
-      <PageLayout>
-        <PageHeader
-          title="Stories"
-          actions={<PageActions primary={<NewStoryButton />} />}
-        />
-        <PageBody>
-          <div className="flex items-center justify-center py-24">
-            <Loader2 size={32} className="animate-spin text-muted" />
-          </div>
-        </PageBody>
-      </PageLayout>
+      <div className="flex h-full items-center justify-center">
+        <Loader2 size={28} className="animate-spin text-muted" />
+      </div>
     );
+  }
+
+  if (ready && !hasProjects) {
+    return <NoProjects />;
   }
 
   return (
@@ -436,6 +422,7 @@ export default function StoriesPage() {
 }
 
 function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+  const [showPaths, setShowPaths] = useState(false);
   return (
     <motion.div
       {...fadeInUp}
@@ -451,13 +438,17 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
           : "Upload a user story, paste requirements, or import from Jira to get started."}
       </p>
       {!hasSearch && (
-        <Link
-          href="/stories/new"
-          className="inline-flex items-center gap-2 bg-pink text-white text-sm font-medium px-4 h-9 rounded-btn hover:bg-[#e0005f] transition-colors"
-        >
-          <Plus size={16} />
-          Create Your First Story
-        </Link>
+        <>
+          <button
+            type="button"
+            onClick={() => setShowPaths(true)}
+            className="inline-flex items-center gap-2 bg-pink text-white text-sm font-medium px-4 h-9 rounded-btn hover:bg-[#e0005f] transition-colors"
+          >
+            <Plus size={16} />
+            Create Your First Story
+          </button>
+          <NewStoryModal open={showPaths} onClose={() => setShowPaths(false)} />
+        </>
       )}
     </motion.div>
   );
