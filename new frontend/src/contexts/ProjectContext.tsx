@@ -46,49 +46,92 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
 
-  // Hydrate from localStorage once.
+  // Always fetch real projects from backend on mount — never use cached project list.
+  // Only persist the selected project ID and recent IDs.
   useEffect(() => {
-    try {
-      const rawProjects = localStorage.getItem(LS_PROJECTS);
-      const rawSelected = localStorage.getItem(LS_SELECTED);
-      const rawRecent = localStorage.getItem(LS_RECENT);
-      if (rawProjects) {
-        const parsed = JSON.parse(rawProjects) as Project[];
-        if (parsed.length > 0) {
-          setAllProjects(parsed);
-        } else {
-          setAllProjects(sampleProjects);
-          setSelectedId(sampleProjects[0]?.id ?? null);
+    let cancelled = false;
+
+    async function loadProjects() {
+      // Restore selected project immediately from localStorage
+      try {
+        const rawSelected = localStorage.getItem(LS_SELECTED);
+        const rawRecent = localStorage.getItem(LS_RECENT);
+        if (rawSelected) {
+          setSelectedId(rawSelected);
+          localStorage.setItem("activeProject", rawSelected);
         }
-      } else {
-        // First visit — seed with sample projects, default selected = "default"
+        if (rawRecent) setRecentIds(JSON.parse(rawRecent));
+      } catch {}
+
+      // Fetch real projects from backend
+      try {
+        const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:5000";
+        const [projectsRes, storiesRes] = await Promise.all([
+          fetch(`${BASE}/api/stories/projects`, { credentials: "include" }),
+          fetch(`${BASE}/api/stories/?page=1&per_page=200&sort_order=desc`, { credentials: "include" }),
+        ]);
+
+        if (!cancelled && projectsRes.ok && storiesRes.ok) {
+          const projectsData = await projectsRes.json();
+          const storiesData = await storiesRes.json();
+          const projectIds: string[] = projectsData.projects ?? [];
+          const stories = storiesData.stories ?? [];
+
+          if (projectIds.length > 0) {
+            const realProjects: Project[] = projectIds.map((pid) => {
+              const projectStories = stories.filter((s: any) => s.project_id === pid);
+              const testCount = projectStories.reduce((sum: number, s: any) => sum + (Number(s.test_case_count) || 0), 0);
+              const name = pid
+                .split(/[-_\s]+/)
+                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(" ");
+              return {
+                id: pid,
+                name,
+                description: `${projectStories.length} ${projectStories.length === 1 ? "story" : "stories"}`,
+                domain: "",
+                createdAt: new Date().toISOString().slice(0, 10),
+                updatedAt: new Date().toISOString().slice(0, 10),
+                storyCount: projectStories.length,
+                testCount,
+                storyIds: projectStories.map((s: any) => s.id),
+              } as Project;
+            });
+
+            setAllProjects(realProjects);
+
+            // If saved selection doesn't match any real project, auto-select first
+            const saved = localStorage.getItem(LS_SELECTED);
+            if (!saved || !realProjects.find((p) => p.id === saved)) {
+              const firstId = realProjects[0].id;
+              setSelectedId(firstId);
+              localStorage.setItem(LS_SELECTED, firstId);
+              localStorage.setItem("activeProject", firstId);
+            }
+            return;
+          }
+        }
+      } catch { /* backend unreachable */ }
+
+      // Fallback to sample projects if backend is down
+      if (!cancelled) {
         setAllProjects(sampleProjects);
-        setSelectedId("default");
       }
-      // If saved selection is a sample that no longer makes sense, prefer "default"
-      if (rawSelected) {
-        setSelectedId(rawSelected);
-      } else {
-        setSelectedId("default");
-      }
-    } catch {
-      /* ignore */
     }
-    setReady(true);
+
+    loadProjects().finally(() => { if (!cancelled) setReady(true); });
+    return () => { cancelled = true; };
   }, []);
 
-  // Persist whenever state changes (after hydration).
+  // Only persist selected project ID and recents — never the project list (always fetched from DB)
   useEffect(() => {
     if (!ready) return;
     try {
-      localStorage.setItem(LS_PROJECTS, JSON.stringify(allProjects));
-      localStorage.setItem(LS_RECENT, JSON.stringify(recentIds));
       if (selectedId) localStorage.setItem(LS_SELECTED, selectedId);
       else localStorage.removeItem(LS_SELECTED);
-    } catch {
-      /* ignore */
-    }
-  }, [allProjects, selectedId, recentIds, ready]);
+      localStorage.setItem(LS_RECENT, JSON.stringify(recentIds));
+    } catch {}
+  }, [selectedId, recentIds, ready]);
 
   // Derived: active vs archived
   const projectList = useMemo(
@@ -121,6 +164,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setSelectedId(id);
       pushRecent(id);
+      // Sync to localStorage.activeProject so the backend filter stays in sync
+      try { localStorage.setItem("activeProject", id); } catch {}
     },
     [pushRecent]
   );

@@ -186,19 +186,33 @@ export default function StoriesPage() {
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Real stories from backend — keyed to URL project_id or no filter
+  // Real stories from backend — filter by URL param first, then by selected project
   const [projectStories, setProjectStories] = useState<Story[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
+
+  // Derive the active project ID to filter by.
+  // Priority: URL query param → ProjectContext selected project → no filter (show all)
+  const activeProjectId = useMemo(() => {
+    if (typeof window !== "undefined") {
+      const urlParam = new URLSearchParams(window.location.search).get("project_id");
+      if (urlParam) return urlParam;
+    }
+    // Use ProjectContext ID — selectProject() now syncs it to localStorage.activeProject
+    // Skip sample-only IDs that don't exist in the real backend
+    const sampleIds = new Set(["auth-platform", "ecommerce-platform", "banking-platform"]);
+    if (selectedProject?.id && !sampleIds.has(selectedProject.id)) {
+      return selectedProject.id;
+    }
+    return undefined; // show all stories when no real project is selected
+  }, [selectedProject?.id]);
+
   useEffect(() => {
-    const urlParam = typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("project_id") ?? undefined
-      : undefined;
     setStoriesLoading(true);
-    api.getStories(1, 200, undefined, undefined, urlParam)
+    api.getStories(1, 200, undefined, undefined, activeProjectId)
       .then((res) => setProjectStories(res.data.map(domainStoryToSeed)))
       .catch(() => setProjectStories([]))
       .finally(() => setStoriesLoading(false));
-  }, []);
+  }, [activeProjectId]);
   const projectStoryIds = useMemo(
     () => new Set(projectStories.map((s) => s.id)),
     [projectStories]

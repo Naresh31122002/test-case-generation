@@ -1385,6 +1385,147 @@ def get_story_impact_details(story_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ── Generate User Stories from Requirements document ──────────────────────────
+
+@stories_bp.route('/generate-from-requirements', methods=['POST'])
+@dev_jwt_required
+def generate_stories_from_requirements():
+    """
+    Accept a requirements document (PDF/DOCX/TXT file or pasted text),
+    extract text, send to LLM, return structured user stories for review.
+
+    Request: multipart/form-data
+      - file (optional): PDF, DOCX, or TXT requirements document
+      - text (optional): pasted requirement text
+      - project_id (optional): project to scope the stories to
+
+    Response: { stories: [{ title, narrative, acceptance_criteria: [] }] }
+    """
+    try:
+        user_id = get_current_user_id()
+        text_content = request.form.get('text', '').strip()
+        file = request.files.get('file')
+        project_id = request.form.get('project_id', 'default')
+
+        # Extract text from uploaded file if provided
+        if file and file.filename:
+            import os, tempfile
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            allowed = {'.pdf', '.docx', '.txt', '.md'}
+            if file_ext not in allowed:
+                return jsonify({'error': f'File type {file_ext} not supported. Allowed: PDF, DOCX, TXT, MD'}), 400
+            # Save to temp file and extract
+            with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
+                file.save(tmp.name)
+                tmp_path = tmp.name
+            try:
+                from app.datapipeline.text_extractor import extract_text
+                file_text = extract_text(tmp_path)
+                if file_text:
+                    text_content = (text_content + '\n\n' + file_text).strip() if text_content else file_text
+            finally:
+                os.unlink(tmp_path)
+
+        if not text_content:
+            return jsonify({'error': 'No content provided. Upload a file or paste requirements text.'}), 400
+
+        if len(text_content) < 100:
+            return jsonify({'error': 'Content too short. Please provide at least 100 characters of requirements.'}), 400
+
+        # Truncate to avoid token limit (keep first ~12000 chars)
+        content_for_llm = text_content[:12000]
+
+        # LLM prompt to extract user stories
+        prompt = f"""You are a senior business analyst. Extract user stories from the following requirements document.
+
+REQUIREMENTS DOCUMENT:
+{content_for_llm}
+
+TASK: Extract ALL user stories from this document and return them as a JSON array.
+
+Each user story must follow the standard format:
+- title: Short 3-8 word title (e.g. "User Login with Email")
+- narrative: Full "As a [role], I want to [action] so that [benefit]" statement
+- acceptance_criteria: List of 2-6 specific, testable acceptance criteria
+
+RULES:
+- Extract ONLY stories that are clearly implied by the requirements
+- Do NOT invent stories not present in the document
+- Each story must be distinct and testable
+- Acceptance criteria must be specific and measurable
+- Return 3 to 15 stories depending on document complexity
+
+Return ONLY a valid JSON array, no other text:
+[
+  {{
+    "title": "story title here",
+    "narrative": "As a [role], I want to [action] so that [benefit].",
+    "acceptance_criteria": [
+      "Given [context], when [action], then [outcome]",
+      "The system must [requirement]"
+    ]
+  }}
+]"""
+
+        # Call LLM
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+
+        # Clean up response
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+
+        # Find JSON array
+        start = raw.find('[')
+        end = raw.rfind(']') + 1
+        if start == -1 or end == 0:
+            return jsonify({'error': 'LLM did not return valid JSON. Please try again.'}), 500
+
+        import json as _json
+        stories_list = _json.loads(raw[start:end])
+
+        if not isinstance(stories_list, list) or len(stories_list) == 0:
+            return jsonify({'error': 'No user stories could be extracted from this document. Please check the content.'}), 422
+
+        # Normalize and validate each story
+        normalized = []
+        for i, s in enumerate(stories_list[:15]):  # cap at 15
+            if not isinstance(s, dict):
+                continue
+            title = str(s.get('title', f'Story {i+1}')).strip()[:100]
+            narrative = str(s.get('narrative', '')).strip()
+            ac = s.get('acceptance_criteria', s.get('acceptanceCriteria', []))
+            if isinstance(ac, str):
+                ac = [ac]
+            ac = [str(c).strip() for c in ac if str(c).strip()][:8]
+
+            if not title or not narrative:
+                continue
+
+            normalized.append({
+                'id': f'gen-{i+1}',
+                'title': title,
+                'narrative': narrative,
+                'acceptance_criteria': ac,
+                'status': 'draft'
+            })
+
+        if not normalized:
+            return jsonify({'error': 'Could not parse any valid stories from LLM response.'}), 500
+
+        return jsonify({
+            'stories': normalized,
+            'source_length': len(text_content),
+            'project_id': project_id,
+        }), 200
+
+    except Exception as e:
+        print(f'❌ Error generating stories from requirements: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Story version history ─────────────────────────────────────────────────────
 
 @stories_bp.route('/<story_id>/versions', methods=['GET'])
