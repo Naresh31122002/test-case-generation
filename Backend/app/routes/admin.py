@@ -106,8 +106,10 @@ def get_users():
         with psycopg2.connect(**db_service.postgres_config) as conn:
             with conn.cursor(cursor_factory=DictCursor) as cur:
                 cur.execute("""
-                    SELECT user_id, email, created_on, last_login, email_verified 
-                    FROM users 
+                    SELECT user_id, email, created_on, last_login, email_verified,
+                           org_name, job_title, referral_source,
+                           (onboarding_completed_at IS NOT NULL) AS onboarding_completed
+                    FROM users
                     ORDER BY created_on DESC
                 """)
                 users = [dict(row) for row in cur.fetchall()]

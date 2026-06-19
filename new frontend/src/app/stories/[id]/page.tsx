@@ -80,7 +80,7 @@ function StorySidebar({
                 <motion.div
                   layoutId="story-nav-active"
                   className="absolute inset-0 bg-surface-pink rounded-lg"
-                  style={{ borderLeft: "3px solid #FF0A78" }}
+                  style={{ borderLeft: "3px solid var(--color-brand-primary)" }}
                   transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 />
               )}
@@ -95,7 +95,7 @@ function StorySidebar({
                 <Icon
                   size={18}
                   className="flex-shrink-0"
-                  style={isActive ? { color: "#FF0A78" } : {}}
+                  style={isActive ? { color: "var(--color-brand-primary)" } : {}}
                 />
                 <motion.span
                   animate={{ opacity: expanded ? 1 : 0 }}

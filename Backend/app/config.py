@@ -104,6 +104,11 @@ class Config:
     # Security / Monitoring
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+    # Google OAuth (Sign in with Google) — Client ID is also used by the
+    # frontend (NEXT_PUBLIC_GOOGLE_CLIENT_ID) to render the official button;
+    # the backend verifies ID tokens are issued for this same client.
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+
     @property
     def EMBEDDING_MODEL(self):
         return get_embedding_model()

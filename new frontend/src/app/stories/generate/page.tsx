@@ -395,7 +395,7 @@ function CreditEstimate({
   const total = rows.reduce((s, r) => s + r.value, 0);
   const after = remaining - total;
   return (
-    <div className="mt-5 p-4 rounded-card bg-surface-pink/40 border border-[#FF0A78]">
+    <div className="mt-5 p-4 rounded-card bg-brand-primary-light/40 border border-brand-primary">
       <div className="flex items-center gap-2 mb-2.5">
         <Zap size={15} className="text-pink" />
         <p className="text-sm font-semibold text-navy">Estimated credits</p>
@@ -407,7 +407,7 @@ function CreditEstimate({
             <span className="font-medium text-navy tabular-nums">~{r.value}</span>
           </div>
         ))}
-        <div className="flex items-center justify-between text-sm border-t border-[#FF0A78]/30 pt-1.5 mt-1.5">
+        <div className="flex items-center justify-between text-sm border-t border-brand-primary/30 pt-1.5 mt-1.5">
           <span className="font-semibold text-navy">Total</span>
           <span className="font-bold text-pink tabular-nums">~{total} Credits</span>
         </div>

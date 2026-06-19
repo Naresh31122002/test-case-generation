@@ -13,7 +13,7 @@ type Status = "verifying" | "success" | "error";
 function VerifyEmailInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const { refresh, user } = useAuth();
+  const { setUser } = useAuth();
   const token = params.get("token") || "";
   const [status, setStatus] = useState<Status>(token ? "verifying" : "error");
   const ran = useRef(false);
@@ -23,16 +23,17 @@ function VerifyEmailInner() {
     ran.current = true;
     (async () => {
       try {
-        await verifyEmail(token);
-        await refresh(); // pick up email_verified=true in the session
+        // This is the account's first login — verify-email issues the
+        // session directly (hard email-verification gate at signup).
+        const { user, hasWorkspace } = await verifyEmail(token);
+        setUser(user);
         setStatus("success");
-        // If logged in, head to the app; otherwise to login.
-        setTimeout(() => router.push(user ? "/stories" : "/login"), 1500);
+        setTimeout(() => router.push(hasWorkspace ? "/stories" : "/onboarding/workspace"), 1200);
       } catch {
         setStatus("error");
       }
     })();
-  }, [token, refresh, router, user]);
+  }, [token, router, setUser]);
 
   return (
     <AuthShell
@@ -44,9 +45,9 @@ function VerifyEmailInner() {
           : "Verifying your email…"
       }
       footer={
-        status !== "verifying" ? (
-          <Link href={user ? "/stories" : "/login"} className="font-semibold hover:underline" style={{ color: "#FF0A78" }}>
-            {user ? "Go to dashboard" : "Back to sign in"}
+        status === "error" ? (
+          <Link href="/login" className="font-semibold hover:underline" style={{ color: "var(--color-brand-primary)" }}>
+            Back to sign in
           </Link>
         ) : undefined
       }
@@ -57,8 +58,8 @@ function VerifyEmailInner() {
         {status === "error" && <XCircle size={40} className="text-red-500" />}
         <p className="text-sm text-gray-500">
           {status === "verifying" && "Hang tight while we confirm your email."}
-          {status === "success" && "Your email is confirmed. Redirecting…"}
-          {status === "error" && "This link is invalid or has expired. You can request a new one from the app."}
+          {status === "success" && "Your email is confirmed. Taking you in…"}
+          {status === "error" && "This link is invalid or has expired. Sign in again to request a new one."}
         </p>
       </div>
     </AuthShell>

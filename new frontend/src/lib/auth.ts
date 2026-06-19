@@ -14,6 +14,18 @@ export interface AuthUser {
   email: string
   emailVerified: boolean
   currentWorkspace: string | null
+  onboardingCompleted: boolean
+}
+
+export class AuthApiError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'AuthApiError'
+    this.status = status
+    this.code = code
+  }
 }
 
 async function authRequest<T>(path: string, body?: object): Promise<T> {
@@ -26,7 +38,11 @@ async function authRequest<T>(path: string, body?: object): Promise<T> {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data as any)?.message ?? (data as any)?.error ?? `Request failed (${res.status})`)
+    throw new AuthApiError(
+      (data as any)?.message ?? (data as any)?.error ?? `Request failed (${res.status})`,
+      res.status,
+      (data as any)?.code,
+    )
   }
   return data as T
 }
@@ -37,6 +53,7 @@ function normalizeUser(raw: any): AuthUser {
     email: String(raw?.email ?? ''),
     emailVerified: !!(raw?.email_verified ?? raw?.emailVerified ?? false),
     currentWorkspace: raw?.current_workspace ?? raw?.currentWorkspace ?? null,
+    onboardingCompleted: !!(raw?.onboarding_completed ?? raw?.onboardingCompleted ?? false),
   }
 }
 
@@ -51,11 +68,28 @@ export async function login(
   }
 }
 
+/**
+ * Create an account. Hard email-verification gate: no session is issued —
+ * the backend only sends a verification email. The user is logged in for
+ * the first time when they click that link (see verifyEmail below).
+ *
+ * `devVerificationLink` is only present when SMTP isn't configured (local
+ * dev with no mail server) — the backend echoes the link so it's usable
+ * without a console search.
+ */
 export async function register(
   email: string,
   password: string,
-): Promise<{ user: AuthUser; hasWorkspace: boolean }> {
+): Promise<{ devVerificationLink?: string }> {
   const data = await authRequest<any>('/api/auth/register', { email, password })
+  return { devVerificationLink: data?.dev_verification_link }
+}
+
+/** Sign in (or sign up) with a Google ID token from Google Identity Services. */
+export async function loginWithGoogle(
+  credential: string,
+): Promise<{ user: AuthUser; hasWorkspace: boolean }> {
+  const data = await authRequest<any>('/api/auth/google', { credential })
   return {
     user: normalizeUser(data?.user ?? data),
     hasWorkspace: !!(data?.current_workspace ?? data?.user?.current_workspace),
@@ -86,12 +120,24 @@ export async function refreshAccessToken(): Promise<boolean> {
   return res.ok
 }
 
-export async function verifyEmail(token: string): Promise<void> {
-  await authRequest('/api/auth/verify-email', { token })
+/** Confirm the emailed token. This is the account's first login — the
+ *  backend issues session cookies directly, so the result has the same
+ *  shape as login()/register() used to. */
+export async function verifyEmail(
+  token: string,
+): Promise<{ user: AuthUser; hasWorkspace: boolean }> {
+  const data = await authRequest<any>('/api/auth/verify-email', { token })
+  return {
+    user: normalizeUser(data?.user ?? data),
+    hasWorkspace: !!(data?.current_workspace ?? data?.user?.current_workspace),
+  }
 }
 
-export async function resendVerification(): Promise<void> {
-  await authRequest('/api/auth/resend-verification', {})
+/** Re-send the verification email. Works from email alone (no session yet).
+ *  See register() for `devVerificationLink` (local-dev-only convenience). */
+export async function resendVerification(email: string): Promise<{ devVerificationLink?: string }> {
+  const data = await authRequest<any>('/api/auth/resend-verification', { email })
+  return { devVerificationLink: data?.dev_verification_link }
 }
 
 export async function forgotPassword(email: string): Promise<void> {
@@ -100,4 +146,17 @@ export async function forgotPassword(email: string): Promise<void> {
 
 export async function resetPassword(token: string, password: string): Promise<void> {
   await authRequest('/api/auth/reset-password', { token, password })
+}
+
+/** Save the first-login onboarding survey (any field may be omitted if skipped). */
+export async function completeOnboarding(answers: {
+  orgName?: string
+  jobTitle?: string
+  referralSource?: string
+}): Promise<void> {
+  await authRequest('/api/auth/onboarding', {
+    org_name: answers.orgName,
+    job_title: answers.jobTitle,
+    referral_source: answers.referralSource,
+  })
 }

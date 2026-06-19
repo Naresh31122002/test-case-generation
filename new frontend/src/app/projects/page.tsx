@@ -11,7 +11,7 @@ import { staggerContainer, fadeInUp, duration, easeStandard } from "@/lib/motion
 // ─── Project accent colors — deterministic hash of project_id ─────────────────
 
 const ACCENT_COLORS = [
-  "#FF0A78", // pink
+  "var(--color-brand-primary)", // pink (brand)
   "#06B6D4", // cyan
   "#8B5CF6", // violet
   "#F59E0B", // amber
@@ -138,7 +138,7 @@ export default function ProjectsPage() {
         <div className="flex flex-col items-center gap-4">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-            style={{ background: "#FF0A78" }}
+            style={{ background: "var(--color-brand-primary)" }}
           >
             T
           </div>
@@ -273,11 +273,11 @@ function LogoBlock() {
     <div className="flex items-center gap-3">
       <div
         className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-        style={{ background: "#FF0A78" }}
+        style={{ background: "var(--color-brand-primary)" }}
       >
         T
       </div>
-      <span className="text-[22px] font-bold" style={{ color: "#FF0A78" }}>
+      <span className="text-[22px] font-bold" style={{ color: "var(--color-brand-primary)" }}>
         TestSurge
       </span>
     </div>

@@ -8,7 +8,7 @@ const statusStyles: Record<StoryStatus, string> = {
   Draft: "bg-[#F8FAFC] text-[#64748B] border-[#CBD5E1]",
   Analyzing: "bg-[#EFF6FF] text-[#1E40AF] border-[#93C5FD]",
   Ready: "bg-[#ECFDF5] text-[#065F46] border-[#6EE7B7]",
-  "Impact Detected": "bg-[#FFF0F7] text-[#FF0A78] border-[#FF0A78]",
+  "Impact Detected": "bg-brand-primary-light text-brand-primary border-brand-primary",
 };
 
 export function StatusChip({ status }: StatusChipProps) {

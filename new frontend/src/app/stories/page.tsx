@@ -129,7 +129,7 @@ const tagStyles: Record<string, string> = {
   Security: "bg-[#FEF2F2] text-[#991B1B] border-[#FCA5A5]",
   Payment: "bg-[#FFFBEB] text-[#92400E] border-[#FCD34D]",
   Authentication: "bg-[#EFF6FF] text-[#1E40AF] border-[#93C5FD]",
-  OAuth: "bg-surface-pink text-pink border-[#FF0A78]",
+  OAuth: "bg-brand-primary-light text-brand-primary border-brand-primary",
 };
 
 function StoryTags({ tags }: { tags: string[] }) {
@@ -343,7 +343,7 @@ export default function StoriesPage() {
                     onClick={() => setActiveFilter(on ? null : f.id)}
                     className={`inline-flex items-center gap-1 h-9 px-3 rounded-btn border text-xs font-medium transition-colors ${
                       on
-                        ? "bg-surface-pink text-pink border-[#FF0A78]"
+                        ? "bg-brand-primary-light text-brand-primary border-brand-primary"
                         : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
                     }`}
                   >
@@ -361,7 +361,7 @@ export default function StoriesPage() {
                 onClick={() => setKanbanSubMode("story")}
                 className={`h-7 px-3 rounded-btn border text-xs font-medium transition-colors ${
                   kanbanSubMode === "story"
-                    ? "bg-surface-pink text-pink border-[#FF0A78]"
+                    ? "bg-brand-primary-light text-brand-primary border-brand-primary"
                     : "bg-white text-muted border-border hover:text-navy"
                 }`}
               >
@@ -371,7 +371,7 @@ export default function StoriesPage() {
                 onClick={() => setKanbanSubMode("testcase")}
                 className={`h-7 px-3 rounded-btn border text-xs font-medium transition-colors ${
                   kanbanSubMode === "testcase"
-                    ? "bg-surface-pink text-pink border-[#FF0A78]"
+                    ? "bg-brand-primary-light text-brand-primary border-brand-primary"
                     : "bg-white text-muted border-border hover:text-navy"
                 }`}
               >
@@ -524,12 +524,12 @@ function BulkActionBar({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.15 }}
-      className="flex items-center gap-3 mb-5 px-4 h-12 bg-surface-pink border border-[#FF0A78] rounded-card"
+      className="flex items-center gap-3 mb-5 px-4 h-12 bg-brand-primary-light border border-brand-primary rounded-card"
     >
       <span className="text-sm font-medium text-navy">
         {count} selected
       </span>
-      <div className="h-5 w-px bg-[#FF0A78]/30" />
+      <div className="h-5 w-px bg-brand-primary/30" />
       <button
         type="button"
         onClick={bulkGenerate}
@@ -693,7 +693,7 @@ function StoryCard({
       }}
       className="relative bg-white border rounded-card p-5 cursor-pointer overflow-hidden transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan/40"
       style={{
-        borderColor: isSelected ? "#FF0A78" : hovered ? "#06B6D4" : "#E2E8F0",
+        borderColor: isSelected ? "var(--color-brand-primary)" : hovered ? "#06B6D4" : "#E2E8F0",
         boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.06)" : "none",
       }}
     >
@@ -875,7 +875,7 @@ function ListView({
           </div>
           <div className="text-center">
             {story.impactCount > 0 ? (
-              <span className="inline-block text-[11px] font-semibold bg-[#FFF0F7] text-pink border border-[#FF0A78] rounded-full px-2 py-0.5">
+              <span className="inline-block text-[11px] font-semibold bg-brand-primary-light text-brand-primary border border-brand-primary rounded-full px-2 py-0.5">
                 {story.impactCount}
               </span>
             ) : (

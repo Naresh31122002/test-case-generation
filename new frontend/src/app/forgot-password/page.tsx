@@ -37,7 +37,7 @@ export default function ForgotPasswordPage() {
       title="Reset your password"
       subtitle={sent ? undefined : "We'll email you a link to choose a new password."}
       footer={
-        <Link href="/login" className="font-semibold hover:underline" style={{ color: "#FF0A78" }}>
+        <Link href="/login" className="font-semibold hover:underline" style={{ color: "var(--color-brand-primary)" }}>
           Back to sign in
         </Link>
       }
@@ -53,7 +53,7 @@ export default function ForgotPasswordPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              placeholder="you@company.com"
+              placeholder="you@example.com"
             />
           </AuthField>
 
