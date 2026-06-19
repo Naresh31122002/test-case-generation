@@ -12,11 +12,14 @@ import {
   GitCompare,
   Download,
   Settings,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
 
 const navItems = [
   { label: "Stories", icon: BookOpen, href: "/stories" },
@@ -30,9 +33,16 @@ const STORAGE_KEY = "testsurge:sidebar-pinned";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
   // `pinned` = user explicitly keeps it open. Default false => auto-collapse mode.
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
 
   useEffect(() => {
     try {
@@ -162,18 +172,20 @@ export function Sidebar() {
         <WorkspaceSwitcher collapsed={!expanded} />
       </div>
 
-      {/* Footer: user profile + Settings entry point */}
+      {/* Footer: user profile + Settings/Sign-out entry points */}
       <div className="px-4 py-4 flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-          JD
+          {(user?.email?.[0] ?? "?").toUpperCase()}
         </div>
         <motion.div
           animate={{ opacity: expanded ? 1 : 0 }}
           transition={{ duration: 0.15 }}
           className="flex-1 min-w-0 overflow-hidden"
         >
-          <p className="text-sm font-medium text-navy truncate">Jane Doe</p>
-          <p className="text-[11px] text-muted truncate">jane@acme.com</p>
+          <p className="text-sm font-medium text-navy truncate">{user?.email ?? "Not signed in"}</p>
+          <p className="text-[11px] text-muted truncate">
+            {user ? (user.emailVerified ? "Verified" : "Unverified") : ""}
+          </p>
         </motion.div>
         <Link
           href="/settings"
@@ -187,6 +199,15 @@ export function Sidebar() {
         >
           <Settings size={17} />
         </Link>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          title="Sign out"
+          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted hover:text-navy hover:bg-gray-50 transition-colors"
+          style={{ opacity: expanded ? 1 : 0, pointerEvents: expanded ? "auto" : "none" }}
+        >
+          <LogOut size={17} />
+        </button>
       </div>
     </motion.aside>
   );
