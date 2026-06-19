@@ -360,6 +360,23 @@ Remember:
                 # Call LLM
                 response = Config.llm.invoke(batch_prompt)
                 response_text = response.content.strip()
+
+                # Track token usage
+                try:
+                    from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+                    inp, out = extract_groq_tokens(response)
+                    log_token_usage(
+                        action="generate_test_cases",
+                        provider="groq",
+                        model="llama-3.3-70b-versatile",
+                        input_tokens=inp,
+                        output_tokens=out,
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        story_id=story_id,
+                    )
+                except Exception:
+                    pass
                 
                 # Use the new JSON handler to parse and validate the response
                 batch_test_cases = JSONResponseHandler.parse_and_validate_response(

@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   BookOpen,
   GitPullRequest,
@@ -30,7 +31,7 @@ const STORAGE_KEY = "testsurge:sidebar-pinned";
 
 export function Sidebar() {
   const pathname = usePathname();
-  // `pinned` = user explicitly keeps it open. Default false => auto-collapse mode.
+  const { user, signOut } = useAuth();
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
 
@@ -165,15 +166,15 @@ export function Sidebar() {
       {/* Footer: user profile + Settings entry point */}
       <div className="px-4 py-4 flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-          JD
+          {user?.email ? user.email.slice(0, 2).toUpperCase() : "?"}
         </div>
         <motion.div
           animate={{ opacity: expanded ? 1 : 0 }}
           transition={{ duration: 0.15 }}
           className="flex-1 min-w-0 overflow-hidden"
         >
-          <p className="text-sm font-medium text-navy truncate">Jane Doe</p>
-          <p className="text-[11px] text-muted truncate">jane@acme.com</p>
+          <p className="text-sm font-medium text-navy truncate">{user?.email?.split("@")[0] ?? "User"}</p>
+          <p className="text-[11px] text-muted truncate">{user?.email ?? ""}</p>
         </motion.div>
         <Link
           href="/settings"

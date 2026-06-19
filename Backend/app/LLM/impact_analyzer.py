@@ -144,6 +144,20 @@ Just return the raw JSON object.
         # Get response from LLM
         response = llm_ref.invoke(structured_prompt)
 
+        # Track token usage
+        try:
+            from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+            inp, out = extract_groq_tokens(response)
+            log_token_usage(
+                action="impact_analysis",
+                provider="groq",
+                model="llama-3.1-8b-instant",
+                input_tokens=inp,
+                output_tokens=out,
+            )
+        except Exception:
+            pass
+
         if hasattr(response, "content"):
             content = str(response.content).strip()
         else:

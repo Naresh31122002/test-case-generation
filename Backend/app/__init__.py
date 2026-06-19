@@ -95,7 +95,7 @@ def create_app():
 
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = jwt_secret or "dev-secret-change-in-production"
-    app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+    app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
     app.config["JWT_COOKIE_HTTPONLY"] = True
     # Dev: 8h access token so sessions don't expire mid-work. Prod: 15min.
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=15) if is_production else timedelta(hours=8)

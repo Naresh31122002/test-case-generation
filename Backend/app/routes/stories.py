@@ -525,14 +525,19 @@ Now, based on the following user story, generate new, comprehensive test cases i
 {user_query}
 """
 
-        # 3. Call Gemini LLM using the configured object
+        # 3. Call LLM for rag-chat
         try:
             print("DEBUG:rag_chat: Calling LLM via Config.llm.invoke")
             response = Config.llm.invoke(prompt)
             text = response.content.strip()
-            print("DEBUG:rag_chat: LLM raw output received", {
-                'length': len(text)
-            })
+            print("DEBUG:rag_chat: LLM raw output received", {'length': len(text)})
+            try:
+                from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+                inp, out = extract_groq_tokens(response)
+                log_token_usage("rag_chat", "groq", "llama-3.3-70b-versatile", inp, out,
+                                workspace_id=workspace_id, user_id=user_id)
+            except Exception:
+                pass
         except Exception as e:
             print(f"❌ ERROR:rag_chat: LLM invocation failed: {e}")
             return jsonify({'error': 'Failed to generate test cases from LLM', 'details': str(e)}), 500
@@ -1487,6 +1492,14 @@ Return ONLY a valid JSON array, no other text:
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
 
+        try:
+            from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+            inp, out = extract_groq_tokens(response)
+            log_token_usage("generate_from_requirements", "groq", "llama-3.3-70b-versatile",
+                            inp, out, workspace_id=workspace_id, user_id=user_id)
+        except Exception:
+            pass
+
         # Clean up response
         if '```json' in raw:
             raw = raw.split('```json')[1].split('```')[0].strip()
@@ -1649,6 +1662,14 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
 
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
+
+        try:
+            from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+            inp, out = extract_groq_tokens(response)
+            log_token_usage("story_quality", "groq", "llama-3.3-70b-versatile", inp, out,
+                            workspace_id=workspace_id, user_id=user_id, story_id=story_id)
+        except Exception:
+            pass
 
         # Parse JSON
         if '```json' in raw:

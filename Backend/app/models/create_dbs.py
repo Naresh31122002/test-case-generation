@@ -278,6 +278,26 @@ def create_postgres_db():
         """)
         print("✅ Table 'credit_transactions' is ready.")
 
+        # Token Usage Tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                action VARCHAR(100) NOT NULL,
+                provider VARCHAR(50) NOT NULL,
+                model VARCHAR(100) NOT NULL,
+                input_tokens INT NOT NULL DEFAULT 0,
+                output_tokens INT NOT NULL DEFAULT 0,
+                story_id VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_usage_workspace ON token_usage(workspace_id);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage(user_id);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at);
+        """)
+        print("✅ Table 'token_usage' is ready.")
+
         # General Audit Logs
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (

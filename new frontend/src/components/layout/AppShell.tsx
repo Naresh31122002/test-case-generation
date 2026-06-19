@@ -25,6 +25,7 @@ const BARE_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/onboarding",
+  "/admin",
 ];
 
 function isBareRoute(pathname: string): boolean {
