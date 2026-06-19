@@ -7,7 +7,7 @@
 // All calls still carry credentials:'include' so the browser sends and
 // receives the HttpOnly JWT cookies.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:5000'
+const BASE_URL = ''
 
 export interface AuthUser {
   user_id: string

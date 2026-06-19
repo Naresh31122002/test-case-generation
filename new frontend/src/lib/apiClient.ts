@@ -6,8 +6,10 @@
 // HttpOnly cookie-based JWTs. Removing credentials would silently break auth
 // on every call — the cookies simply would not be sent.
 
-export const BASE_URL: string =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:5000'
+// All API calls go through the Next.js proxy route at /api/* which forwards
+// requests to Flask and correctly passes Set-Cookie headers back to the browser.
+// This keeps auth cookies on the same origin (localhost:3027).
+export const BASE_URL: string = ''
 
 // ─── ApiError ────────────────────────────────────────────────────────────────
 
@@ -133,8 +135,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       res = await rawFetch(path, options)
     }
 
-    // Still 401 after one refresh attempt — throw so callers can handle it
+    // Still 401 after one refresh attempt — clear cookies and force login
     if (res.status === 401) {
+      // Hit the logout endpoint to clear HttpOnly cookies server-side,
+      // then do a full page reload to /login so the middleware lets us through.
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+      window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname)
       throw new ApiError(401, { error: 'Session expired' })
     }
   }

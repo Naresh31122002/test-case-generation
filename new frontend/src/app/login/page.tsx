@@ -31,9 +31,8 @@ function LoginForm() {
     try {
       const { user, hasWorkspace } = await login(email, password);
       setUser(user);
-      // No workspace yet (rare/legacy) → send through onboarding first.
-      router.push(hasWorkspace ? nextPath : "/onboarding/workspace");
-      router.refresh();
+      // Full reload so middleware re-runs with the new cookie and lets the user through.
+      window.location.href = hasWorkspace ? nextPath : "/onboarding/workspace";
     } catch (err: any) {
       setError(err?.message ?? "Invalid email or password");
     } finally {

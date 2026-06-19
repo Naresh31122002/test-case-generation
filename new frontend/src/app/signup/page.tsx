@@ -30,15 +30,9 @@ function SignupForm() {
     try {
       const { user, hasWorkspace } = await register(email, password);
       setUser(user);
-      // Registration logs the user in and provisions a personal workspace.
-      // Next step in the journey is onboarding; fall back to the requested page.
       const next = params.get("next");
-      if (next) {
-        router.push(next);
-      } else {
-        router.push(hasWorkspace ? "/onboarding/workspace" : "/onboarding/workspace");
-      }
-      router.refresh();
+      // Full reload so middleware sees the new cookie.
+      window.location.href = next ?? "/onboarding/workspace";
     } catch (err: any) {
       setError(err?.message ?? "Could not create your account");
     } finally {

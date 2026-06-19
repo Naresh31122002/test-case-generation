@@ -63,12 +63,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (rawRecent) setRecentIds(JSON.parse(rawRecent));
       } catch {}
 
-      // Fetch real projects from backend
+      // Fetch real projects from backend via the proxy route
       try {
-        const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:5000";
         const [projectsRes, storiesRes] = await Promise.all([
-          fetch(`${BASE}/api/stories/projects`, { credentials: "include" }),
-          fetch(`${BASE}/api/stories/?page=1&per_page=200&sort_order=desc`, { credentials: "include" }),
+          fetch(`/api/stories/projects`, { credentials: "include" }),
+          fetch(`/api/stories/?page=1&per_page=200&sort_order=desc`, { credentials: "include" }),
         ]);
 
         if (!cancelled && projectsRes.ok && storiesRes.ok) {

@@ -492,10 +492,10 @@ def rag_chat():
         except Exception as e:
             return jsonify({'error': f'Credit system error: {str(e)}'}), 500
             
-        # 1. Retrieve similar stories and their test cases
+        # 1. Retrieve similar stories and their test cases (scoped to this workspace)
         try:
             print("DEBUG:rag_chat: Calling Chat_RAG", {'query': user_query})
-            rag_results = Chat_RAG(user_query, top_k=3)
+            rag_results = Chat_RAG(user_query, top_k=5, workspace_id=workspace_id)
             print("DEBUG:rag_chat: Chat_RAG returned results", {
                 'results_count': len(rag_results) if isinstance(rag_results, list) else 'n/a'
             })

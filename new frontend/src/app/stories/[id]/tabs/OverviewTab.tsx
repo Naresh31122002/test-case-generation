@@ -45,8 +45,8 @@ export function OverviewTab({ story }: { story: Story }) {
     try {
       const res = await api.ragChat("Ask about this story: " + aiQuery.trim());
       setAiResults(res.testCases.map((tc) => tc.title));
-    } catch {
-      setAiResults(["Could not reach AI assistant. Try again."]);
+    } catch (err: any) {
+      setAiResults([err?.message?.includes("relevant") ? "No similar test cases found yet. Generate test cases for some stories first." : "Could not reach AI assistant. Try again."]);
     } finally {
       setAiLoading(false);
     }

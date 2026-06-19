@@ -112,9 +112,9 @@ def login():
 def logout():
     jti = get_jwt()["jti"]
     user_id = get_jwt_identity()
-    from app.utils.jwt_blocklist import jwt_redis_blocklist
-    # Blacklist the token for 15 minutes (match access token expiration)
-    jwt_redis_blocklist.set(jti, "", ex=timedelta(minutes=15))
+    from app.utils.jwt_blocklist import jwt_redis_blocklist, _redis_available
+    if _redis_available and jwt_redis_blocklist:
+        jwt_redis_blocklist.set(jti, "", ex=timedelta(minutes=15))
     
     log_audit_event(user_id, "USER_LOGOUT", {}, request.remote_addr)
     

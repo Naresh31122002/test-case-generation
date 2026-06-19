@@ -47,10 +47,12 @@ class GoogleEmbeddingWrapper:
             return np.zeros(768, dtype="float32")
         try:
             from google import genai
+            from google.genai import types as genai_types
             client = genai.Client(api_key=api_key)
             result = client.models.embed_content(
-                model="text-embedding-004",
+                model="models/gemini-embedding-001",
                 contents=text,
+                config=genai_types.EmbedContentConfig(output_dimensionality=768),
             )
             vec = result.embeddings[0].values
         except Exception as e:
@@ -117,14 +119,24 @@ class Config:
     @classmethod
     def get_postgres_connection(cls):
         import psycopg2
-        return psycopg2.connect(
-            dbname=cls.POSTGRES_DB,
-            user=cls.POSTGRES_USER,
-            password=cls.POSTGRES_PASSWORD,
-            host=cls.POSTGRES_HOST,
-            port=cls.POSTGRES_PORT,
-            sslmode='require'
-        )
+        import time
+        last_err = None
+        for attempt in range(3):
+            try:
+                return psycopg2.connect(
+                    dbname=cls.POSTGRES_DB,
+                    user=cls.POSTGRES_USER,
+                    password=cls.POSTGRES_PASSWORD,
+                    host=cls.POSTGRES_HOST,
+                    port=cls.POSTGRES_PORT,
+                    sslmode='require',
+                    connect_timeout=10,
+                )
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    time.sleep(1)
+        raise last_err
 
     @classmethod
     def postgres_config(cls):

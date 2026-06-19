@@ -530,7 +530,7 @@ async def _generate_test_cases_for_all_stories():
                 row_wsid = row_match.iloc[0].get('workspace_id')
         await _generate_test_case_for_story(story_id, user_id=row_uid, workspace_id=row_wsid)
 
-def Chat_RAG(user_query, top_k=3):
+def Chat_RAG(user_query, top_k=3, workspace_id=None):
     """
     Retrieve similar stories and their structured test cases for RAG.
     Always returns a LIST of result objects so callers can iterate safely.
@@ -547,9 +547,16 @@ def Chat_RAG(user_query, top_k=3):
         results = (
             table.search(query_vector)
             .metric("cosine")
-            .limit(top_k)
+            .limit(top_k * 3 if workspace_id else top_k)  # fetch more to allow workspace filtering
             .to_list()
         )
+
+        # Filter by workspace if provided
+        if workspace_id and results:
+            filtered = [r for r in results if r.get('workspace_id') == workspace_id]
+            # Fall back to all results if workspace filter returns nothing
+            results = filtered if filtered else results
+            results = results[:top_k]
 
         if not results:
             # IMPORTANT: return an empty LIST, not a dict,
