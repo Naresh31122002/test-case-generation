@@ -1411,6 +1411,14 @@ def generate_stories_from_requirements():
     """
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="analyze_requirements")
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e), 'code': 'OUT_OF_CREDITS'}), 402
+
         text_content = request.form.get('text', '').strip()
         file = request.files.get('file')
         project_id = request.form.get('project_id', 'default')

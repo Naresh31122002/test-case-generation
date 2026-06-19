@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 import asyncio
-import aiohttp
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass

@@ -102,10 +102,10 @@ def _handle_subscription_change(subscription: dict):
             new_limit = PLAN_LIMITS.get(plan, 50)
             
             cur.execute("""
-                INSERT INTO workspace_credits (workspace_id, credits_limit, credits_used)
+                INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used)
                 VALUES (%s, %s, 0)
-                ON CONFLICT (workspace_id) 
-                DO UPDATE SET credits_limit = EXCLUDED.credits_limit
+                ON CONFLICT (workspace_id)
+                DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit
             """, (ws_id, new_limit))
 
 def _handle_invoice_succeeded(invoice: dict):

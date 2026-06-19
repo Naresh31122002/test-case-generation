@@ -100,7 +100,8 @@ def create_app():
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
     app.config["JWT_COOKIE_SECURE"] = is_production
     app.config["JWT_COOKIE_SAMESITE"] = "Lax"
-    app.config["JWT_COOKIE_CSRF_PROTECT"] = True
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # disabled in dev; re-enable with CSRF tokens in prod
+    app.config["JWT_COOKIE_DOMAIN"] = None  # let browser use the responding hostname
 
     jwt = JWTManager(app)
 
@@ -113,6 +114,16 @@ def create_app():
     # Initialize database service
     db_service = get_db_service()
     app.config['DB_SERVICE'] = db_service
+
+    # Run idempotent schema migrations on every startup so new columns/tables
+    # (email_verified, auth_tokens, workspaces, workspace_members, etc.) are
+    # always present without a separate manual migration step.
+    try:
+        from app.models.create_dbs import create_postgres_db
+        create_postgres_db()
+    except Exception as _schema_err:
+        import sys
+        print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
 
     # Register blueprints
     from app.routes.auth import auth_bp
