@@ -10,8 +10,9 @@ from flask_talisman import Talisman
 from app.models.db_service import DatabaseService, get_db_service
 from app.config import Config
 
-# Load environment variables
-load_dotenv()
+# Load environment variables — use explicit path so it works regardless of cwd
+_here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_here, '.env'), override=True)
 
 def create_app():
     app = Flask(__name__)
@@ -94,13 +95,15 @@ def create_app():
 
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = jwt_secret or "dev-secret-change-in-production"
-    app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+    app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
     app.config["JWT_COOKIE_HTTPONLY"] = True
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=15)
+    # Dev: 8h access token so sessions don't expire mid-work. Prod: 15min.
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=15) if is_production else timedelta(hours=8)
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
     app.config["JWT_COOKIE_SECURE"] = is_production
     app.config["JWT_COOKIE_SAMESITE"] = "Lax"
-    app.config["JWT_COOKIE_CSRF_PROTECT"] = True
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # off in dev; set to is_production when deploying
+    app.config["JWT_COOKIE_DOMAIN"] = None
 
     jwt = JWTManager(app)
 
@@ -113,6 +116,16 @@ def create_app():
     # Initialize database service
     db_service = get_db_service()
     app.config['DB_SERVICE'] = db_service
+
+    # Run idempotent schema migrations on every startup so new columns/tables
+    # (email_verified, auth_tokens, workspaces, workspace_members, etc.) are
+    # always present without a separate manual migration step.
+    try:
+        from app.models.create_dbs import create_postgres_db
+        create_postgres_db()
+    except Exception as _schema_err:
+        import sys
+        print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
 
     # Register blueprints
     from app.routes.auth import auth_bp

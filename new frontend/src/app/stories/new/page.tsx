@@ -22,11 +22,14 @@ import {
   X,
   Zap,
   Plus,
+  Eye,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { easeStandard, easeOut, duration, spring } from "@/lib/motion";
 
 type StepId = 1 | 2 | 3;
-type InputTab = "paste" | "upload" | "jira";
 
 /** Credits charged per story when generating tests. */
 const CREDITS_PER_STORY = 25;
@@ -111,7 +114,6 @@ const steps: { id: StepId; label: string }[] = [
 export default function CreateStoryPage() {
   const [step, setStep] = useState<StepId>(1);
   const [prevStep, setPrevStep] = useState<StepId>(1);
-  const [inputTab, setInputTab] = useState<InputTab>("paste");
   const [pasteBlocks, setPasteBlocks] = useState<string[]>([""]);
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -189,8 +191,6 @@ export default function CreateStoryPage() {
               <StepInput
                 key="step1"
                 direction={direction}
-                inputTab={inputTab}
-                setInputTab={setInputTab}
                 pasteBlocks={pasteBlocks}
                 setPasteBlocks={setPasteBlocks}
                 dragging={dragging}
@@ -246,13 +246,195 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Short uppercase extension badge color, by file type — purely cosmetic. */
+function extBadge(name: string): { label: string; bg: string; fg: string } {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return { label: "PDF", bg: "#FEF2F2", fg: "#DC2626" };
+  if (ext === "docx" || ext === "doc") return { label: "DOC", bg: "#EFF6FF", fg: "#2563EB" };
+  if (ext === "md") return { label: "MD", bg: "#F0FDF4", fg: "#16A34A" };
+  return { label: "TXT", bg: "#F1F5F9", fg: "#64748B" };
+}
+
+/**
+ * Uploaded-files panel — checkbox select, per-file preview/remove, file-type
+ * badge, collapsible. Every file here is newly added this session (the page
+ * doesn't reload a saved project), so all rows carry the "New" badge.
+ */
+function FileListPanel({ files, setFiles }: { files: File[]; setFiles: (f: File[]) => void }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+
+  const allSelected = files.length > 0 && selected.size === files.length;
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(files.map((_, i) => i)));
+  }
+  function toggleOne(i: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+  function removeOne(i: number) {
+    setFiles(files.filter((_, idx) => idx !== i));
+    setSelected((prev) => {
+      const next = new Set<number>();
+      prev.forEach((idx) => {
+        if (idx < i) next.add(idx);
+        else if (idx > i) next.add(idx - 1);
+      });
+      return next;
+    });
+  }
+  function removeSelected() {
+    setFiles(files.filter((_, i) => !selected.has(i)));
+    setSelected(new Set());
+  }
+
+  return (
+    <div className="border border-border rounded-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-gray-50">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex items-center gap-2 text-[13px] font-semibold text-navy"
+        >
+          <FileText size={14} className="text-muted" />
+          File ({files.length})
+          {collapsed ? <ChevronDown size={14} className="text-muted" /> : <ChevronUp size={14} className="text-muted" />}
+        </button>
+        {selected.size > 0 && !collapsed && (
+          <button
+            type="button"
+            onClick={removeSelected}
+            className="text-[11px] font-semibold text-error hover:underline"
+          >
+            Remove {selected.size} selected
+          </button>
+        )}
+      </div>
+
+      {!collapsed && (
+        <>
+          {/* Select all */}
+          <label className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="w-4 h-4 rounded border-border text-pink focus:ring-pink/30"
+            />
+            <span className="text-sm text-navy">Select All</span>
+          </label>
+
+          {/* Rows */}
+          <div className="divide-y divide-border max-h-60 overflow-y-auto">
+            {files.map((file, i) => {
+              const badge = extBadge(file.name);
+              return (
+                <div key={`${file.name}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(i)}
+                    onChange={() => toggleOne(i)}
+                    className="w-4 h-4 rounded border-border text-pink focus:ring-pink/30 flex-shrink-0"
+                  />
+                  <span
+                    className="w-7 h-7 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0"
+                    style={{ backgroundColor: badge.bg, color: badge.fg }}
+                  >
+                    {badge.label}
+                  </span>
+                  <span className="text-sm text-navy truncate flex-1">{file.name}</span>
+                  <span className="text-[11px] font-semibold bg-brand-primary-light text-brand-primary rounded-full px-2 py-0.5 flex-shrink-0">
+                    New
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFile(file)}
+                    title="Preview"
+                    className="text-muted hover:text-navy transition-colors flex-shrink-0"
+                  >
+                    <Eye size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeOne(i)}
+                    title="Remove file"
+                    className="text-muted hover:text-error transition-colors flex-shrink-0"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  <span className="text-xs text-muted flex-shrink-0 w-14 text-right">{formatSize(file.size)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {previewFile && (
+        <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      )}
+    </div>
+  );
+}
+
+/** Minimal file preview — image/text inline, otherwise a name + size fallback
+ *  (no server-side preview endpoint exists yet for PDF/DOCX). */
+function FilePreviewModal({ file, onClose }: { file: File; onClose: () => void }) {
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const isImage = file.type.startsWith("image/");
+  const isText = file.name.toLowerCase().endsWith(".txt") || file.name.toLowerCase().endsWith(".md");
+  const url = isImage ? URL.createObjectURL(file) : null;
+
+  if (isText && textContent === null) {
+    file.text().then(setTextContent).catch(() => setTextContent(""));
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-navy/30 px-4"
+      onMouseDown={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[80vh] bg-white border border-border rounded-card shadow-card overflow-hidden flex flex-col"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+          <p className="text-sm font-semibold text-navy truncate">{file.name}</p>
+          <button type="button" onClick={onClose} className="text-muted hover:text-navy transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {isImage && url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={file.name} className="max-w-full rounded-btn" />
+          ) : isText ? (
+            <pre className="text-xs text-navy whitespace-pre-wrap font-mono">{textContent ?? "Loading…"}</pre>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <FileText size={32} className="text-muted" />
+              <p className="text-sm text-navy">{formatSize(file.size)} · {file.type || "document"}</p>
+              <p className="text-xs text-muted">No inline preview available for this file type.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StepInput({
-  direction, inputTab, setInputTab, pasteBlocks, setPasteBlocks,
+  direction, pasteBlocks, setPasteBlocks,
   dragging, setDragging, files, setFiles, jiraKeys, setJiraKeys, detected, setDetected, onContinue,
 }: {
   direction: number;
-  inputTab: InputTab;
-  setInputTab: (t: InputTab) => void;
   pasteBlocks: string[];
   setPasteBlocks: (v: string[]) => void;
   dragging: boolean;
@@ -344,30 +526,39 @@ function StepInput({
     );
   }
 
-  // ── Input phase ──
+  const sourcesWithContent =
+    [pastedStories.some((s) => s.length >= MIN_STORY_CHARS), files.length > 0, jiraKeys.length > 0]
+      .filter(Boolean).length;
+
+  // ── Input phase: all three methods are stacked in one view (not tabs) so
+  // it's clear they can be combined — paste a story AND upload a doc AND
+  // import a Jira issue all at once, then Continue processes everything. ──
   return (
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Add your stories</h2>
-      <p className="text-sm text-muted mb-6">Paste text, upload files, or import from Jira. You can add multiple stories.</p>
+      <p className="text-sm text-muted mb-6">Paste text, upload files, and/or import from Jira — mix and match, then continue.</p>
 
-      {/* Tabs */}
-      <div className="flex gap-6 border-b border-border mb-6">
-        {(["paste", "upload", "jira"] as InputTab[]).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setInputTab(tab)}
-            className={`pb-3 text-sm font-medium transition-colors capitalize ${
-              inputTab === tab
-                ? "text-navy border-b-2 border-pink"
-                : "text-muted hover:text-navy"
-            }`}
-          >
-            {tab === "paste" ? "Paste Stories" : tab === "upload" ? "Upload Files" : "Import from Jira"}
-          </button>
-        ))}
-      </div>
+      {sourcesWithContent > 1 && (
+        <div className="flex items-center gap-2 px-3.5 py-2.5 mb-6 rounded-card bg-surface-cyan border border-cyan/30 text-sm text-navy">
+          <Sparkles size={15} className="text-cyan flex-shrink-0" />
+          Using {sourcesWithContent} sources together — all stories below will be combined.
+        </div>
+      )}
 
-      {inputTab === "paste" && (
+      {/* ── Section: Paste Stories ── */}
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-7 h-7 rounded-lg bg-surface-pink text-pink flex items-center justify-center flex-shrink-0">
+            <FileText size={14} />
+          </span>
+          <h3 className="text-sm font-semibold text-navy">Paste Stories</h3>
+          {pastedStories.length > 0 && (
+            <span className="text-[11px] font-semibold bg-gray-100 text-muted rounded-full px-2 py-0.5">
+              {pastedStories.length}
+            </span>
+          )}
+        </div>
+
         <div className="space-y-4">
           {pasteBlocks.map((block, i) => (
             <div key={i} className="relative">
@@ -436,9 +627,22 @@ function StepInput({
             </div>
           )}
         </div>
-      )}
+      </section>
 
-      {inputTab === "upload" && (
+      {/* ── Section: Upload Files ── */}
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-7 h-7 rounded-lg bg-surface-cyan text-cyan flex items-center justify-center flex-shrink-0">
+            <Upload size={14} />
+          </span>
+          <h3 className="text-sm font-semibold text-navy">Upload Files</h3>
+          {files.length > 0 && (
+            <span className="text-[11px] font-semibold bg-gray-100 text-muted rounded-full px-2 py-0.5">
+              {files.length}
+            </span>
+          )}
+        </div>
+
         <div className="space-y-4">
           <motion.div
             animate={{
@@ -475,37 +679,25 @@ function StepInput({
 
           {/* File list */}
           {files.length > 0 && (
-            <div className="border border-border rounded-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border bg-gray-50">
-                <p className="text-[13px] font-semibold text-navy">Files ({files.length})</p>
-              </div>
-              <div className="divide-y divide-border max-h-44 overflow-y-auto">
-                {files.map((file, i) => (
-                  <div key={`${file.name}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
-                    <span className="w-8 h-8 rounded-lg bg-surface-pink text-pink flex items-center justify-center flex-shrink-0">
-                      <FileText size={15} />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-navy truncate">{file.name}</p>
-                      <p className="text-xs text-muted">{formatSize(file.size)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setFiles(files.filter((_, idx) => idx !== i))}
-                      className="text-muted hover:text-error transition-colors flex-shrink-0"
-                      title="Remove file"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <FileListPanel files={files} setFiles={setFiles} />
           )}
         </div>
-      )}
+      </section>
 
-      {inputTab === "jira" && (
+      {/* ── Section: Import from Jira ── */}
+      <section className="mb-2">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-7 h-7 rounded-lg bg-surface-cyan text-cyan flex items-center justify-center flex-shrink-0">
+            <FileText size={14} />
+          </span>
+          <h3 className="text-sm font-semibold text-navy">Import from Jira</h3>
+          {jiraKeys.length > 0 && (
+            <span className="text-[11px] font-semibold bg-gray-100 text-muted rounded-full px-2 py-0.5">
+              {jiraKeys.length}
+            </span>
+          )}
+        </div>
+
         <div className="space-y-4">
           <div className="flex gap-3">
             <input
@@ -558,7 +750,7 @@ function StepInput({
             <Link href="/settings/integrations" className="text-cyan hover:underline">Connect Jira</Link>
           </p>
         </div>
-      )}
+      </section>
 
       {/* Footer */}
       <div className="flex items-center justify-between mt-8">
@@ -674,7 +866,7 @@ function StoryPreview({
       </div>
 
       {/* Estimated credits */}
-      <div className="flex items-center justify-between p-4 rounded-card bg-surface-pink/40 border border-[#FF0A78] mb-6">
+      <div className="flex items-center justify-between p-4 rounded-card bg-brand-primary-light/40 border border-brand-primary mb-6">
         <div className="flex items-center gap-2 text-sm font-medium text-navy">
           <Zap size={16} className="text-pink" />
           Estimated credits

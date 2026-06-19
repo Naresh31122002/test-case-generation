@@ -31,7 +31,7 @@ const AUTH_ROUTES = [
 const AUTH_ROUTES_ALLOWED_WHEN_AUTHED = ["/verify-email"];
 
 // Public, non-app routes (no gating either way).
-const PUBLIC_PREFIXES = ["/_next", "/favicon", "/icon", "/apple", "/android", "/site.webmanifest"];
+const PUBLIC_PREFIXES = ["/_next", "/favicon", "/icon", "/apple", "/android", "/site.webmanifest", "/admin"];
 
 function hasSession(req: NextRequest): boolean {
   return req.cookies.has(ACCESS_COOKIE) || req.cookies.has(REFRESH_COOKIE);
@@ -71,6 +71,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next internals and static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webmanifest)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:png|jpg|jpeg|svg|ico|webmanifest)$).*)"],
 };

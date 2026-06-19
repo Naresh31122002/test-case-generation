@@ -185,7 +185,7 @@ export default function ComparePage() {
                       </div>
                     </div>
                     <div className="flex flex-col items-center gap-2">
-                      <CompareDonut coverage={sb!.coverage} label={sb!.id} color="#FF0A78" />
+                      <CompareDonut coverage={sb!.coverage} label={sb!.id} color="var(--color-brand-primary)" />
                     </div>
                   </div>
                 </div>

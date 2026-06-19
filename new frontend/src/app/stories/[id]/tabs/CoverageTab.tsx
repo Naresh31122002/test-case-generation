@@ -81,8 +81,8 @@ export function CoverageTab({
         "What test cases are missing for this story: " + (story.content ?? story.title ?? "")
       );
       setGenResults(res.testCases.map((tc) => tc.title));
-    } catch {
-      setGenResults(["Could not generate suggestions. Try again."]);
+    } catch (err: any) {
+      setGenResults([err?.message?.includes("relevant") ? "No similar stories with test cases found yet. Upload more stories first." : "Could not generate suggestions. Try again."]);
     } finally {
       setGenLoading(false);
     }
@@ -96,8 +96,8 @@ export function CoverageTab({
     try {
       const res = await api.ragChat(q);
       setAiResults(res.testCases.map((tc) => tc.title));
-    } catch {
-      setAiResults(["Could not reach AI assistant. Try again."]);
+    } catch (err: any) {
+      setAiResults([err?.message?.includes("relevant") ? "No similar test cases found yet. Generate test cases for some stories first." : "Could not reach AI assistant. Try again."]);
     } finally {
       setAiLoading(false);
     }

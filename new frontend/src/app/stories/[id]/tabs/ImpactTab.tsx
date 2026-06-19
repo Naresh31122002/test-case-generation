@@ -78,7 +78,7 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
       setAiResponse(result.testCases.length > 0
         ? result.testCases.map((tc) => `• ${tc.title}`).join("\n")
         : "No related test cases found for that query.");
-    } catch { setAiResponse("Could not reach the AI assistant. Please try again."); }
+    } catch (err: any) { setAiResponse(err?.message?.includes("relevant") ? "No similar test cases found yet. Generate test cases for some stories first." : "Could not reach the AI assistant. Please try again."); }
     finally { setAiLoading(false); }
   }
 

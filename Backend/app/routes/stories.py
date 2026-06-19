@@ -492,10 +492,10 @@ def rag_chat():
         except Exception as e:
             return jsonify({'error': f'Credit system error: {str(e)}'}), 500
             
-        # 1. Retrieve similar stories and their test cases
+        # 1. Retrieve similar stories and their test cases (scoped to this workspace)
         try:
             print("DEBUG:rag_chat: Calling Chat_RAG", {'query': user_query})
-            rag_results = Chat_RAG(user_query, top_k=3)
+            rag_results = Chat_RAG(user_query, top_k=5, workspace_id=workspace_id)
             print("DEBUG:rag_chat: Chat_RAG returned results", {
                 'results_count': len(rag_results) if isinstance(rag_results, list) else 'n/a'
             })
@@ -525,14 +525,19 @@ Now, based on the following user story, generate new, comprehensive test cases i
 {user_query}
 """
 
-        # 3. Call Gemini LLM using the configured object
+        # 3. Call LLM for rag-chat
         try:
             print("DEBUG:rag_chat: Calling LLM via Config.llm.invoke")
             response = Config.llm.invoke(prompt)
             text = response.content.strip()
-            print("DEBUG:rag_chat: LLM raw output received", {
-                'length': len(text)
-            })
+            print("DEBUG:rag_chat: LLM raw output received", {'length': len(text)})
+            try:
+                from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+                inp, out = extract_groq_tokens(response)
+                log_token_usage("rag_chat", "groq", "llama-3.3-70b-versatile", inp, out,
+                                workspace_id=workspace_id, user_id=user_id)
+            except Exception:
+                pass
         except Exception as e:
             print(f"❌ ERROR:rag_chat: LLM invocation failed: {e}")
             return jsonify({'error': 'Failed to generate test cases from LLM', 'details': str(e)}), 500
@@ -1411,6 +1416,14 @@ def generate_stories_from_requirements():
     """
     try:
         user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="analyze_requirements")
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e), 'code': 'OUT_OF_CREDITS'}), 402
+
         text_content = request.form.get('text', '').strip()
         file = request.files.get('file')
         project_id = request.form.get('project_id', 'default')
@@ -1478,6 +1491,14 @@ Return ONLY a valid JSON array, no other text:
         # Call LLM
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
+
+        try:
+            from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+            inp, out = extract_groq_tokens(response)
+            log_token_usage("generate_from_requirements", "groq", "llama-3.3-70b-versatile",
+                            inp, out, workspace_id=workspace_id, user_id=user_id)
+        except Exception:
+            pass
 
         # Clean up response
         if '```json' in raw:
@@ -1641,6 +1662,14 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
 
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
+
+        try:
+            from app.utils.token_tracker import log_token_usage, extract_groq_tokens
+            inp, out = extract_groq_tokens(response)
+            log_token_usage("story_quality", "groq", "llama-3.3-70b-versatile", inp, out,
+                            workspace_id=workspace_id, user_id=user_id, story_id=story_id)
+        except Exception:
+            pass
 
         # Parse JSON
         if '```json' in raw:

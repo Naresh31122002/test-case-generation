@@ -94,6 +94,27 @@ def create_postgres_db():
         """)
         print("✅ Migrated 'users' email_verified column.")
 
+        # Migrate users: Google OAuth support. password_hash becomes optional
+        # (Google-only accounts have none) and we track provider + Google's
+        # stable subject id ('sub') for account lookup/linking.
+        cursor.execute("""
+            ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'
+                CHECK (auth_provider IN ('password', 'google'));
+        """)
+        print("✅ Migrated 'users' Google OAuth columns.")
+
+        # Migrate users: first-login onboarding survey (org name, job title,
+        # referral source — shown once as a skippable modal, never again).
+        cursor.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP WITHOUT TIME ZONE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS org_name TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_source TEXT;
+        """)
+        print("✅ Migrated 'users' onboarding survey columns.")
+
         # Auth tokens: email verification + password reset (single-use, expiring).
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -277,6 +298,26 @@ def create_postgres_db():
             CREATE INDEX IF NOT EXISTS idx_credit_trans_ws ON credit_transactions(workspace_id);
         """)
         print("✅ Table 'credit_transactions' is ready.")
+
+        # Token Usage Tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+                action VARCHAR(100) NOT NULL,
+                provider VARCHAR(50) NOT NULL,
+                model VARCHAR(100) NOT NULL,
+                input_tokens INT NOT NULL DEFAULT 0,
+                output_tokens INT NOT NULL DEFAULT 0,
+                story_id VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_usage_workspace ON token_usage(workspace_id);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage(user_id);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at);
+        """)
+        print("✅ Table 'token_usage' is ready.")
 
         # General Audit Logs
         cursor.execute("""

@@ -56,14 +56,13 @@ def migrate_lancedb():
         print(f"❌ Failed to query PostgreSQL: {e}")
         return
 
-    # 3. Add workspace_id column to dataframe
-    # If a workspace_id is missing, we use a fallback or skip. We must provide a string.
-    fallback_ws = "00000000-0000-0000-0000-000000000000"
-    df['workspace_id'] = df['storyID'].map(lambda x: story_to_workspace.get(x, fallback_ws))
-    
-    unmapped_count = sum(df['workspace_id'] == fallback_ws)
+    # 3. Add workspace_id column — drop rows with no mapping (orphaned stories)
+    df['workspace_id'] = df['storyID'].map(story_to_workspace)
+
+    unmapped_count = df['workspace_id'].isna().sum()
     if unmapped_count > 0:
-        print(f"⚠️ WARNING: {unmapped_count} stories had no workspace_id mapping in PostgreSQL. They are assigned a fallback ID.")
+        print(f"⚠️ Dropping {unmapped_count} orphaned stories with no workspace mapping in PostgreSQL.")
+        df = df[df['workspace_id'].notna()].copy()
     
     # Ensure columns match new schema
     # LanceDB might return internal columns like id or _distance, we only want the schema columns

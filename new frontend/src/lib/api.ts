@@ -475,7 +475,7 @@ export const api = {
         activateMockMode()
         const found = MOCK_STORIES.find((s) => s.id === storyId)
         if (found) return found
-        throw new ApiError('Story not found', 404, { error: 'Story not found' })
+        throw new ApiError(404, { error: 'Story not found' })
       }
       throw error
     }

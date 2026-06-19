@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogOut, X, ExternalLink } from "lucide-react";
 import { PageLayout, PageHeader, PageActions } from "@/components/layout/PageLayout";
+import { useAuth } from "@/contexts/AuthContext";
 
 const DOCS_URL = "https://docs.testsurge.app";
 
@@ -53,6 +54,12 @@ const navSections: NavSection[] = [
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [showLogout, setShowLogout] = useState(false);
+  const { signOut } = useAuth();
+
+  async function handleSignOut() {
+    await signOut();
+    window.location.href = "/login";
+  }
 
   return (
     <PageLayout>
@@ -169,7 +176,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowLogout(false)}
+                    onClick={handleSignOut}
                     className="h-9 px-4 rounded-btn bg-error text-white text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center gap-2"
                   >
                     <LogOut size={15} />

@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { login } from "@/lib/auth";
+import { login, loginWithGoogle, resendVerification, AuthApiError } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   AuthShell,
@@ -11,7 +11,9 @@ import {
   AuthInput,
   AuthButton,
   AuthError,
+  AuthDivider,
 } from "@/components/auth/AuthShell";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 function LoginForm() {
   const router = useRouter();
@@ -23,20 +25,59 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Hard email-verification gate: an unverified account is rejected at login
+  // with a distinct error, so we can offer to resend the link right here.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resent, setResent] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [devLink, setDevLink] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNeedsVerification(false);
+    setResent(false);
     try {
       const { user, hasWorkspace } = await login(email, password);
       setUser(user);
-      // No workspace yet (rare/legacy) → send through onboarding first.
-      router.push(hasWorkspace ? nextPath : "/onboarding/workspace");
-      router.refresh();
+      // Full reload so middleware re-runs with the new cookie and lets the user through.
+      window.location.href = hasWorkspace ? nextPath : "/onboarding/workspace";
     } catch (err: any) {
-      setError(err?.message ?? "Invalid email or password");
+      if (err instanceof AuthApiError && err.code === "EMAIL_NOT_VERIFIED") {
+        setNeedsVerification(true);
+        setError("Please verify your email before signing in.");
+      } else {
+        setError(err?.message ?? "Invalid email or password");
+      }
     } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResending(true);
+    try {
+      const { devVerificationLink } = await resendVerification(email);
+      setDevLink(devVerificationLink ?? null);
+      setResent(true);
+    } catch {
+      /* best-effort — resend always returns 200 server-side */
+      setResent(true);
+    } finally {
+      setResending(false);
+    }
+  }
+
+  async function handleGoogle(credential: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const { user, hasWorkspace } = await loginWithGoogle(credential);
+      setUser(user);
+      window.location.href = hasWorkspace ? nextPath : "/onboarding/workspace";
+    } catch (err: any) {
+      setError(err?.message ?? "Could not sign in with Google");
       setLoading(false);
     }
   }
@@ -48,7 +89,7 @@ function LoginForm() {
       footer={
         <>
           New to TestSurge?{" "}
-          <Link href="/signup" className="font-semibold hover:underline" style={{ color: "#FF0A78" }}>
+          <Link href="/signup" className="font-semibold hover:underline" style={{ color: "var(--color-brand-primary)" }}>
             Create an account
           </Link>
         </>
@@ -62,7 +103,7 @@ function LoginForm() {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
-            placeholder="you@company.com"
+            placeholder="you@example.com"
           />
         </AuthField>
         <AuthField label="Password">
@@ -84,10 +125,47 @@ function LoginForm() {
 
         <AuthError message={error} />
 
+        {needsVerification && (
+          <div className="text-center space-y-2">
+            {resent ? (
+              <>
+                <p className="text-sm text-green-600">Verification email sent — check your inbox.</p>
+                {devLink && (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 text-left">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      Dev mode — no SMTP configured
+                    </p>
+                    <a
+                      href={devLink}
+                      className="mt-1 block text-sm font-medium hover:underline break-all"
+                      style={{ color: "var(--color-brand-primary)" }}
+                    >
+                      {devLink}
+                    </a>
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                className="text-sm font-semibold hover:underline disabled:opacity-50"
+                style={{ color: "var(--color-brand-primary)" }}
+              >
+                {resending ? "Sending…" : "Resend verification email"}
+              </button>
+            )}
+          </div>
+        )}
+
         <AuthButton type="submit" loading={loading}>
           Sign in
         </AuthButton>
       </form>
+
+      <AuthDivider />
+      <GoogleSignInButton onCredential={handleGoogle} disabled={loading} />
     </AuthShell>
   );
 }

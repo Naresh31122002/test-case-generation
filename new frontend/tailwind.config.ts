@@ -14,12 +14,21 @@ const config: Config = {
         navy: "#0F172A",
         muted: "#64748B",
         border: "#E2E8F0",
-        pink: "#FF0A78",
+
+        // Brand pink — sourced from portfolio's --color-secondary (#FF3B6B).
+        "brand-primary": "var(--color-brand-primary)",
+        "brand-primary-hover": "var(--color-brand-primary-hover)",
+        "brand-primary-light": "var(--color-brand-primary-light)",
+
+        // Back-compat aliases so existing `bg-pink` / `text-pink` / `surface-pink`
+        // classes now resolve to the brand token instead of the old hardcoded hex.
+        pink: "var(--color-brand-primary)",
+        "surface-pink": "var(--color-brand-primary-light)",
+
         cyan: "#06B6D4",
         success: "#10B981",
         warning: "#F59E0B",
         error: "#EF4444",
-        "surface-pink": "#FFF0F7",
         "surface-cyan": "#ECFEFF",
       },
       fontFamily: {
