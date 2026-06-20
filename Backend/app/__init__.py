@@ -110,9 +110,7 @@ def create_app():
              force_https_permanent=False,
              content_security_policy=csp,
              session_cookie_secure=is_production,
-             strict_transport_security=is_production,
-             # Health check is called internally over HTTP — don't redirect it
-             exempt_views=["health_check"])
+             strict_transport_security=is_production)
 
     # Configure app
     app.config.from_object(Config)
@@ -200,6 +198,7 @@ def create_app():
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
     @app.route('/health', methods=['GET'])
+    @app.route('/api/health', methods=['GET'])
     def health_check():
         status = {"status": "ok", "db": "unknown", "lancedb": "unknown"}
         try:

@@ -79,6 +79,7 @@ class Config:
     POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'admin')
     POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
     POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
+    POSTGRES_SSLMODE = os.getenv('POSTGRES_SSLMODE', 'require')
 
     LANCE_DB_PATH = os.getenv('LANCE_DB_PATH', './data/lance_db')
     TABLE_NAME_LANCE = os.getenv('TABLE_NAME_LANCE', 'user_stories')
@@ -135,8 +136,7 @@ class Config:
                     password=cls.POSTGRES_PASSWORD,
                     host=cls.POSTGRES_HOST,
                     port=cls.POSTGRES_PORT,
-                    # Use SSL for Neon/cloud Postgres; disable for local Docker Postgres
-                    sslmode='require' if cls.POSTGRES_HOST not in ('postgres', 'localhost', '127.0.0.1') else 'disable',
+                    sslmode=cls.POSTGRES_SSLMODE,
                     connect_timeout=10,
                 )
             except Exception as e:
@@ -153,7 +153,7 @@ class Config:
             'password': cls.POSTGRES_PASSWORD,
             'host': cls.POSTGRES_HOST,
             'port': cls.POSTGRES_PORT,
-            'sslmode': 'require'
+            'sslmode': cls.POSTGRES_SSLMODE
         }
 
 
