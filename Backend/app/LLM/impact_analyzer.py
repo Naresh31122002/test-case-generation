@@ -184,7 +184,20 @@ Just return the raw JSON object.
                 content = content[:end_idx]
         
         try:
-            result = json.loads(content)
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                # Try json_repair if available, otherwise do basic cleanup
+                try:
+                    from json_repair import repair_json
+                    result = json.loads(repair_json(content))
+                    logger.info("Used json_repair to fix malformed LLM JSON")
+                except ImportError:
+                    # Manual fix: LLM sometimes emits array items missing opening {
+                    import re
+                    fixed = re.sub(r'\[\s*\n\s*"', '[{"', content)
+                    fixed = re.sub(r',\s*\n\s*"(?!impacted_test_cases|has_impact|impact_type)', ', "', fixed)
+                    result = json.loads(fixed)
 
             # --- NORMALIZE COMMON LLM VARIANTS BEFORE STRICT VALIDATION ---
             # Some models might use "impacts" instead of "impacted_test_cases"
