@@ -28,6 +28,7 @@ def create_app():
     # must not silently re-enable DEV_BYPASS_AUTH.
     is_production = os.getenv("FLASK_ENV", "production") == "production"
     is_dev_bypass = os.getenv("DEV_BYPASS_AUTH") == "1"
+    force_https = os.getenv("FORCE_HTTPS", "1" if is_production else "0").lower() in ("1", "true", "yes")
 
     # Guard: prevent DEV_BYPASS_AUTH in production. This is intentionally redundant
     # with the independent check in app/utils/workspace.py's _is_bypass() — that
@@ -106,7 +107,7 @@ def create_app():
         ]
     }
     Talisman(app,
-             force_https=is_production,
+             force_https=force_https,
              force_https_permanent=False,
              content_security_policy=csp,
              session_cookie_secure=is_production,
