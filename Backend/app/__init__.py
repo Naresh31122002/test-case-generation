@@ -160,7 +160,7 @@ def create_app():
     except Exception as _schema_err:
         print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
 
-    # Ensure LanceDB table exists and has workspace_id column
+    # Ensure LanceDB table exists and has all required columns
     try:
         from app.models.create_dbs import create_LanceDB
         import lancedb as _lancedb
@@ -168,17 +168,20 @@ def create_app():
         _db = _lancedb.connect(_Cfg.LANCE_DB_PATH)
         if _Cfg.TABLE_NAME_LANCE not in _db.table_names():
             create_LanceDB()
-            print("✅ LanceDB table created with workspace_id column.")
+            print("✅ LanceDB table created with full schema.")
         else:
-            # Check if workspace_id column exists, add if missing
             _t = _db.open_table(_Cfg.TABLE_NAME_LANCE)
-            if 'workspace_id' not in _t.schema.names:
+            _cols = _t.schema.names
+            _required = {'workspace_id': '', 'user_id': ''}
+            _missing = {k: v for k, v in _required.items() if k not in _cols}
+            if _missing:
                 import pandas as _pd
                 _df = _t.to_pandas()
-                _df['workspace_id'] = ''
+                for col, default in _missing.items():
+                    _df[col] = default
                 _db.drop_table(_Cfg.TABLE_NAME_LANCE)
                 _db.create_table(_Cfg.TABLE_NAME_LANCE, _df)
-                print("✅ LanceDB migrated: workspace_id column added.")
+                print(f"✅ LanceDB migrated: added columns {list(_missing.keys())}")
     except Exception as _lance_err:
         print(f"WARNING: LanceDB migration failed: {_lance_err}")
 
