@@ -47,13 +47,6 @@ const ACTIVITY_ICONS: Record<ActivityType, LucideIcon> = {
   change_approved: GitPullRequest,
 };
 
-/* ---------------- Mock data ---------------- */
-
-const creditBreakdown = [
-  { label: "Test generation", value: 480 },
-  { label: "Impact analysis", value: 190 },
-  { label: "Story critique", value: 72 },
-];
 
 /* ---------------- Hook: close on outside click ---------------- */
 
@@ -563,6 +556,7 @@ function CreditsIndicator() {
   return (
     <div
       className="relative flex-shrink-0"
+      data-tour="header-credits"
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
     >
@@ -600,23 +594,12 @@ function CreditsIndicator() {
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <ul className="space-y-1.5">
-              {creditBreakdown.map((b) => (
-                <li
-                  key={b.label}
-                  className="flex items-center justify-between text-xs"
-                >
-                  <span className="text-muted">{b.label}</span>
-                  <span className="font-medium text-navy tabular-nums">{b.value}</span>
-                </li>
-              ))}
-              <li className="flex items-center justify-between text-xs border-t border-border pt-1.5 mt-1.5">
-                <span className="text-navy font-medium">Remaining</span>
-                <span className="font-semibold text-success tabular-nums">
-                  {creditsRemaining}
-                </span>
-              </li>
-            </ul>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-navy font-medium">Remaining</span>
+              <span className="font-semibold text-success tabular-nums">
+                {creditsRemaining}
+              </span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -671,7 +654,7 @@ function NotificationBell() {
   const grouped = groupBySection(items);
 
   return (
-    <div ref={ref} className="relative flex-shrink-0">
+    <div ref={ref} className="relative flex-shrink-0" data-tour="header-notifications">
       {/* Bell trigger */}
       <button
         type="button"
@@ -883,6 +866,7 @@ export function NewStoryButton() {
     <>
       <button
         type="button"
+        data-tour="header-new-story"
         onClick={() => {
           // Validate a project is selected before creating a story.
           if (!selectedProject) {

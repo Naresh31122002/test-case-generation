@@ -45,7 +45,7 @@ function ResetPasswordForm() {
       <AuthShell
         title="Invalid reset link"
         footer={
-          <Link href="/forgot-password" className="font-semibold hover:underline" style={{ color: "#FF0A78" }}>
+          <Link href="/forgot-password" className="font-semibold hover:underline" style={{ color: "var(--color-brand-primary)" }}>
             Request a new link
           </Link>
         }

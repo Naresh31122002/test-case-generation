@@ -41,7 +41,7 @@ function buildTimeline(story: Story): TimelineEvent[] {
           : "No impact detected",
       icon: Zap,
       done: story.impactCount > 0,
-      color: "#FF0A78",
+      color: "var(--color-brand-primary)",
     },
     {
       label: "Changes Approved",

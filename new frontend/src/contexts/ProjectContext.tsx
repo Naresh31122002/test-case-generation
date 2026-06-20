@@ -14,6 +14,7 @@ import {
   sampleProjects,
   createProject as makeProject,
 } from "@/lib/projects";
+import { get as apiGet } from "@/lib/apiClient";
 
 interface ProjectContextValue {
   selectedProject: Project | null;
@@ -63,16 +64,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (rawRecent) setRecentIds(JSON.parse(rawRecent));
       } catch {}
 
-      // Fetch real projects from backend via the proxy route
+      // Fetch real projects from backend (via apiClient: workspace header + 401-refresh-retry)
       try {
-        const [projectsRes, storiesRes] = await Promise.all([
-          fetch(`/api/stories/projects`, { credentials: "include" }),
-          fetch(`/api/stories/?page=1&per_page=200&sort_order=desc`, { credentials: "include" }),
+        const [projectsData, storiesData] = await Promise.all([
+          apiGet<{ projects?: string[] }>("/stories/projects"),
+          apiGet<{ stories?: any[] }>("/stories/?page=1&per_page=200&sort_order=desc"),
         ]);
 
-        if (!cancelled && projectsRes.ok && storiesRes.ok) {
-          const projectsData = await projectsRes.json();
-          const storiesData = await storiesRes.json();
+        if (!cancelled) {
           const projectIds: string[] = projectsData.projects ?? [];
           const stories = storiesData.stories ?? [];
 

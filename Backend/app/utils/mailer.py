@@ -82,8 +82,16 @@ def send_email(to_email: str, subject: str, text_body: str, html_body: str = Non
 
 # ── Templated emails ──────────────────────────────────────────────────────────
 
+def verification_link(token: str) -> str:
+    return f"{app_url()}/verify-email?token={token}"
+
+
+def password_reset_link(token: str) -> str:
+    return f"{app_url()}/reset-password?token={token}"
+
+
 def send_verification_email(to_email: str, token: str) -> bool:
-    link = f"{app_url()}/verify-email?token={token}"
+    link = verification_link(token)
     subject = "Verify your TestSurge email"
     text = (
         f"Welcome to TestSurge!\n\n"
@@ -104,7 +112,7 @@ def send_verification_email(to_email: str, token: str) -> bool:
 
 
 def send_password_reset_email(to_email: str, token: str) -> bool:
-    link = f"{app_url()}/reset-password?token={token}"
+    link = password_reset_link(token)
     subject = "Reset your TestSurge password"
     text = (
         f"We received a request to reset your TestSurge password.\n\n"

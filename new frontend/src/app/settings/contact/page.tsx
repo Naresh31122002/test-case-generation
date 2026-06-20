@@ -118,7 +118,7 @@ function ContactForm() {
                       onClick={() => setPriority(p)}
                       className={`h-9 px-4 rounded-btn border text-sm font-medium transition-colors ${
                         on
-                          ? "bg-surface-pink text-pink border-[#FF0A78]"
+                          ? "bg-brand-primary-light text-brand-primary border-brand-primary"
                           : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
                       }`}
                     >

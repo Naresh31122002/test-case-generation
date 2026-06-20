@@ -290,7 +290,7 @@ function MultiSelect({
         onClick={() => setOpen((v) => !v)}
         className={`h-9 px-3 inline-flex items-center gap-1.5 rounded-btn border text-sm font-medium transition-colors ${
           active
-            ? "bg-surface-pink text-pink border-[#FF0A78]"
+            ? "bg-brand-primary-light text-brand-primary border-brand-primary"
             : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
         }`}
       >
@@ -458,7 +458,7 @@ function UpdatedSelect({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`h-9 px-3 inline-flex items-center gap-1.5 rounded-btn border text-sm font-medium transition-colors ${
-          value ? "bg-surface-pink text-pink border-[#FF0A78]" : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
+          value ? "bg-brand-primary-light text-brand-primary border-brand-primary" : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
         }`}
       >
         {current ? current.label : "Updated Date"}
@@ -734,7 +734,7 @@ function KanbanColumn({
 
       <div
         className={`flex-1 min-h-[400px] rounded-b-lg border p-2.5 space-y-2.5 overflow-y-auto transition-colors ${col.border} ${
-          isOver ? "bg-surface-pink/40 ring-2 ring-inset ring-[#FF0A78]/40" : "bg-gray-50/60"
+          isOver ? "bg-brand-primary-light/40 ring-2 ring-inset ring-brand-primary/40" : "bg-gray-50/60"
         }`}
       >
         <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>

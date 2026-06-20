@@ -44,7 +44,7 @@ export default function OnboardingIntroPage() {
         className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8"
       >
         <div className="text-center mb-6">
-          <span className="text-2xl font-bold" style={{ color: "#FF0A78" }}>
+          <span className="text-2xl font-bold" style={{ color: "var(--color-brand-primary)" }}>
             You&apos;re all set 🎉
           </span>
           <p className="text-sm text-gray-500 mt-2">Here&apos;s how teams get value from TestSurge.</p>
@@ -80,7 +80,7 @@ export default function OnboardingIntroPage() {
           type="button"
           onClick={finish}
           className="w-full py-2.5 text-sm font-semibold text-white rounded-lg transition-colors inline-flex items-center justify-center gap-2"
-          style={{ backgroundColor: "#FF0A78" }}
+          style={{ backgroundColor: "var(--color-brand-primary)" }}
         >
           Go to dashboard <ArrowRight size={16} />
         </button>

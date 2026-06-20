@@ -455,7 +455,7 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
                   onClick={() => setFormat(f)}
                   className={`flex items-center gap-2.5 px-3 py-3 rounded-card border text-left transition-colors ${
                     on
-                      ? "border-[#FF0A78] bg-surface-pink/40"
+                      ? "border-brand-primary bg-brand-primary-light/40"
                       : "border-border hover:border-pink hover:bg-gray-50"
                   }`}
                 >

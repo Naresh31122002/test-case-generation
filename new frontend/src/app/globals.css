@@ -10,12 +10,21 @@
   --color-navy: #0F172A;
   --color-muted: #64748B;
   --color-border: #E2E8F0;
-  --color-pink: #FF0A78;
+
+  /* Brand pink — sourced from portfolio/src/app/globals.css (--color-secondary).
+     This is the single source of truth; do not redefine the hex elsewhere. */
+  --color-brand-primary: #FF3B6B;
+  --color-brand-primary-hover: #E62D5C;
+  --color-brand-primary-light: #FFF0F7;
+
+  /* Back-compat aliases — same value as --color-brand-primary. */
+  --color-pink: var(--color-brand-primary);
+  --color-surface-pink: var(--color-brand-primary-light);
+
   --color-cyan: #06B6D4;
   --color-success: #10B981;
   --color-warning: #F59E0B;
   --color-error: #EF4444;
-  --color-surface-pink: #FFF0F7;
   --color-surface-cyan: #ECFEFF;
 }
 

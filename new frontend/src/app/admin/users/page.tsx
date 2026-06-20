@@ -40,6 +40,9 @@ export default function AdminUsersPage() {
               <tr className="border-b border-gray-800 text-xs text-gray-400 uppercase tracking-wide">
                 <th className="text-left px-5 py-3">Email</th>
                 <th className="text-left px-5 py-3">Verified</th>
+                <th className="text-left px-5 py-3">Organization</th>
+                <th className="text-left px-5 py-3">Job Title</th>
+                <th className="text-left px-5 py-3">Referral Source</th>
                 <th className="text-left px-5 py-3">Last Login</th>
                 <th className="text-left px-5 py-3">Joined</th>
               </tr>
@@ -53,12 +56,15 @@ export default function AdminUsersPage() {
                       ? <CheckCircle2 size={15} className="text-green-400" />
                       : <XCircle size={15} className="text-gray-600" />}
                   </td>
+                  <td className="px-5 py-3 text-gray-400">{u.org_name || "—"}</td>
+                  <td className="px-5 py-3 text-gray-400">{u.job_title || "—"}</td>
+                  <td className="px-5 py-3 text-gray-400">{u.referral_source || "—"}</td>
                   <td className="px-5 py-3 text-gray-400">{u.last_login ? new Date(u.last_login).toLocaleDateString() : "—"}</td>
                   <td className="px-5 py-3 text-gray-400">{u.created_on ? new Date(u.created_on).toLocaleDateString() : "—"}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-500">No users found</td></tr>
+                <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-500">No users found</td></tr>
               )}
             </tbody>
           </table>

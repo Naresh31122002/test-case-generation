@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
+import { usePathname, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   BookOpen,
@@ -13,27 +13,49 @@ import {
   GitCompare,
   Download,
   Settings,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  PlayCircle,
+  ChevronUp,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
+import { useProductTour } from "@/contexts/ProductTourContext";
 
 const navItems = [
-  { label: "Stories", icon: BookOpen, href: "/stories" },
-  { label: "Changes", icon: GitPullRequest, href: "/changes" },
-  { label: "Coverage", icon: PieChart, href: "/coverage" },
-  { label: "Compare", icon: GitCompare, href: "/compare" },
-  { label: "Exports", icon: Download, href: "/exports" },
+  { label: "Stories", icon: BookOpen, href: "/stories", tourId: "nav-stories" },
+  { label: "Changes", icon: GitPullRequest, href: "/changes", tourId: "nav-changes" },
+  { label: "Coverage", icon: PieChart, href: "/coverage", tourId: "nav-coverage" },
+  { label: "Compare", icon: GitCompare, href: "/compare", tourId: "nav-compare" },
+  { label: "Exports", icon: Download, href: "/exports", tourId: "nav-exports" },
 ];
 
 const STORAGE_KEY = "testsurge:sidebar-pinned";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, signOut } = useAuth();
+  const { startTour } = useProductTour();
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handle(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [menuOpen]);
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
 
   useEffect(() => {
     try {
@@ -116,12 +138,12 @@ export function Sidebar() {
               pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
             return (
-              <li key={item.href} className="relative">
+              <li key={item.href} className="relative" data-tour={item.tourId}>
                 {isActive && (
                   <motion.div
                     layoutId="sidebar-active"
                     className="absolute inset-0 bg-surface-pink rounded-lg"
-                    style={{ borderLeft: "3px solid #FF0A78" }}
+                    style={{ borderLeft: "3px solid var(--color-brand-primary)" }}
                     transition={spring.snappy}
                   />
                 )}
@@ -140,7 +162,7 @@ export function Sidebar() {
                     className={`flex-shrink-0 ${isActive ? "text-pink" : ""}`}
                     style={
                       isActive
-                        ? { transform: "scale(1.05)", color: "#FF0A78" }
+                        ? { transform: "scale(1.05)", color: "var(--color-brand-primary)" }
                         : {}
                     }
                   />
@@ -163,31 +185,70 @@ export function Sidebar() {
         <WorkspaceSwitcher collapsed={!expanded} />
       </div>
 
-      {/* Footer: user profile + Settings entry point */}
-      <div className="px-4 py-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-          {user?.email ? user.email.slice(0, 2).toUpperCase() : "?"}
-        </div>
-        <motion.div
-          animate={{ opacity: expanded ? 1 : 0 }}
-          transition={{ duration: 0.15 }}
-          className="flex-1 min-w-0 overflow-hidden"
+      {/* Footer: user profile menu (Product Tour, Settings, Sign out) */}
+      <div ref={menuRef} className="relative px-4 py-4">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-full flex items-center gap-3 text-left"
         >
-          <p className="text-sm font-medium text-navy truncate">{user?.email?.split("@")[0] ?? "User"}</p>
-          <p className="text-[11px] text-muted truncate">{user?.email ?? ""}</p>
-        </motion.div>
-        <Link
-          href="/settings"
-          title="Settings"
-          className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-            settingsActive
-              ? "bg-surface-pink text-pink"
-              : "text-muted hover:text-navy hover:bg-gray-50"
-          }`}
-          style={{ opacity: expanded ? 1 : 0, pointerEvents: expanded ? "auto" : "none" }}
-        >
-          <Settings size={17} />
-        </Link>
+          <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {user?.email ? user.email.slice(0, 2).toUpperCase() : "?"}
+          </div>
+          <motion.div
+            animate={{ opacity: expanded ? 1 : 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex-1 min-w-0 overflow-hidden"
+          >
+            <p className="text-sm font-medium text-navy truncate">{user?.email?.split("@")[0] ?? "User"}</p>
+            <p className="text-[11px] text-muted truncate">{user?.email ?? ""}</p>
+          </motion.div>
+          <ChevronUp
+            size={14}
+            className={`flex-shrink-0 text-muted transition-transform ${menuOpen ? "" : "rotate-180"}`}
+            style={{ opacity: expanded ? 1 : 0 }}
+          />
+        </button>
+
+        <AnimatePresence>
+          {menuOpen && expanded && (
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              className="absolute left-3 right-3 bottom-full mb-2 bg-white border border-border rounded-card shadow-card overflow-hidden z-50"
+            >
+              <button
+                type="button"
+                onClick={() => { setMenuOpen(false); startTour(); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-navy hover:bg-gray-50 transition-colors"
+              >
+                <PlayCircle size={16} className="text-muted" />
+                Product Tour
+              </button>
+              <Link
+                href="/settings"
+                onClick={() => setMenuOpen(false)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
+                  settingsActive ? "text-pink bg-surface-pink" : "text-navy hover:bg-gray-50"
+                }`}
+              >
+                <Settings size={16} className={settingsActive ? "text-pink" : "text-muted"} />
+                Settings
+              </Link>
+              <div className="border-t border-border" />
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-navy hover:bg-gray-50 transition-colors"
+              >
+                <LogOut size={16} className="text-muted" />
+                Sign out
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.aside>
   );

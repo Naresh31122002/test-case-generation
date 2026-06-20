@@ -17,6 +17,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -31,11 +32,16 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { get as apiGet } from "@/lib/apiClient";
 
 /* ───────────────────────── Credit ledger ───────────────────────── */
+//
+// Real per-workspace usage, fetched from GET /api/workspaces/current/credits
+// (backed by CreditsModel / workspace_credits table). Starts at a sane
+// default and refreshes after every AI action so the indicator never shows
+// another tenant's numbers or a stale hardcoded constant.
 
-const CREDITS_TOTAL = 1000;
-const CREDITS_USED_INITIAL = 742;
+const FALLBACK_CREDITS_TOTAL = 50;
 
 /** Canonical cost catalog — single source of truth for AI action pricing. */
 export const AI_ACTION_COSTS = {
@@ -81,15 +87,34 @@ const AIActionContext = createContext<AIActionContextValue | null>(null);
 
 type Phase = "idle" | "loading" | "error";
 
+interface CreditUsageResponse {
+  credits: { limit: number; used: number; remaining: number };
+}
+
 export function AIActionProvider({ children }: { children: ReactNode }) {
-  const [creditsUsed, setCreditsUsed] = useState(CREDITS_USED_INITIAL);
+  const [creditsUsed, setCreditsUsed] = useState(0);
+  const [creditsTotal, setCreditsTotal] = useState(FALLBACK_CREDITS_TOTAL);
   const [pending, setPending] = useState<AIActionConfig | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(0);
 
-  const creditsRemaining = CREDITS_TOTAL - creditsUsed;
+  const refreshCredits = useCallback(async () => {
+    try {
+      const data = await apiGet<CreditUsageResponse>("/workspaces/current/credits");
+      setCreditsUsed(data.credits.used);
+      setCreditsTotal(data.credits.limit);
+    } catch {
+      // Best-effort — keep last known values (or the fallback) on failure.
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCredits();
+  }, [refreshCredits]);
+
+  const creditsRemaining = creditsTotal - creditsUsed;
 
   const notify = useCallback((toast: Omit<Toast, "id">) => {
     const id = `t-${idRef.current++}`;
@@ -122,28 +147,30 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
     setError("");
     try {
       await pending.run();
-      // Deduct credits and surface the result.
+      // The backend already deducted real credits during pending.run() (via
+      // CreditsModel.check_and_deduct_credit) — refetch rather than guess
+      // locally, so the indicator always reflects the true workspace balance.
+      await refreshCredits();
+      const completedName = pending.name;
       const consumed = pending.credits;
-      const remainingAfter = CREDITS_TOTAL - (creditsUsed + consumed);
-      setCreditsUsed((u) => u + consumed);
       setPending(null);
       setPhase("idle");
       notify({
         variant: "success",
-        title: `${pending.name} complete`,
-        detail: `${consumed} credits consumed · ${remainingAfter} remaining`,
+        title: `${completedName} complete`,
+        detail: `~${consumed} credits consumed`,
       });
     } catch (err) {
       setError((err as Error)?.message || "Something went wrong. Please try again.");
       setPhase("error");
     }
-  }, [pending, creditsUsed, notify]);
+  }, [pending, refreshCredits, notify]);
 
   return (
     <AIActionContext.Provider
       value={{
         creditsUsed,
-        creditsTotal: CREDITS_TOTAL,
+        creditsTotal,
         creditsRemaining,
         runAIAction,
         notify,
@@ -235,7 +262,7 @@ function ConfirmModal({
           <p className="text-sm text-muted">{config.description}</p>
 
           {/* Estimated credits */}
-          <div className="flex items-center justify-between p-3 rounded-card bg-surface-pink/40 border border-[#FF0A78]">
+          <div className="flex items-center justify-between p-3 rounded-card bg-brand-primary-light/40 border border-brand-primary">
             <div className="flex items-center gap-2 text-sm font-medium text-navy">
               <Zap size={15} className="text-pink" />
               Estimated cost
