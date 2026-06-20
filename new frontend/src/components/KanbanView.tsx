@@ -186,17 +186,19 @@ function useClickOutside<T extends HTMLElement>(onClose: () => void) {
 
 /* ─────────────────────── Columns / status ─────────────────────── */
 
-type ColId = "review" | "progress" | "completed";
+type ColId = "review" | "progress" | "completed" | "rejected";
 
 const STATUS_TO_COL: Record<TestStatus, ColId> = {
   Pending: "review",
   Regenerating: "progress",
   Approved: "completed",
+  Rejected: "rejected",
 };
 const COL_TO_STATUS: Record<ColId, TestStatus> = {
   review: "Pending",
   progress: "Regenerating",
   completed: "Approved",
+  rejected: "Rejected",
 };
 
 interface Col {
@@ -214,6 +216,7 @@ const COLUMNS: Col[] = [
   { id: "review",    label: "In Review",   accent: "text-[#1E40AF]", bg: "bg-[#EFF6FF]", border: "border-[#93C5FD]", dot: "#93C5FD", countBg: "bg-[#DBEAFE]", countText: "text-[#1E40AF]" },
   { id: "progress",  label: "In Progress", accent: "text-[#92400E]", bg: "bg-[#FFFBEB]", border: "border-[#FCD34D]", dot: "#F59E0B", countBg: "bg-[#FEF3C7]", countText: "text-[#92400E]" },
   { id: "completed", label: "Completed",   accent: "text-[#065F46]", bg: "bg-[#ECFDF5]", border: "border-[#6EE7B7]", dot: "#10B981", countBg: "bg-[#D1FAE5]", countText: "text-[#065F46]" },
+  { id: "rejected",  label: "Rejected",    accent: "text-[#991B1B]", bg: "bg-[#FEF2F2]", border: "border-[#FCA5A5]", dot: "#EF4444", countBg: "bg-[#FEE2E2]", countText: "text-[#991B1B]" },
 ];
 
 const typeColor: Record<string, string> = {
