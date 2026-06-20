@@ -137,15 +137,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
     // Still 401 after one refresh attempt — clear cookies and force login
     if (res.status === 401) {
-      // Hit the logout endpoint to clear HttpOnly cookies server-side,
-      // then do a full page reload to /login so the middleware lets us through.
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-      // Same cleanup as lib/auth.ts logout() — imported lazily to avoid a
-      // module cycle (auth.ts doesn't depend on apiClient.ts, but keeping the
-      // dependency one-directional here is cheap insurance).
-      const { clearWorkspaceState } = await import('./auth')
-      clearWorkspaceState()
-      window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname)
+      // Only redirect once — prevent infinite loops if we're already on the login page
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
+        window.location.href = basePath + '/login'
+      }
       throw new ApiError(401, { error: 'Session expired' })
     }
   }

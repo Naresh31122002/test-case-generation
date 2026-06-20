@@ -39,6 +39,7 @@ services:
     environment:
       BACKEND_URL: http://backend:5000
       NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://testsurge.kynetropo.com/app}
+      NEXT_PUBLIC_BASE_PATH: /app
     restart: unless-stopped
 
   portfolio:
