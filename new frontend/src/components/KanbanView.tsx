@@ -190,7 +190,6 @@ type ColId = "review" | "progress" | "completed";
 
 const STATUS_TO_COL: Record<TestStatus, ColId> = {
   Pending: "review",
-  Rejected: "review",
   Regenerating: "progress",
   Approved: "completed",
 };
