@@ -137,11 +137,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
     // Still 401 after one refresh attempt — clear cookies and force login
     if (res.status === 401) {
-      // Only redirect once — prevent infinite loops if we're already on the login page
+      // Only redirect once — prevent infinite loops if already on login page
       if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-        const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
-        window.location.href = basePath + '/login'
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+        const loginPath = appUrl ? `${appUrl}/login` : '/login'
+        window.location.href = loginPath
       }
       throw new ApiError(401, { error: 'Session expired' })
     }
