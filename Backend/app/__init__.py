@@ -105,11 +105,14 @@ def create_app():
             '*.kynetropo.com'
         ]
     }
-    Talisman(app, 
-             force_https=is_production, 
+    Talisman(app,
+             force_https=is_production,
+             force_https_permanent=False,
              content_security_policy=csp,
              session_cookie_secure=is_production,
-             strict_transport_security=is_production)
+             strict_transport_security=is_production,
+             # Health check is called internally over HTTP — don't redirect it
+             exempt_views=["health_check"])
 
     # Configure app
     app.config.from_object(Config)

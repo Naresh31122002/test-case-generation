@@ -135,7 +135,8 @@ class Config:
                     password=cls.POSTGRES_PASSWORD,
                     host=cls.POSTGRES_HOST,
                     port=cls.POSTGRES_PORT,
-                    sslmode='require',
+                    # Use SSL for Neon/cloud Postgres; disable for local Docker Postgres
+                    sslmode='require' if cls.POSTGRES_HOST not in ('postgres', 'localhost', '127.0.0.1') else 'disable',
                     connect_timeout=10,
                 )
             except Exception as e:
