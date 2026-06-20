@@ -117,15 +117,35 @@ def create_app():
     db_service = get_db_service()
     app.config['DB_SERVICE'] = db_service
 
-    # Run idempotent schema migrations on every startup so new columns/tables
-    # (email_verified, auth_tokens, workspaces, workspace_members, etc.) are
-    # always present without a separate manual migration step.
+    # Run idempotent schema migrations on every startup
     try:
         from app.models.create_dbs import create_postgres_db
         create_postgres_db()
     except Exception as _schema_err:
         import sys
         print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
+
+    # Ensure LanceDB table exists and has workspace_id column
+    try:
+        from app.models.create_dbs import create_LanceDB
+        import lancedb as _lancedb
+        from app.config import Config as _Cfg
+        _db = _lancedb.connect(_Cfg.LANCE_DB_PATH)
+        if _Cfg.TABLE_NAME_LANCE not in _db.table_names():
+            create_LanceDB()
+            print("✅ LanceDB table created with workspace_id column.")
+        else:
+            # Check if workspace_id column exists, add if missing
+            _t = _db.open_table(_Cfg.TABLE_NAME_LANCE)
+            if 'workspace_id' not in _t.schema.names:
+                import pandas as _pd
+                _df = _t.to_pandas()
+                _df['workspace_id'] = ''
+                _db.drop_table(_Cfg.TABLE_NAME_LANCE)
+                _db.create_table(_Cfg.TABLE_NAME_LANCE, _df)
+                print("✅ LanceDB migrated: workspace_id column added.")
+    except Exception as _lance_err:
+        print(f"WARNING: LanceDB migration failed: {_lance_err}")
 
     # Register blueprints
     from app.routes.auth import auth_bp

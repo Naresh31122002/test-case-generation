@@ -57,6 +57,19 @@ class WorkspaceModel:
                 """,
                 (workspace_id, owner_id),
             )
+
+            # Auto-provision credits row for the new workspace
+            from datetime import datetime, timedelta
+            reset_date = datetime.utcnow() + timedelta(days=30)
+            cursor.execute(
+                """
+                INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used, reset_date)
+                VALUES (%s, 50, 0, %s)
+                ON CONFLICT (workspace_id) DO NOTHING
+                """,
+                (workspace_id, reset_date),
+            )
+
             conn.commit()
             return {
                 "id": workspace_id,
