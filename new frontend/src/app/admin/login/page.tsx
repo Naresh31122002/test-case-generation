@@ -18,7 +18,8 @@ export default function AdminLoginPage() {
     try {
       const { access_token } = await adminApi.login(email, password);
       localStorage.setItem("admin_token", access_token);
-      window.location.href = "/admin";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+      window.location.href = appUrl ? `${appUrl}/admin` : '/admin';
     } catch (err: any) {
       setError(err?.message ?? "Invalid credentials");
     } finally {
