@@ -29,11 +29,11 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
     const search = req.nextUrl.search ?? ''
     const url = `${BACKEND}/api/${path}${search}`
 
-    // Build forwarded headers — keep everything except host
+    // Build forwarded headers — strip hop-by-hop headers that must not be forwarded
+    const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'upgrade', 'proxy-authorization', 'proxy-authenticate', 'trailer', 'host'])
     const headers = new Headers()
     req.headers.forEach((value, key) => {
-      const k = key.toLowerCase()
-      if (k !== 'host') headers.set(key, value)
+      if (!HOP_BY_HOP.has(key.toLowerCase())) headers.set(key, value)
     })
 
     // Read body — pass raw bytes for all body types to avoid re-serialization issues
