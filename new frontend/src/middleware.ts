@@ -16,6 +16,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const ACCESS_COOKIE = "access_token_cookie";
 const REFRESH_COOKIE = "refresh_token_cookie";
+const APP_BASE_PATH = "/app";
 
 // Routes that make up the auth journey — reachable while logged OUT.
 const AUTH_ROUTES = [
@@ -41,8 +42,23 @@ function isAuthRoute(pathname: string): boolean {
   return AUTH_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/"));
 }
 
+function withBasePath(path: string): string {
+  if (path === APP_BASE_PATH || path.startsWith(`${APP_BASE_PATH}/`)) return path;
+  if (path === "/") return APP_BASE_PATH;
+  return `${APP_BASE_PATH}${path}`;
+}
+
+function stripBasePath(pathname: string): string {
+  if (pathname === APP_BASE_PATH) return "/";
+  if (pathname.startsWith(`${APP_BASE_PATH}/`)) {
+    return pathname.slice(APP_BASE_PATH.length) || "/";
+  }
+  return pathname;
+}
+
 export function middleware(req: NextRequest) {
-  const { pathname, search } = req.nextUrl;
+  const { search } = req.nextUrl;
+  const pathname = stripBasePath(req.nextUrl.pathname);
 
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
@@ -57,13 +73,13 @@ export function middleware(req: NextRequest) {
   // Logged-in users shouldn't see login/signup — send them to the app. But let
   // them reach /verify-email (they're authenticated when clicking the link).
   if (authed && onAuthRoute && !allowedWhenAuthed) {
-    return NextResponse.redirect(new URL("/stories", req.url));
+    return NextResponse.redirect(new URL(withBasePath("/stories"), req.url));
   }
 
   // Logged-out users hitting a protected (non-auth) route → login with return path.
   if (!authed && !onAuthRoute) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("next", pathname + search);
+    const loginUrl = new URL(withBasePath("/login"), req.url);
+    loginUrl.searchParams.set("next", withBasePath(pathname + search));
     return NextResponse.redirect(loginUrl);
   }
 
@@ -71,5 +87,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:png|jpg|jpeg|svg|ico|webmanifest)$).*)"],
+  matcher: ["/((?!(?:app/)?_next/static|(?:app/)?_next/image|favicon.ico|(?:app/)?api/|.*\\.(?:png|jpg|jpeg|svg|ico|webmanifest)$).*)"],
 };

@@ -1,70 +1,160 @@
-version: "3.8"
-
 services:
-  nginx:
-    image: nginx:alpine
+  caddy:
+    profiles: ["manual"]
+    image: caddy:2-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      nginx:
+        condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    expose:
+      - "80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - frontend
-      - backend
+      app_frontend:
+        condition: service_started
+      portfolio:
+        condition: service_started
+      backend:
+        condition: service_healthy
 
-  frontend:
+  app_frontend:
     build:
-      context: ../test-case-generation
+      context: ./new frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time. Set in .env.production.
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+    environment:
+      BACKEND_URL: http://backend:5000
+      NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://testsurge.kynetropo.com/app}
+    restart: unless-stopped
+
+  portfolio:
+    build:
+      context: ./portfolio
       dockerfile: Dockerfile
     environment:
-      - NEXT_PUBLIC_API_URL=/api
-    restart: always
+      NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://testsurge.kynetropo.com/app}
+    restart: unless-stopped
 
   backend:
     build:
       context: ./Backend
       dockerfile: Dockerfile
     environment:
-      - FLASK_ENV=production
+      FLASK_ENV: production
+      FORCE_HTTPS: ${FORCE_HTTPS:-0}
+      FRONTEND_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      APP_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-test_case_gen}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_SSLMODE: disable
+      LANCE_DB_PATH: /app/data/lance_db
+      UPLOAD_FOLDER: /app/data/uploaded_docs
+      SUCCESS_FOLDER: /app/data/success
+      FAILURE_FOLDER: /app/data/failure
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
     volumes:
-      - lancedb_data:/app/lancedb_data
+      - app_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=5).read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   celery_worker:
     build:
       context: ./Backend
       dockerfile: Dockerfile
     command: ["celery", "-A", "celery_app.celery", "worker", "--loglevel=info"]
+    environment:
+      FLASK_ENV: production
+      FORCE_HTTPS: ${FORCE_HTTPS:-0}
+      FRONTEND_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      APP_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-test_case_gen}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_SSLMODE: disable
+      LANCE_DB_PATH: /app/data/lance_db
+      UPLOAD_FOLDER: /app/data/uploaded_docs
+      SUCCESS_FOLDER: /app/data/success
+      FAILURE_FOLDER: /app/data/failure
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
     volumes:
-      - lancedb_data:/app/lancedb_data
+      - app_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
 
   celery_beat:
     build:
       context: ./Backend
       dockerfile: Dockerfile
     command: ["celery", "-A", "celery_app.celery", "beat", "--loglevel=info"]
+    environment:
+      FLASK_ENV: production
+      FORCE_HTTPS: ${FORCE_HTTPS:-0}
+      FRONTEND_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      APP_URL: ${FRONTEND_ORIGIN:-https://testsurge.kynetropo.com}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-test_case_gen}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_SSLMODE: disable
+      LANCE_DB_PATH: /app/data/lance_db
+      UPLOAD_FOLDER: /app/data/uploaded_docs
+      SUCCESS_FOLDER: /app/data/success
+      FAILURE_FOLDER: /app/data/failure
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
+    volumes:
+      - app_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
 
   postgres:
     image: postgres:15-alpine
@@ -79,7 +169,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -88,8 +178,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
 volumes:
   pg_data:
-  lancedb_data:
+  app_data:
+  caddy_data:
+  caddy_config:

@@ -11,6 +11,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+!new frontend/src/lib/
+!new frontend/src/lib/**
+!portfolio/src/lib/
+!portfolio/src/lib/**
 lib64/
 parts/
 sdist/
@@ -74,6 +78,8 @@ yarn-error.log*
 
 # Project specific
 Backend/.env
+# Holds the SMTP/mailbox password — must never be committed.
+data.txt
 Backend/data/lance_db/*
 Backend/data/uploaded_docs/*
 Backend/data/success/*

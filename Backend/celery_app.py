@@ -21,10 +21,6 @@ def make_celery(app=None):
 
     celery.Task = ContextTask
 
-    # Register tasks by importing them
-    import app.tasks.email_tasks
-    import app.tasks.scheduler
-    
     # Configure Celery Beat schedule
     celery.conf.beat_schedule = {
         'run-pipeline-every-5-minutes': {
@@ -33,7 +29,14 @@ def make_celery(app=None):
         },
     }
     celery.conf.timezone = 'UTC'
-    
+
     return celery
 
 celery = make_celery()
+
+# Register task modules AFTER `celery` is bound at module scope. Each task module
+# does `from celery_app import celery`; importing them here (instead of inside
+# make_celery(), which runs before `celery` is assigned) avoids the circular
+# import: "cannot import name 'celery' from partially initialized module".
+import app.tasks.email_tasks   # noqa: E402,F401
+import app.tasks.scheduler     # noqa: E402,F401

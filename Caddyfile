@@ -1,0 +1,7 @@
+testsurge.kynetropo.com www.testsurge.kynetropo.com {
+	reverse_proxy nginx:80
+}
+
+app.kynetropo.com {
+	reverse_proxy saas-erp-web-1:80
+}
