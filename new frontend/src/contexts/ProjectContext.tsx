@@ -109,12 +109,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
             return;
           }
         }
-      } catch { /* backend unreachable */ }
-
-      // Fallback to sample projects if backend is down
-      if (!cancelled) {
-        setAllProjects(sampleProjects);
+      } catch {
+        // Backend unreachable — fall back to sample projects for demo
+        if (!cancelled) setAllProjects(sampleProjects);
+        if (typeof window !== 'undefined') (window as any).__DEMO_MODE__ = true;
       }
+
+      // If backend was reachable but returned no projects, show empty state (new user)
+      // Don't set sample projects — let them create their first project
     }
 
     loadProjects().finally(() => { if (!cancelled) setReady(true); });
