@@ -14,7 +14,7 @@ import {
   sampleProjects,
   createProject as makeProject,
 } from "@/lib/projects";
-import { get as apiGet } from "@/lib/apiClient";
+import { get as apiGet, ApiError } from "@/lib/apiClient";
 
 interface ProjectContextValue {
   selectedProject: Project | null;
@@ -26,6 +26,10 @@ interface ProjectContextValue {
   hasProjects: boolean;
   /** True until localStorage has been read (avoids hydration flash). */
   ready: boolean;
+  /** Set when the backend project fetch failed (after the 403 retry, if any). Null when load succeeded. */
+  loadError: string | null;
+  /** Re-runs the backend project fetch (e.g. from an error-state "Retry" button). */
+  reloadProjects: () => void;
   selectProject: (id: string) => void;
   createProject: (name: string, description: string, domain?: string) => Project;
   importSampleProjects: () => void;
@@ -41,18 +45,62 @@ const LS_PROJECTS = "testsurge:projects";
 const LS_SELECTED = "testsurge:selected-project";
 const LS_RECENT = "testsurge:recent-projects";
 
+function describeLoadError(err: unknown): string {
+  if (err instanceof ApiError) {
+    return err.message || `Failed to load projects (HTTP ${err.status}).`;
+  }
+  return "Could not reach the server. Check your connection and try again.";
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const reloadProjects = useCallback(() => setReloadToken((n) => n + 1), []);
 
   // Always fetch real projects from backend on mount — never use cached project list.
   // Only persist the selected project ID and recent IDs.
   useEffect(() => {
     let cancelled = false;
 
+    async function fetchProjects() {
+      const [projectsData, storiesData] = await Promise.all([
+        apiGet<{ projects?: string[] }>("/api/stories/projects"),
+        apiGet<{ stories?: any[] }>("/api/stories/?page=1&per_page=200&sort_order=desc"),
+      ]);
+      const projectIds: string[] = projectsData.projects ?? [];
+      const stories = storiesData.stories ?? [];
+
+      const realProjects: Project[] = projectIds.map((pid) => {
+        const projectStories = stories.filter((s: any) => s.project_id === pid);
+        const testCount = projectStories.reduce((sum: number, s: any) => sum + (Number(s.test_case_count) || 0), 0);
+        const name = pid
+          .split(/[-_\s]+/)
+          .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+        return {
+          id: pid,
+          name,
+          description: `${projectStories.length} ${projectStories.length === 1 ? "story" : "stories"}`,
+          domain: "",
+          createdAt: new Date().toISOString().slice(0, 10),
+          updatedAt: new Date().toISOString().slice(0, 10),
+          storyCount: projectStories.length,
+          testCount,
+          storyIds: projectStories.map((s: any) => s.id),
+        } as Project;
+      });
+
+      return realProjects;
+    }
+
     async function loadProjects() {
+      setLoadError(null);
+
       // Restore selected project immediately from localStorage
       try {
         const rawSelected = localStorage.getItem(LS_SELECTED);
@@ -66,62 +114,61 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
       // Fetch real projects from backend (via apiClient: workspace header + 401-refresh-retry)
       try {
-        const [projectsData, storiesData] = await Promise.all([
-          apiGet<{ projects?: string[] }>("/stories/projects"),
-          apiGet<{ stories?: any[] }>("/stories/?page=1&per_page=200&sort_order=desc"),
-        ]);
+        const realProjects = await fetchProjects();
+        if (cancelled) return;
 
-        if (!cancelled) {
-          const projectIds: string[] = projectsData.projects ?? [];
-          const stories = storiesData.stories ?? [];
+        setAllProjects(realProjects);
 
-          if (projectIds.length > 0) {
-            const realProjects: Project[] = projectIds.map((pid) => {
-              const projectStories = stories.filter((s: any) => s.project_id === pid);
-              const testCount = projectStories.reduce((sum: number, s: any) => sum + (Number(s.test_case_count) || 0), 0);
-              const name = pid
-                .split(/[-_\s]+/)
-                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(" ");
-              return {
-                id: pid,
-                name,
-                description: `${projectStories.length} ${projectStories.length === 1 ? "story" : "stories"}`,
-                domain: "",
-                createdAt: new Date().toISOString().slice(0, 10),
-                updatedAt: new Date().toISOString().slice(0, 10),
-                storyCount: projectStories.length,
-                testCount,
-                storyIds: projectStories.map((s: any) => s.id),
-              } as Project;
-            });
-
-            setAllProjects(realProjects);
-
-            // If saved selection doesn't match any real project, auto-select first
-            const saved = localStorage.getItem(LS_SELECTED);
-            if (!saved || !realProjects.find((p) => p.id === saved)) {
-              const firstId = realProjects[0].id;
-              setSelectedId(firstId);
-              localStorage.setItem(LS_SELECTED, firstId);
-              localStorage.setItem("activeProject", firstId);
+        if (realProjects.length > 0) {
+          // If saved selection doesn't match any real project, auto-select first
+          const saved = localStorage.getItem(LS_SELECTED);
+          if (!saved || !realProjects.find((p) => p.id === saved)) {
+            const firstId = realProjects[0].id;
+            setSelectedId(firstId);
+            localStorage.setItem(LS_SELECTED, firstId);
+            localStorage.setItem("activeProject", firstId);
+          }
+        }
+        // If backend was reachable but returned no projects, show empty state (new user) —
+        // never substitute fake demo projects.
+      } catch (err) {
+        // A stale/cross-tenant X-Workspace-Id (e.g. left over from a previous user on a
+        // shared browser) is rejected by the backend with 403. Clear it and retry once
+        // with no workspace header — the backend then falls back to the JWT claim / the
+        // user's own default workspace. Never show fake projects on this path.
+        if (err instanceof ApiError && err.status === 403) {
+          try { localStorage.removeItem("activeWorkspaceId"); } catch {}
+          try {
+            const retried = await fetchProjects();
+            if (cancelled) return;
+            setAllProjects(retried);
+            if (retried.length > 0) {
+              const saved = localStorage.getItem(LS_SELECTED);
+              if (!saved || !retried.find((p) => p.id === saved)) {
+                const firstId = retried[0].id;
+                setSelectedId(firstId);
+                localStorage.setItem(LS_SELECTED, firstId);
+                localStorage.setItem("activeProject", firstId);
+              }
             }
+            return;
+          } catch (retryErr) {
+            if (cancelled) return;
+            setAllProjects([]);
+            setLoadError(describeLoadError(retryErr));
             return;
           }
         }
-      } catch {
-        // Backend unreachable — fall back to sample projects for demo
-        if (!cancelled) setAllProjects(sampleProjects);
-        if (typeof window !== 'undefined') (window as any).__DEMO_MODE__ = true;
-      }
 
-      // If backend was reachable but returned no projects, show empty state (new user)
-      // Don't set sample projects — let them create their first project
+        if (cancelled) return;
+        setAllProjects([]);
+        setLoadError(describeLoadError(err));
+      }
     }
 
     loadProjects().finally(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadToken]);
 
   // Only persist selected project ID and recents — never the project list (always fetched from DB)
   useEffect(() => {
@@ -176,6 +223,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setAllProjects((prev) => [project, ...prev]);
       setSelectedId(project.id);
       pushRecent(project.id);
+      // Keep localStorage.activeProject in sync so the upload flow (which reads
+      // it directly) targets the newly created project, not a stale "default".
+      try { localStorage.setItem("activeProject", project.id); } catch {}
       return project;
     },
     [pushRecent]
@@ -191,6 +241,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (first) {
       setSelectedId(first.id);
       pushRecent(first.id);
+      try { localStorage.setItem("activeProject", first.id); } catch {}
     }
   }, [pushRecent]);
 
@@ -260,6 +311,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       recentProjects,
       hasProjects: projectList.length > 0,
       ready,
+      loadError,
+      reloadProjects,
       selectProject,
       createProject,
       importSampleProjects,
@@ -274,6 +327,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       archivedProjects,
       recentProjects,
       ready,
+      loadError,
+      reloadProjects,
       selectProject,
       createProject,
       importSampleProjects,

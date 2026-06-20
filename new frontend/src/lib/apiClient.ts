@@ -140,6 +140,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // Hit the logout endpoint to clear HttpOnly cookies server-side,
       // then do a full page reload to /login so the middleware lets us through.
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+      // Same cleanup as lib/auth.ts logout() — imported lazily to avoid a
+      // module cycle (auth.ts doesn't depend on apiClient.ts, but keeping the
+      // dependency one-directional here is cheap insurance).
+      const { clearWorkspaceState } = await import('./auth')
+      clearWorkspaceState()
       window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname)
       throw new ApiError(401, { error: 'Session expired' })
     }
@@ -182,4 +187,9 @@ export function upload<T>(path: string, formData: FormData): Promise<T> {
     body: formData,
     isMultipart: true,
   })
+}
+
+/** Sends a DELETE request and returns the JSON body typed as T. */
+export function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' })
 }

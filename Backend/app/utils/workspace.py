@@ -29,7 +29,22 @@ _DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
 WORKSPACE_HEADER = "X-Workspace-Id"
 
 
+def _is_production() -> bool:
+    """Same default direction as app/__init__.py: an unset/missing FLASK_ENV is
+    treated as production, not development. Fail toward the safer state."""
+    return os.getenv("FLASK_ENV", "production") == "production"
+
+
 def _is_bypass() -> bool:
+    """DEV_BYPASS_AUTH=1 only takes effect outside production. This check is
+    independent of (and redundant with) the startup-time abort in
+    app/__init__.py's create_app() — that guard stops the process from booting
+    at all when both flags are set, but every request still re-checks here so
+    the bypass is dead even if some other entrypoint built the app without going
+    through create_app(), or the boot-time exit was bypassed/ignored by a
+    process supervisor that just restarts the worker."""
+    if _is_production():
+        return False
     return os.getenv("DEV_BYPASS_AUTH", "0") == "1"
 
 

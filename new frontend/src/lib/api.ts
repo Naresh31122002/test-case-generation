@@ -12,7 +12,7 @@
 //   - getNextReload / triggerReload call the MAIN Flask app, not a scheduler sidecar.
 //   - All requests flow through apiClient which enforces credentials:'include'.
 
-import { get, post, upload, ApiError } from './apiClient'
+import { get, post, upload, del, ApiError } from './apiClient'
 import type {
   Story,
   TestCase,
@@ -568,6 +568,12 @@ export const api = {
     const data = await post<any>(`/api/stories/rag-chat`, { query })
     const raw: unknown[] = data.testCases ?? data.test_cases ?? []
     return { testCases: raw.map((tc) => normalizeTestCase(tc as RawTestCase)) }
+  },
+
+  /** Permanently delete a story (and its test cases / impacts / vector),
+   *  scoped to the current workspace on the backend. */
+  async deleteStory(storyId: string): Promise<void> {
+    await del<any>(`/api/stories/${encodeURIComponent(storyId)}`)
   },
 
   async getStoryImpacts(storyId: string): Promise<StoryImpactSummary> {

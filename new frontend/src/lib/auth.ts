@@ -96,11 +96,25 @@ export async function loginWithGoogle(
   }
 }
 
+/** Keys that must never survive a logout — otherwise the next user to sign in
+ *  on this browser (shared machine, same-browser test accounts, etc.) inherits
+ *  the previous user's workspace/project selection and can appear to see data
+ *  that isn't theirs. */
+export function clearWorkspaceState(): void {
+  try {
+    localStorage.removeItem('activeWorkspaceId')
+    localStorage.removeItem('activeProject')
+    localStorage.removeItem('testsurge:selected-project')
+    localStorage.removeItem('testsurge:recent-projects')
+  } catch {}
+}
+
 export async function logout(): Promise<void> {
   await fetch(`${BASE_URL}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   }).catch(() => {})
+  clearWorkspaceState()
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {

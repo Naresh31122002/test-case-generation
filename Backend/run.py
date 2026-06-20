@@ -10,4 +10,9 @@ app = create_app()
 
 if __name__ == '__main__':
     print("Starting Flask application...")
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    # use_reloader honors FLASK_USE_RELOADER (default on in dev): the dev server
+    # then auto-restarts on any .py change, so backend edits take effect without
+    # a manual stop/start. Disable it only where a watchdog/supervisor already
+    # handles restarts (set FLASK_USE_RELOADER=0).
+    use_reloader = os.getenv("FLASK_USE_RELOADER", "1") == "1"
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=use_reloader)

@@ -22,6 +22,7 @@ import {
   ArchiveRestore,
   Trash2,
   X,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -74,6 +75,8 @@ function ProjectSelector() {
     selectedProject,
     projectList,
     archivedProjects,
+    loadError,
+    reloadProjects,
     selectProject,
     archiveProject,
     unarchiveProject,
@@ -171,7 +174,22 @@ function ProjectSelector() {
               {query ? "Results" : "All projects"}
             </div>
             <div>
-              {filtered.length === 0 ? (
+              {loadError ? (
+                <div className="px-3 py-3 flex flex-col items-start gap-2">
+                  <p className="text-xs text-red-600 flex items-start gap-1.5">
+                    <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                    <span>Couldn&apos;t load your projects. {loadError}</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={reloadProjects}
+                    className="flex items-center gap-1.5 text-xs font-medium text-cyan hover:underline"
+                  >
+                    <RefreshCw size={12} />
+                    Retry
+                  </button>
+                </div>
+              ) : filtered.length === 0 ? (
                 <p className="px-3 py-3 text-xs text-muted">No projects found.</p>
               ) : (
                 filtered.map((p) => (

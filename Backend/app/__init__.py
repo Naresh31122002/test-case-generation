@@ -10,17 +10,30 @@ from flask_talisman import Talisman
 from app.models.db_service import DatabaseService, get_db_service
 from app.config import Config
 
-# Load environment variables — use explicit path so it works regardless of cwd
+# Load environment variables — use explicit path so it works regardless of cwd.
+# override=False (the default): real process environment variables set by the
+# deployment platform always win over a .env file. If a stray .env (e.g.
+# FLASK_ENV=development, DEV_BYPASS_AUTH=1) ever ends up on a production host —
+# copied during a build step, leftover from local testing — it must not be able
+# to silently overrule the platform's real production configuration.
 _here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_here, '.env'), override=True)
+load_dotenv(os.path.join(_here, '.env'))
 
 def create_app():
     app = Flask(__name__)
 
-    is_production = os.getenv("FLASK_ENV") == "production"
+    # FLASK_ENV != "production" is treated as the production signal whenever it is
+    # unset/missing too — defaults must fail toward the safer (production-locked) state,
+    # never toward the bypass-permissive one. A deploy that forgets to set FLASK_ENV
+    # must not silently re-enable DEV_BYPASS_AUTH.
+    is_production = os.getenv("FLASK_ENV", "production") == "production"
     is_dev_bypass = os.getenv("DEV_BYPASS_AUTH") == "1"
 
-    # Guard: prevent DEV_BYPASS_AUTH in production
+    # Guard: prevent DEV_BYPASS_AUTH in production. This is intentionally redundant
+    # with the independent check in app/utils/workspace.py's _is_bypass() — that
+    # second check is what actually gates every request, so the bypass stays dead
+    # even if some other entrypoint constructs the app without calling create_app(),
+    # or if this process's exit code is ignored by a supervisor that just restarts it.
     if is_production and is_dev_bypass:
         print("FATAL: DEV_BYPASS_AUTH=1 is not allowed in production. Aborting.", file=sys.stderr)
         sys.exit(1)
@@ -31,8 +44,29 @@ def create_app():
         print("FATAL: JWT_SECRET_KEY must be set to a strong random value in production. Aborting.", file=sys.stderr)
         sys.exit(1)
 
-    # CORS
-    if not is_production or is_dev_bypass:
+    # Guard: admin dashboard credentials are required in every environment —
+    # there is no safe hardcoded fallback for a superadmin login. config.py no
+    # longer supplies one, so a missing ADMIN_EMAIL/ADMIN_PASSWORD must stop the
+    # app from starting rather than booting with the route silently unusable
+    # (or, before this fix, silently usable with credentials checked into git).
+    if not Config.ADMIN_EMAIL or not Config.ADMIN_PASSWORD:
+        print(
+            "FATAL: ADMIN_EMAIL and ADMIN_PASSWORD environment variables are required "
+            "(no default admin account exists). Aborting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if is_production and len(Config.ADMIN_PASSWORD) < 12:
+        print(
+            "FATAL: ADMIN_PASSWORD must be at least 12 characters in production. Aborting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # CORS — gated on is_production alone. DEV_BYPASS_AUTH must never widen CORS;
+    # if it could, a bypass that somehow survived the abort above would also open
+    # the API to any localhost-origin request.
+    if not is_production:
         import re
         allowed_origins_re = [r"http://localhost:\d+", r"http://127\.0\.0\.1:\d+"]
         CORS(app, resources={
@@ -122,7 +156,6 @@ def create_app():
         from app.models.create_dbs import create_postgres_db
         create_postgres_db()
     except Exception as _schema_err:
-        import sys
         print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
 
     # Ensure LanceDB table exists and has workspace_id column

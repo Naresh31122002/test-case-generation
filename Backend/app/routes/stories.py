@@ -226,6 +226,58 @@ def get_story(story_id):
         print(f"Error getting story {story_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@stories_bp.route('/<story_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_story(story_id):
+    """Delete a story and all of its data (test cases, impacts, vector) from
+    both PostgreSQL and LanceDB. Strictly scoped to the current workspace so a
+    user can never delete another tenant's story.
+
+    PostgreSQL: deleting the test_cases row cascades to test_case_impacts,
+    impact_history and story_versions via their ON DELETE CASCADE foreign keys.
+    LanceDB: the matching vector row is removed with a workspace-scoped filter.
+    """
+    try:
+        workspace_id = get_current_workspace_id()
+        if not story_id:
+            return jsonify({'error': 'Story ID is required'}), 400
+        if not workspace_id:
+            return jsonify({'error': 'No active workspace'}), 403
+
+        # 1. Delete from PostgreSQL (workspace-scoped). RETURNING tells us whether
+        #    a row actually belonged to this workspace.
+        deleted_pg = False
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s RETURNING story_id",
+                    (story_id, workspace_id),
+                )
+                deleted_pg = cur.fetchone() is not None
+                conn.commit()
+
+        # 2. Delete the vector row from LanceDB (workspace-scoped). Best-effort —
+        #    a missing/empty table shouldn't fail the whole delete.
+        try:
+            db_service = get_db_service()
+            table = db_service.lance_db.open_table(Config.TABLE_NAME_LANCE)
+            # Escape single quotes in identifiers for the SQL-style filter.
+            safe_story = str(story_id).replace("'", "''")
+            safe_ws = str(workspace_id).replace("'", "''")
+            table.delete(f"storyID = '{safe_story}' AND workspace_id = '{safe_ws}'")
+        except Exception as lance_err:
+            print(f"Warning: LanceDB delete failed for {story_id}: {lance_err}")
+
+        if not deleted_pg:
+            # Nothing in Postgres for this workspace — either it never existed
+            # here or belonged to another tenant. Treat as not found.
+            return jsonify({'error': f'Story not found: {story_id}'}), 404
+
+        return jsonify({'message': 'Story deleted', 'story_id': story_id}), 200
+    except Exception as e:
+        print(f"Error deleting story {story_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @stories_bp.route('/search', methods=['POST'])
 @dev_jwt_required
 def search_stories():

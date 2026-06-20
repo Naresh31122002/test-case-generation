@@ -418,7 +418,7 @@ function TourPreview({ kind }: { kind: "story" | "tests" | "code" | "run" }) {
         <p><span className="text-[#C792EA]">public class</span> <span className="text-[#82AAFF]">CheckoutDiscountTest</span> {"{"}</p>
         <p className="pl-4"><span className="text-[#C792EA]">@Test</span></p>
         <p className="pl-4"><span className="text-[#C792EA]">public void</span> <span className="text-[#82AAFF]">applyValidCode_reducesTotal</span>() {"{"}</p>
-        <p className="pl-8 text-gray-500">// Page Object Model · Selenium · TestNG</p>
+        <p className="pl-8 text-gray-500">{"// Page Object Model · Selenium · TestNG"}</p>
         <p className="pl-8">checkoutPage.<span className="text-[#82AAFF]">enterDiscountCode</span>(<span className="text-[#C3E88D]">&quot;SAVE10&quot;</span>);</p>
         <p className="pl-8">assertEquals(checkoutPage.getTotal(), expectedTotal);</p>
         <p className="pl-4">{"}"}</p>

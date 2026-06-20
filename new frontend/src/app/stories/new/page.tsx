@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
+import { useProject } from "@/contexts/ProjectContext";
+import { makeStoryId } from "@/lib/storyId";
 
 /** Shared mock async op (~1.8s, ~10% failure) for the Create Story flow. */
 function mockRunNewStory(ms = 1800): Promise<void> {
@@ -112,6 +114,7 @@ const steps: { id: StepId; label: string }[] = [
 ];
 
 export default function CreateStoryPage() {
+  const { selectedProject } = useProject();
   const [step, setStep] = useState<StepId>(1);
   const [prevStep, setPrevStep] = useState<StepId>(1);
   const [pasteBlocks, setPasteBlocks] = useState<string[]>([""]);
@@ -122,10 +125,13 @@ export default function CreateStoryPage() {
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
   );
-  // Active project from localStorage
-  const [projectId] = useState<string>(
-    typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default"
-  );
+  // Active project: ProjectContext is the source of truth (it stays in sync with
+  // the dashboard's project selector). Fall back to localStorage only until the
+  // context has resolved, then to "default". This prevents uploading a story under
+  // a different project_id than the one the dashboard later filters by.
+  const projectId =
+    selectedProject?.id ??
+    (typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default");
 
   const goTo = (next: StepId) => {
     setPrevStep(step);
@@ -971,13 +977,13 @@ function StepGenerate({
   projectId: string;
 }) {
   const router = useRouter();
+  const { notify } = useAIAction();
+  const { reloadProjects } = useProject();
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
 
   async function handleGenerate() {
     setSubmitting(true);
-    setSubmitError(null);
     try {
       const { api } = await import("@/lib/api");
       const selectedStories = detected?.filter((s) => s.selected && s.valid) ?? [];
@@ -986,9 +992,7 @@ function StepGenerate({
 
       for (let i = 0; i < stories.length; i++) {
         const s = stories[i];
-        const rawTitle = s?.title ?? pasteBlocks[0]?.trim().split(/\s+/).slice(0, 4).join(" ") ?? "story";
-        const words = rawTitle.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/).slice(0, 4).join("-").toUpperCase();
-        const storyId = `STORY-${words || Date.now()}-${i}`;
+        const storyId = makeStoryId();
         lastStoryId = storyId;
         const formData = new FormData();
         formData.append("story_id", storyId);
@@ -1004,9 +1008,14 @@ function StepGenerate({
         const result = await api.uploadStory(formData);
         lastStoryId = result.storyId || storyId;
       }
+      reloadProjects();
       router.push(`/stories/${lastStoryId}?analyzing=true`);
     } catch (err: any) {
-      setSubmitError(err?.message ?? "Upload failed. Try again.");
+      notify({
+        variant: "error",
+        title: "Upload failed",
+        detail: err?.message ?? "Upload failed. Try again.",
+      });
       setSubmitting(false);
     }
   }
@@ -1102,7 +1111,6 @@ function StepGenerate({
           Improve Story First
         </button>
         <div className="flex items-center gap-3">
-          {submitError && <p className="text-sm text-error">{submitError}</p>}
           {progress && submitting && <p className="text-sm text-muted">{progress}</p>}
           <button
             onClick={handleGenerate}

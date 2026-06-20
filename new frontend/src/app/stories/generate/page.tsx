@@ -32,6 +32,7 @@ import {
 } from "@/lib/ai/requirements";
 import { AI_ACTION_COSTS, useAIAction } from "@/contexts/AIActionContext";
 import { spring } from "@/lib/motion";
+import { makeStoryId } from "@/lib/storyId";
 
 type Phase = "input" | "analyzing" | "review";
 
@@ -159,8 +160,7 @@ export default function GenerateStoriesPage() {
 
     for (let i = 0; i < approved.length; i++) {
       const s = approved[i];
-      const words = s.title.replace(/[^a-zA-Z0-9\s]/g, "").trim().split(/\s+/).slice(0, 4).join("-").toUpperCase();
-      const storyId = `STORY-${words || Date.now()}-${i}`;
+      const storyId = makeStoryId();
       const content = `${s.narrative}\n\nAcceptance Criteria:\n${s.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`;
       const formData = new FormData();
       formData.append("story_id", storyId);

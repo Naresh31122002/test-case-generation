@@ -179,7 +179,8 @@ const savedFilters: SavedFilter[] = [
 ];
 
 export default function StoriesPage() {
-  const { selectedProject, hasProjects, ready } = useProject();
+  const { selectedProject, hasProjects, ready, reloadProjects } = useProject();
+  const { notify } = useAIAction();
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All Types");
   const [sortKey, setSortKey] = useState<SortKey>("lastUpdated");
@@ -270,6 +271,40 @@ export default function StoriesPage() {
     });
   const clearSelection = () => setSelected(new Set());
   const selectedStories = filtered.filter((s) => selected.has(s.id));
+
+  // Permanently delete one or more stories. Backend deletes from Postgres +
+  // LanceDB (workspace-scoped); on success we drop them from local state,
+  // clear any selection, refresh project counts, and toast the result.
+  const deleteStories = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const label = ids.length === 1 ? "story" : `${ids.length} stories`;
+    if (!window.confirm(`Delete ${label}? This permanently removes the ${ids.length === 1 ? "story and its" : "stories and their"} test cases. This cannot be undone.`)) {
+      return;
+    }
+    const results = await Promise.allSettled(ids.map((id) => api.deleteStory(id)));
+    const okIds = ids.filter((_, i) => results[i].status === "fulfilled");
+    const failed = ids.length - okIds.length;
+
+    if (okIds.length > 0) {
+      const okSet = new Set(okIds);
+      setProjectStories((prev) => prev.filter((s) => !okSet.has(s.id)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        okIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      setOpenMenu(null);
+      reloadProjects();
+    }
+
+    if (failed === 0) {
+      notify({ variant: "success", title: okIds.length === 1 ? "Story deleted" : `${okIds.length} stories deleted` });
+    } else if (okIds.length === 0) {
+      notify({ variant: "error", title: "Delete failed", detail: "Could not delete. Please try again." });
+    } else {
+      notify({ variant: "error", title: "Some deletes failed", detail: `${okIds.length} deleted, ${failed} failed.` });
+    }
+  };
 
   // Empty state: no projects yet.
   if (storiesLoading) {
@@ -418,6 +453,7 @@ export default function StoriesPage() {
               count={selected.size}
               stories={selectedStories}
               onClear={clearSelection}
+              onDelete={() => deleteStories(selectedStories.map((s) => s.id))}
             />
           )}
         </AnimatePresence>
@@ -455,6 +491,7 @@ export default function StoriesPage() {
               setOpenMenu={setOpenMenu}
               selected={selected}
               onToggleSelect={toggleSelect}
+              onDelete={(id) => deleteStories([id])}
             />
           )}
         </AnimatePresence>
@@ -500,10 +537,12 @@ function BulkActionBar({
   count,
   stories,
   onClear,
+  onDelete,
 }: {
   count: number;
   stories: Story[];
   onClear: () => void;
+  onDelete: () => void;
 }) {
   const { runAIAction } = useAIAction();
   const ids = stories.map((s) => s.id).join(",");
@@ -547,6 +586,7 @@ function BulkActionBar({
       </Link>
       <button
         type="button"
+        onClick={onDelete}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-error hover:opacity-80 transition-opacity"
       >
         <Trash2 size={15} />
@@ -802,12 +842,14 @@ function ListView({
   setOpenMenu,
   selected,
   onToggleSelect,
+  onDelete,
 }: {
   stories: Story[];
   openMenu: string | null;
   setOpenMenu: (id: string | null) => void;
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <motion.div
@@ -919,7 +961,10 @@ function ListView({
                   Export
                 </Link>
                 <div className="my-1 border-t border-border" />
-                <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-error hover:bg-[#FEF2F2] transition-colors">
+                <button
+                  onClick={() => { setOpenMenu(null); onDelete(story.id); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-error hover:bg-[#FEF2F2] transition-colors"
+                >
                   <Trash2 size={14} />
                   Delete Story
                 </button>

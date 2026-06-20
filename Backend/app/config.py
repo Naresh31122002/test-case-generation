@@ -97,9 +97,10 @@ class Config:
     AWS_SES_SECRET_KEY = os.getenv("AWS_SES_SECRET_KEY")
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "noreply@kynetropo.com")
 
-    # Admin Dashboard
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@kynetropo.com")
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "supersecretadmin123")
+    # Admin Dashboard — no hardcoded fallback. Must be set via environment
+    # variables; app/__init__.py refuses to start if either is missing.
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
     # Security / Monitoring
     SENTRY_DSN = os.getenv("SENTRY_DSN", "")

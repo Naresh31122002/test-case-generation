@@ -73,8 +73,8 @@ def current_workspace():
 def current_workspace_credits():
     ws_id = get_current_workspace_id()
     try:
-        # Ensure credits row exists (backfill for workspaces created before this feature)
-        CreditsModel.ensure_workspace_credits(ws_id)
+        # get_credit_usage already ensures the workspace_credits row exists
+        # (backfill for workspaces created before this feature) internally.
         usage = CreditsModel.get_credit_usage(ws_id)
         return jsonify({"credits": usage}), 200
     except Exception as e:

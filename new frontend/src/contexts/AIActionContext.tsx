@@ -102,7 +102,7 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
 
   const refreshCredits = useCallback(async () => {
     try {
-      const data = await apiGet<CreditUsageResponse>("/workspaces/current/credits");
+      const data = await apiGet<CreditUsageResponse>("/api/workspaces/current/credits");
       setCreditsUsed(data.credits.used);
       setCreditsTotal(data.credits.limit);
     } catch {
