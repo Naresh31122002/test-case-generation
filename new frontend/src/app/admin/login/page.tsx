@@ -18,8 +18,9 @@ export default function AdminLoginPage() {
     try {
       const { access_token } = await adminApi.login(email, password);
       localStorage.setItem("admin_token", access_token);
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-      window.location.href = appUrl ? `${appUrl}/admin` : '/admin';
+      // Detect basePath from current URL (works in both dev and production)
+      const basePath = window.location.pathname.startsWith('/app') ? '/app' : '';
+      window.location.href = `${basePath}/admin`;
     } catch (err: any) {
       setError(err?.message ?? "Invalid credentials");
     } finally {
