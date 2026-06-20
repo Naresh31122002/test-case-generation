@@ -1,6 +1,7 @@
-# Test-Forge-AI — Competitive Analysis & Pre-Build Recommendations
+# TestSurge — Competitive Analysis & Product Roadmap
 
-*Prepared June 14, 2026. Competitor ratings/review counts are live from G2 via the connected G2 connector; review themes (pros/cons) are from G2, Capterra, TrustRadius, PeerSpot and vendor pages via web research. G2's per-product review API is gated for buyer accounts, so review **themes** were gathered from public review pages rather than raw G2 review text.*
+*Original analysis prepared June 14, 2026. Product gap analysis and roadmap added June 20, 2026.*
+*Competitor ratings/review counts from G2; review themes from G2, Capterra, TrustRadius, PeerSpot.*
 
 ---
 
@@ -115,3 +116,104 @@ Two things in your codebase that the competitors largely **do not** offer:
 - [Qase — G2 pros & cons](https://www.g2.com/products/qase/reviews?qs=pros-and-cons) · [PractiTest review](https://www.practitest.com/resource-center/blog/qase-review/)
 - [AI test case generation from Jira — TestCollab](https://testcollab.com/blog/generate-test-cases-from-user-stories-requirements-ai) · [Atlassian Rovo in QA](https://community.atlassian.com/forums/App-Central-articles/Atlassian-Rovo-in-QA-Instantly-Designing-Test-Cases-in-Jira-with/ba-p/3144170) · [Deviniti: AI tools for testing in Jira](https://deviniti.com/blog/devops/6-ai-tools-for-software-testing-in-jira-a-guide-for-qa-teams/) · [QA Touch multi-gen](https://www.qatouch.com/blog/introducing-ai-powered-multi-test-case-generation-from-jira-stories-epics/)
 - G2 Research Board (live): https://www.g2.com/assistant/b85476fa-d45f-40cb-a658-3c014cb9fde2
+
+---
+
+## 8. TestSurge vs Competitors — Honest Assessment
+
+### What TestSurge Has That Competitors Don't
+
+| Feature | TestSurge | Competitors |
+|---------|-----------|-------------|
+| **Change-impact analysis** — auto-detects which existing test cases are affected when a new story lands | ✅ Built | ❌ None do this automatically. They have manual traceability links, not AI-driven ripple detection |
+| **RAG over your own test history** — new cases generated with consistency to your past style | ✅ Built | ❌ Generic LLMs with no org-specific context |
+| **Workspace multi-tenancy with RBAC** | ✅ Built | Most are single-org SaaS |
+| **Transparent self-serve pricing** | ✅ Planned | ❌ #1 complaint across Testsigma, testRigor, Tricentis — all force sales calls |
+| **Story quality scoring before generation** | ✅ Built (LLM-powered) | ❌ Almost nobody flags story quality issues first |
+| **Credit-based usage metering** | ✅ Built | Most charge flat seat licenses regardless of usage |
+
+---
+
+## 9. What Competitors Have That TestSurge Is Missing (Table Stakes)
+
+These are features every user expects. Every major competitor has them.
+
+### 🔴 Critical — Users will churn without these
+
+| Feature | Why It's Expected | Status in TestSurge |
+|---------|------------------|---------------------|
+| **Inline edit + approve/reject test cases** | Users want to tweak AI output before saving. Qase, TestCollab, Rovo all emphasize "draft → review → approve" | View only — no inline edit |
+| **Test case versioning UI** | Track changes to test cases over time | DB table exists, no UI |
+| **Copy / clone test cases** | Basic test management operation every tool has | Not built |
+| **Bulk actions on test cases** | Select all, delete, export, re-generate | Partial |
+| **Test run / execution tracking** | Mark tests Pass / Fail / Blocked per release | Not built (positioning decision) |
+| **Real Jira 2-way sync** | Push generated tests back to Jira as issues/sub-tasks | Pull-only today |
+| **Search within test cases** | Find specific tests across all stories in a workspace | Not built |
+| **Folder / folder-hierarchy for test cases** | Organise tests by module, sprint, feature | Not built |
+
+### 🟡 Important — Will lose mid-market deals without these
+
+| Feature | Why It's Expected | Status |
+|---------|------------------|--------|
+| **Real test coverage % from requirements** | "How much of my requirements are tested?" — meaningful metric | Heuristic only (test count / 40) |
+| **Requirement traceability matrix** | Bidirectional requirement ↔ test case links | Not built |
+| **Export to TestRail / Qase / Zephyr** | Nobody wants to migrate their TMS — they want to augment it | Excel only |
+| **Slack / Teams / email notifications** | Alert team when impact analysis detects changes needing review | Not built |
+| **GitHub / GitLab PR integration** | Trigger impact analysis when a PR is opened | Not built |
+| **Comments on test cases** | Team collaboration on individual cases | Not built |
+| **Custom test case templates per workspace** | Different teams have different step/field requirements | Not built |
+| **Test plan / test suite grouping** | Organise test cases into runs for a sprint or release | Not built |
+| **Priority / severity filters on impacts** | Filter "show me only High severity impacts" with drill-down | Partial |
+
+### 🟢 Differentiators to build that nobody does well
+
+| Feature | Why It's an Opening |
+|---------|---------------------|
+| **Story quality gate** | Block generation if quality score < threshold and force user to improve the story first. Turns "garbage in, garbage out" into a selling point. We have the score — just need the gate |
+| **Impact explanation in plain English** | Don't just say "affected" — say "because your new OAuth story modifies the authentication flow at step 3 which this test case validates". Nobody does this |
+| **"Generate from PR diff"** | Developer opens a PR → TestSurge detects which requirements are affected → flags test gaps before merge. Nobody does requirement-level PR analysis |
+| **Competitor import** | "Import your TestRail test suite and we'll manage it with AI" — be the upgrade path, not the replacement |
+| **AI test case deduplication** | As test suites grow, detect and surface duplicate or near-duplicate test cases across stories |
+
+---
+
+## 10. Positioning (What to Say and What Not to Say)
+
+**❌ Don't say:** "AI test case generator from Jira stories"
+— Qase AIDEN, TestCollab, QA Touch, and Atlassian Rovo (native in Jira, free) all do this now.
+
+**✅ Say instead:** "AI change-impact intelligence for your test suite. Know exactly which tests need updating before your next release — not after."
+
+The **change-impact analysis** is the wedge. Test case generation is the supporting act. Lead with impact.
+
+---
+
+## 11. Priority Build Roadmap
+
+### Phase 1 — Table Stakes (needed before public launch)
+
+1. **Inline edit + approve/reject test cases** — single most-requested feature across all competitors
+2. **Test case search** across workspace
+3. **Push generated tests to Jira** as sub-tasks (2-way sync)
+4. **Real test coverage %** — based on requirement complexity, not a heuristic
+5. **Test case versioning UI** — view diff between previous and current version
+
+### Phase 2 — Win Mid-Market
+
+6. **Export to TestRail / Qase / Zephyr** (CSV/JSON format they accept)
+7. **Slack / Teams webhook** triggered on impact detection
+8. **Requirement traceability matrix** view
+9. **Custom test case templates** per workspace
+10. **Test plan / suite grouping** for releases and sprints
+
+### Phase 3 — Own the Category
+
+11. **Story quality gate** — block generation below threshold, force improvement first
+12. **Impact explanation in plain English** — contextual "why" for each detected impact
+13. **GitHub / GitLab PR integration** — trigger analysis on PR open
+14. **Competitor import** — TestRail CSV → TestSurge migration tool
+15. **AI deduplication** — detect near-duplicate test cases across stories
+
+---
+
+## Sources
