@@ -160,10 +160,11 @@ def create_app():
     except Exception as _schema_err:
         print(f"WARNING: schema migration failed: {_schema_err}", file=sys.stderr)
 
-    # Ensure LanceDB table exists and has all required columns
+    # Ensure LanceDB table exists and has all required columns with correct types
     try:
         from app.models.create_dbs import create_LanceDB
         import lancedb as _lancedb
+        import pyarrow as _pa
         from app.config import Config as _Cfg
         _db = _lancedb.connect(_Cfg.LANCE_DB_PATH)
         if _Cfg.TABLE_NAME_LANCE not in _db.table_names():
@@ -174,14 +175,22 @@ def create_app():
             _cols = _t.schema.names
             _required = {'workspace_id': '', 'user_id': ''}
             _missing = {k: v for k, v in _required.items() if k not in _cols}
-            if _missing:
+            # Also check for null-typed columns that need to be string
+            _null_cols = [f.name for f in _t.schema if str(f.type) == 'null']
+            if _missing or _null_cols:
                 import pandas as _pd
                 _df = _t.to_pandas()
                 for col, default in _missing.items():
                     _df[col] = default
+                _str_cols = ['test_case_content', 'project_id', 'storyID', 'storyDescription',
+                             'filename', 'original_path', 'doc_content_text', 'source',
+                             'workspace_id', 'user_id']
+                for col in _str_cols:
+                    if col in _df.columns:
+                        _df[col] = _df[col].fillna('').astype(str)
                 _db.drop_table(_Cfg.TABLE_NAME_LANCE)
                 _db.create_table(_Cfg.TABLE_NAME_LANCE, _df)
-                print(f"✅ LanceDB migrated: added columns {list(_missing.keys())}")
+                print(f"✅ LanceDB migrated: added {list(_missing.keys())}, fixed null cols {_null_cols}")
     except Exception as _lance_err:
         print(f"WARNING: LanceDB migration failed: {_lance_err}")
 
