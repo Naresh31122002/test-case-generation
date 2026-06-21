@@ -282,8 +282,11 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-1.5 text-sm text-muted">
-              <TestTube2 size={14} />
-              <span>{story.testCount} Tests</span>
+              {(story.testCount === 0 || isAnalyzing) ? (
+                <><Loader2 size={14} className="animate-spin text-pink" /><span className="text-pink font-medium">Generating…</span></>
+              ) : (
+                <><TestTube2 size={14} /><span>{story.testCount} Tests</span></>
+              )}
             </div>
             <span className="text-border">|</span>
             <div className={`flex items-center gap-1.5 text-sm font-medium ${story.impactCount > 0 ? "text-pink" : "text-muted"}`}>
@@ -351,7 +354,19 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                 transition={{ duration: duration.fast, ease: easeStandard }}
               >
                 {activeTab === "overview" && <OverviewTab story={story} />}
-                {activeTab === "tests" && <TestsTab tests={storyTests} />}
+                {activeTab === "tests" && (
+                  (story.testCount === 0 || isAnalyzing) ? (
+                    <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+                      <div className="w-14 h-14 rounded-full bg-surface-pink flex items-center justify-center">
+                        <Loader2 size={28} className="text-pink animate-spin" />
+                      </div>
+                      <p className="text-base font-semibold text-navy">Generating test cases…</p>
+                      <p className="text-sm text-muted max-w-xs">Our AI is writing test cases for this story. This usually takes 15–30 seconds.</p>
+                    </div>
+                  ) : (
+                    <TestsTab tests={storyTests} />
+                  )
+                )}
                 {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} realTests={domainTestCases} />}
                 {activeTab === "impact" && <ImpactTab storyId={storyId} projectId={projectId} />}
                 {activeTab === "export" && <ExportTab story={story} testCount={story.testCount} />}
