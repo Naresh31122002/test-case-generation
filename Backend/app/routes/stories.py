@@ -2435,6 +2435,9 @@ def regroup_test_cases(story_id):
         return jsonify({'story_id': story_id, 'groups': list({tc.get('group','General') for tc in cases})}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/upload-version', methods=['POST'])
 @dev_jwt_required
 def upload_new_version(story_id):
     """Upload a new version of an existing story, archive the old one, and regenerate tests."""

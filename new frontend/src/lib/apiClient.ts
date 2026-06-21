@@ -193,3 +193,7 @@ export function upload<T>(path: string, formData: FormData): Promise<T> {
 export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }
+
+export function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
+}

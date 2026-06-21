@@ -255,6 +255,7 @@ def get_token_usage():
         return jsonify({"error": str(e)}), 500
 
 
+@admin_bp.route('/subscriptions', methods=['GET'])
 @admin_required()
 def get_subscriptions():
     db_service = current_app.config['DB_SERVICE']

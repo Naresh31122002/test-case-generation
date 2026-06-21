@@ -12,7 +12,7 @@
 //   - getNextReload / triggerReload call the MAIN Flask app, not a scheduler sidecar.
 //   - All requests flow through apiClient which enforces credentials:'include'.
 
-import { get, post, upload, del, ApiError } from './apiClient'
+import { get, post, patch, upload, del, ApiError } from './apiClient'
 import type {
   Story,
   TestCase,
@@ -671,7 +671,7 @@ export const api = {
     storyId: string,
     status: 'in_review' | 'in_progress' | 'completed'
   ): Promise<{ story_id: string; status: string }> {
-    return post(`/api/stories/${storyId}/status`, { status })
+    return patch(`/api/stories/${storyId}/status`, { status })
   },
 
   async getStoryQuality(storyId: string): Promise<{
@@ -716,7 +716,7 @@ export const api = {
   },
 
   async approveTestCase(storyId: string, testCaseId: string, status: 'Approved' | 'Pending' | 'Rejected' = 'Approved'): Promise<{ test_case_id: string; status: string }> {
-    return post(`/api/stories/${storyId}/testcases/${testCaseId}/status`, { status })
+    return patch(`/api/stories/${storyId}/testcases/${testCaseId}/status`, { status })
   },
 
   async updateTestCase(storyId: string, testCaseId: string, data: {
