@@ -194,22 +194,16 @@ class DatabaseService:
                 print(f"Story not found in LanceDB: {story_id}")
                 return None
 
-            # Get the latest test case row + count impacts this story caused
+            # Get the latest test case row with received impact count
             with psycopg2.connect(**self.postgres_config) as conn:
                 with conn.cursor() as cur:
                     query = """
                         SELECT tc.total_test_cases, tc.created_on, tc.source,
-                               COALESCE(tc.impacted_test_cases_count, 0) as received_impacts,
-                               COALESCE((
-                                   SELECT COUNT(*) FROM test_case_impacts tci
-                                   WHERE tci.new_story_id = %s
-                                     AND tci.workspace_id = %s
-                                     AND tci.impact_status = 'active'
-                               ), 0) as caused_impacts
+                               COALESCE(tc.impacted_test_cases_count, 0) as received_impacts
                         FROM test_cases tc
                         WHERE tc.story_id = %s
                     """
-                    params = [story_id, workspace_id, story_id]
+                    params = [story_id]
                     if workspace_id:
                         query += " AND tc.workspace_id = %s"
                         params.append(workspace_id)
@@ -236,9 +230,8 @@ class DatabaseService:
                 'description': lance_story['storyDescription'].iloc[0],
                 'document_content': lance_story['doc_content_text'].iloc[0] if 'doc_content_text' in lance_story.columns else None,
                 'test_case_count': pg_result[0] if pg_result else 0,
-                # caused_impacts: how many impacts this story caused on other stories
-                # received_impacts: how many of this story's own test cases were impacted
-                'impactedTestCases': (pg_result[4] if pg_result and len(pg_result) > 4 else 0),
+                'impactedTestCases': (pg_result[3] if pg_result and len(pg_result) > 3 else 0),
+                'impacted_test_cases_count': (pg_result[3] if pg_result and len(pg_result) > 3 else 0),
                 'impacted_test_cases_count': (pg_result[4] if pg_result and len(pg_result) > 4 else 0),
                 'download_link': f'/api/stories/download/{story_id}',
                 'test_case_created_time': pg_result[1].isoformat() if pg_result and pg_result[1] else None,
