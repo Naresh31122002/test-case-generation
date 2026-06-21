@@ -25,6 +25,7 @@ import { StoryActions } from "./StoryActions";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
+import { invalidateStories } from "@/lib/storiesStore";
 import type { TestCase as DomainTestCase } from "@/types/domain";
 
 // Tabs — lazy-loaded so only the active tab's bundle is fetched.
@@ -177,13 +178,21 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   }, [storyId]);
 
   // Polling — starts when testCount is 0 OR arriving from wizard (?analyzing=true)
+  // Also runs briefly for existing stories to pick up impact count updates
   useEffect(() => {
     if (loading) return;
-    if (!isAnalyzing && (story?.testCount ?? 0) > 0) return;
+
+    // Skip polling entirely only if tests exist AND we're not in analyzing mode
+    // AND we already have a non-zero impact count (fully settled)
+    const alreadySettled = !isAnalyzing
+      && (story?.testCount ?? 0) > 0
+      && (story?.impactCount ?? 0) > 0;
+    if (alreadySettled) return;
 
     let stopped = false;
     let attempts = 0;
-    const MAX = 30; // 30 × 4s = 2 minutes
+    // If tests exist but impact is 0, only poll for a short time (impact analysis ~30s)
+    const MAX = (story?.testCount ?? 0) > 0 ? 12 : 30; // 12×4s=48s or 30×4s=2min
 
     const interval = setInterval(async () => {
       if (stopped || attempts++ >= MAX) {
@@ -204,9 +213,11 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           steps: t.steps,
           expectedResult: t.expectedResult,
         })));
-        // Stop when tests AND impacts are present
-        if (s.testCaseCount > 0 && s.impactedTestCasesCount > 0) {
+        // Stop when tests are done — impact may still be running but we'll catch it
+        // on subsequent polls or the short-window poll above
+        if (s.testCaseCount > 0 && !isAnalyzing) {
           clearInterval(interval);
+          invalidateStories(); // update the stories list in background
         }
       } catch { /* keep polling silently */ }
     }, 4000);

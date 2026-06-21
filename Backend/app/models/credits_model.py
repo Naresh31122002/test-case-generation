@@ -4,7 +4,7 @@ from dateutil.relativedelta import relativedelta
 from app.config import Config
 
 PLAN_LIMITS = {
-    'free': 50,
+    'free': 200,
     'starter': 500,
     'pro': 2000,
     'team': 10000
@@ -120,9 +120,9 @@ class CreditsModel:
             
             if not row:
                 return {
-                    "limit": 50,
+                    "limit": 200,
                     "used": 0,
-                    "remaining": 50,
+                    "remaining": 200,
                     "status": "ok",
                     "percent_used": 0
                 }

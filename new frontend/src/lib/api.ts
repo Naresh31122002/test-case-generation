@@ -733,8 +733,63 @@ export const api = {
     return request(`/api/stories/${storyId}/testcases/${testCaseId}`, { method: 'DELETE' })
   },
 
-  async regenerateSingleTestCase(storyId: string, testCaseId: string): Promise<{ test_case_id: string; test_case: any }> {
+  async regenerateSingleTestCase(
+    storyId: string,
+    testCaseId: string,
+    instructions?: string,
+    file?: File,
+  ): Promise<{ test_case_id: string; test_case: any }> {
+    if (instructions || file) {
+      const fd = new FormData()
+      if (instructions) fd.append('instructions', instructions)
+      if (file) fd.append('file', file)
+      return upload(`/api/stories/${storyId}/testcases/${testCaseId}/regenerate`, fd)
+    }
     return post(`/api/stories/${storyId}/testcases/${testCaseId}/regenerate`, {})
+  },
+
+  async bulkRegenerateTestCases(
+    storyId: string,
+    testCaseIds: string[],
+    instructions?: string,
+    file?: File,
+  ): Promise<{ updated: string[]; test_cases: any[] }> {
+    const fd = new FormData()
+    testCaseIds.forEach((id) => fd.append('test_case_ids', id))
+    if (instructions) fd.append('instructions', instructions)
+    if (file) fd.append('file', file)
+    return upload(`/api/stories/${storyId}/testcases/bulk-regenerate`, fd)
+  },
+
+  async refineTestCase(
+    storyId: string,
+    testCaseId: string,
+    opts: {
+      instructions: string;
+      current_title: string;
+      current_steps: string[];
+      current_expected: string;
+      current_priority: string;
+      file?: File;
+    }
+  ): Promise<{ test_case_id: string; test_case: any }> {
+    if (opts.file) {
+      const fd = new FormData()
+      fd.append('instructions', opts.instructions)
+      fd.append('current_title', opts.current_title)
+      fd.append('current_steps', JSON.stringify(opts.current_steps))
+      fd.append('current_expected', opts.current_expected)
+      fd.append('current_priority', opts.current_priority)
+      fd.append('file', opts.file)
+      return upload(`/api/stories/${storyId}/testcases/${testCaseId}/refine`, fd)
+    }
+    return post(`/api/stories/${storyId}/testcases/${testCaseId}/refine`, {
+      instructions: opts.instructions,
+      current_title: opts.current_title,
+      current_steps: opts.current_steps,
+      current_expected: opts.current_expected,
+      current_priority: opts.current_priority,
+    })
   },
 
   async uploadNewVersion(storyId: string, formData: FormData): Promise<{

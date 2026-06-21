@@ -34,7 +34,7 @@ import { AI_ACTION_COSTS, useAIAction } from "@/contexts/AIActionContext";
 import { spring } from "@/lib/motion";
 import { makeStoryId } from "@/lib/storyId";
 
-type Phase = "input" | "analyzing" | "review";
+type Phase = "input" | "analyzing" | "review" | "test-types";
 
 const ACCEPTED = [".txt", ".docx", ".pdf", ".md"];
 const acceptedFile = (f: File) => ACCEPTED.some((e) => f.name.toLowerCase().endsWith(e));
@@ -43,7 +43,8 @@ const fmtSize = (b: number) => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024
 const STEPS = [
   { id: 1, label: "Requirements" },
   { id: 2, label: "Review Stories" },
-  { id: 3, label: "Generate Tests" },
+  { id: 3, label: "Test Types" },
+  { id: 4, label: "Generate Tests" },
 ];
 
 export default function GenerateStoriesPage() {
@@ -144,8 +145,29 @@ export default function GenerateStoriesPage() {
   }
 
   const approvedCount = stories.filter((s) => s.status === "approved").length;
-  const currentStep = phase === "review" ? 2 : 1;
+  const currentStep = phase === "review" ? 2 : phase === "test-types" ? 3 : phase === "analyzing" ? 1 : 1;
   const projectId = typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default";
+
+  // Test types selection
+  type TestType = "Functional" | "Negative" | "Boundary" | "Security" | "Accessibility";
+  const ALL_TEST_TYPES: { id: TestType; label: string; description: string; estimate: string }[] = [
+    { id: "Functional",    label: "Functional",    description: "Core happy-path scenarios",    estimate: "~8 tests" },
+    { id: "Negative",      label: "Negative",      description: "Invalid inputs, wrong states", estimate: "~4 tests" },
+    { id: "Boundary",      label: "Boundary",      description: "Edge values, limits",          estimate: "~3 tests" },
+    { id: "Security",      label: "Security",      description: "Auth, injection, permissions", estimate: "~3 tests" },
+    { id: "Accessibility", label: "Accessibility", description: "ARIA, keyboard, contrast",     estimate: "~2 tests" },
+  ];
+  const [selectedTestTypes, setSelectedTestTypes] = useState<Set<TestType>>(
+    new Set<TestType>(["Functional", "Negative", "Boundary", "Security", "Accessibility"])
+  );
+  const toggleTestType = (t: TestType) => {
+    setSelectedTestTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) { if (next.size > 1) next.delete(t); } // keep at least 1
+      else next.add(t);
+      return next;
+    });
+  };
 
   // Upload state for progress tracking
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
@@ -348,32 +370,92 @@ export default function GenerateStoriesPage() {
                 <div className="flex items-center justify-between mt-6">
                   <button onClick={() => setPhase("input")} className="text-sm font-medium text-muted hover:text-navy transition-colors">Back</button>
                   <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={approvedCount === 0}
+                      onClick={() => setPhase("test-types")}
+                      className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
+                    >
+                      <Sparkles size={15} /> Next: Choose Test Types ({approvedCount})
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Test Types phase ── */}
+            {phase === "test-types" && (
+              <motion.div
+                key="test-types"
+                initial={{ opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -24 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-6"
+              >
+                <div>
+                  <h2 className="text-xl font-semibold text-navy mb-1">What should we test?</h2>
+                  <p className="text-sm text-muted">Select the test types to generate. You can add more later.</p>
+                </div>
+
+                <div className="space-y-3">
+                  {ALL_TEST_TYPES.map((t) => {
+                    const selected = selectedTestTypes.has(t.id);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => toggleTestType(t.id)}
+                        className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl border-2 text-left transition-all ${
+                          selected
+                            ? "border-pink bg-white"
+                            : "border-border bg-white hover:border-gray-300"
+                        }`}
+                      >
+                        <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                          selected ? "bg-pink" : "bg-gray-100"
+                        }`}>
+                          {selected && <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-navy">{t.label}</p>
+                          <p className="text-xs text-muted">{t.description}</p>
+                        </div>
+                        <span className="text-xs font-semibold text-cyan flex-shrink-0">{t.estimate}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button onClick={() => setPhase("review")} className="text-sm font-medium text-muted hover:text-navy transition-colors">Back</button>
+                  <div className="flex items-center gap-3">
                     {uploadProgress && (
-                      <span className="text-sm text-muted">
-                        Uploading {uploadProgress.done}/{uploadProgress.total}…
-                      </span>
+                      <span className="text-sm text-muted">Uploading {uploadProgress.done}/{uploadProgress.total}…</span>
                     )}
                     <button
                       type="button"
-                      disabled={approvedCount === 0 || !!uploadProgress}
+                      disabled={selectedTestTypes.size === 0 || !!uploadProgress}
                       onClick={() =>
                         runAIAction({
                           name: "Test Generation",
                           credits: approvedCount * REQUIREMENT_CREDIT_RATES.testGeneration,
-                          description: `Upload ${approvedCount} approved ${approvedCount === 1 ? "story" : "stories"} and generate test cases for each.`,
+                          description: `Upload ${approvedCount} approved ${approvedCount === 1 ? "story" : "stories"} and generate ${Array.from(selectedTestTypes).join(", ")} tests for each.`,
                           run: async () => {
                             const ids = await uploadApprovedStories();
-                            // Redirect to Stories list filtered to current project
-                            // All stories are being processed in background — user can see them populate via polling
-                            const qs = projectId && projectId !== "default" ? `?project_id=${encodeURIComponent(projectId)}` : "";
-                            router.push(`/stories${qs}`);
+                            if (ids.length === 1) {
+                              router.push(`/stories/${ids[0]}?analyzing=true`);
+                            } else {
+                              const qs = projectId && projectId !== "default" ? `?project_id=${encodeURIComponent(projectId)}` : "";
+                              window.location.href = `/stories${qs}`;
+                            }
                           },
                         })
                       }
                       className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-40 inline-flex items-center gap-2"
-                  >
-                    <Sparkles size={15} /> Generate Tests ({approvedCount})
-                  </button>
+                    >
+                      <Sparkles size={15} /> Generate Tests ({approvedCount})
+                    </button>
                   </div>
                 </div>
               </motion.div>

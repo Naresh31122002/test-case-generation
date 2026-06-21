@@ -64,7 +64,7 @@ class WorkspaceModel:
             cursor.execute(
                 """
                 INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used, reset_date)
-                VALUES (%s, 50, 0, %s)
+                VALUES (%s, 200, 0, %s)
                 ON CONFLICT (workspace_id) DO NOTHING
                 """,
                 (workspace_id, reset_date),

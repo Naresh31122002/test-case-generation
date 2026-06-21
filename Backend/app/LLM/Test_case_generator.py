@@ -234,7 +234,7 @@ class TestCaseGenerator:
             for category, count in counts.items()
         }
 
-    def generate_test_cases(self, story_id: str, story_description: str) -> Dict:
+    def generate_test_cases(self, story_id: str, story_description: str, rag_context_section: str = "") -> Dict:
         """Generate test cases for a given user story"""
         try:
             # Initialize the final result
@@ -290,7 +290,8 @@ class TestCaseGenerator:
                         category["type"],
                         category["focus"],
                         len(final_test_cases["test_cases"]),
-                        batch_count
+                        batch_count,
+                        rag_context_section=rag_context_section,
                     )
                     
                     if "test_cases" in batch:
@@ -309,19 +310,19 @@ class TestCaseGenerator:
             print(f"Error generating test cases: {e}")
             raise
 
-    def generate_test_cases_batch(self, story_id: str, story_description: str, test_type: str, focus_areas: List[str], current_count: int, batch_size: int) -> Dict:
+    def generate_test_cases_batch(self, story_id: str, story_description: str, test_type: str, focus_areas: List[str], current_count: int, batch_size: int, rag_context_section: str = "") -> Dict:
         """Generate a batch of test cases for a given category"""
         for attempt in range(MAX_RETRIES):
             try:
-                # Randomize the actual batch size slightly
                 actual_batch_size = random.randint(max(1, batch_size - 2), batch_size + 2)
-                
-                # Create a focused prompt for this specific batch
+
+                rag_block = f"\n\n{rag_context_section}" if rag_context_section else ""
+
                 batch_prompt = f"""You are a Senior QA Architect with 15+ years of experience in enterprise software testing.
 Your task is to generate exactly {actual_batch_size} {test_type} test cases for this user story.
 
 Story ID: {story_id}
-Description: {story_description}
+Description: {story_description}{rag_block}
 
 Focus Areas for this batch:
 {chr(10).join(f"- {area}" for area in focus_areas)}
@@ -464,8 +465,24 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, wo
 
         print(f"🔍 Generating test case for: {story_id} (Project: {project_id})")
 
+        # ── RAG: fetch similar stories' test cases for consistency context ────
+        rag_context_section = ""
+        try:
+            from app.LLM.rag_context import build_rag_context, format_rag_context_for_prompt
+            ctx = build_rag_context(
+                story_id=story_id,
+                workspace_id=resolved_workspace_id,
+                query_text=main_text[:500] or story_description,
+                top_k=3,
+            )
+            rag_context_section = format_rag_context_for_prompt(ctx, max_examples=2)
+            if rag_context_section:
+                print(f"[rag] Found {len(ctx['similar_examples'])} similar stories for context")
+        except Exception as rag_err:
+            print(f"[rag] Context fetch failed (non-fatal): {rag_err}")
+
         # Use the dynamic test case generation
-        test_cases = generator.generate_test_cases(story_id, story_description)
+        test_cases = generator.generate_test_cases(story_id, story_description, rag_context_section=rag_context_section)
 
         if test_cases and test_cases.get("test_cases"):
             # Insert test cases into database

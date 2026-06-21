@@ -2041,10 +2041,31 @@ def delete_test_case(story_id, test_case_id):
 @stories_bp.route('/<story_id>/testcases/<test_case_id>/regenerate', methods=['POST'])
 @dev_jwt_required
 def regenerate_single_test_case(story_id, test_case_id):
-    """Regenerate a single test case using its existing title/type as context."""
+    """Regenerate a single test case with optional user instructions and extra context doc."""
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+
+        # Accept multipart (file attachment) or JSON
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            instructions = request.form.get('instructions', '').strip()
+            extra_file = request.files.get('file')
+            extra_context = ''
+            if extra_file:
+                try:
+                    from app.datapipeline.text_extractor import extract_text
+                    import os, tempfile
+                    file_ext = os.path.splitext(extra_file.filename or '')[1].lower()
+                    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
+                        extra_file.save(tmp.name)
+                        extra_context = extract_text(tmp.name) or ''
+                    os.unlink(tmp.name)
+                except Exception as e:
+                    extra_context = ''
+        else:
+            data = request.get_json() or {}
+            instructions = data.get('instructions', '').strip()
+            extra_context = data.get('extra_context', '').strip()
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -2080,6 +2101,29 @@ def regenerate_single_test_case(story_id, test_case_id):
             pass
 
         # Build prompt to regenerate this specific test case
+        instructions_section = f"\n\nUser instructions for improvement:\n{instructions}" if instructions else ""
+        extra_context_section = f"\n\nAdditional context from attached document:\n{extra_context[:2000]}" if extra_context else ""
+
+        # ── RAG: pull similar stories + existing TCs for context ──────────────
+        rag_section = ""
+        try:
+            from app.LLM.rag_context import build_rag_context, format_rag_context_for_prompt
+            query = instructions or target_tc.get('title', '') or story_content[:300]
+            ctx = build_rag_context(
+                story_id=story_id,
+                workspace_id=workspace_id,
+                query_text=query,
+                top_k=3,
+            )
+            # Use the full story content from RAG if we didn't get it earlier
+            if ctx["story_content"] and not story_content:
+                story_content = ctx["story_content"]
+            rag_text = format_rag_context_for_prompt(ctx, max_examples=2)
+            if rag_text:
+                rag_section = f"\n\n{rag_text}"
+        except Exception as rag_err:
+            print(f"[regen] RAG context failed (non-fatal): {rag_err}")
+
         prompt = f"""You are an expert QA engineer. Given the following user story, rewrite and improve this specific test case.
 
 User Story:
@@ -2089,10 +2133,10 @@ Existing test case to improve:
 - Title: {target_tc.get('title', '')}
 - Steps: {json.dumps(target_tc.get('steps', []))}
 - Expected Result: {target_tc.get('expected_result', '')}
-- Priority: {target_tc.get('priority', 'Medium')}
+- Priority: {target_tc.get('priority', 'Medium')}{instructions_section}{extra_context_section}{rag_section}
 
-Write an improved version of this test case with clearer steps and a more specific expected result.
-Return ONLY valid JSON in this exact format, no other text:
+Write an improved version with clearer, more specific steps and a precise expected result.
+Return ONLY valid JSON, no other text:
 {{
   "title": "improved title",
   "steps": ["step 1", "step 2", "step 3"],
@@ -2129,6 +2173,227 @@ Return ONLY valid JSON in this exact format, no other text:
 
         updated_tc = next((tc for tc in cases if tc.get('id') == test_case_id), {})
         return jsonify({'test_case_id': test_case_id, 'test_case': updated_tc}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/bulk-regenerate', methods=['POST'])
+@dev_jwt_required
+def bulk_regenerate_test_cases(story_id):
+    """Regenerate multiple test cases with shared RAG context, instructions, and optional doc."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        # Accept multipart (file) or JSON
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            instructions = request.form.get('instructions', '').strip()
+            test_case_ids = request.form.getlist('test_case_ids')
+            extra_file = request.files.get('file')
+            extra_context = ''
+            if extra_file:
+                try:
+                    from app.datapipeline.text_extractor import extract_text
+                    import os, tempfile
+                    file_ext = os.path.splitext(extra_file.filename or '')[1].lower()
+                    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
+                        extra_file.save(tmp.name)
+                        extra_context = extract_text(tmp.name) or ''
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
+        else:
+            data = request.get_json() or {}
+            instructions = data.get('instructions', '').strip()
+            test_case_ids = data.get('test_case_ids', [])
+            extra_context = data.get('extra_context', '').strip()
+
+        if not test_case_ids:
+            return jsonify({'error': 'test_case_ids required'}), 400
+
+        # Load all test cases
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json, story_description FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                story_desc = row['story_description'] or ''
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+                cases = tc_json.get('test_cases', [])
+
+        # Build RAG context once for all TCs
+        story_content = story_desc
+        rag_section = ""
+        try:
+            from app.LLM.rag_context import build_rag_context, format_rag_context_for_prompt
+            import lancedb as _ldb
+            _db = _ldb.connect(Config.LANCE_DB_PATH)
+            _t = _db.open_table(Config.TABLE_NAME_LANCE)
+            _df = _t.to_pandas()
+            _rows = _df[_df['storyID'] == story_id]
+            if not _rows.empty:
+                story_content = str(_rows.iloc[0].get('doc_content_text', story_desc) or story_desc)
+            query = instructions or story_content[:300]
+            ctx = build_rag_context(story_id=story_id, workspace_id=workspace_id, query_text=query, top_k=3)
+            rag_section = format_rag_context_for_prompt(ctx, max_examples=2)
+        except Exception as e:
+            print(f"[bulk_regen] RAG context failed: {e}")
+
+        instructions_section = f"\n\nUser instructions:\n{instructions}" if instructions else ""
+        extra_context_section = f"\n\nAdditional context from document:\n{extra_context[:2000]}" if extra_context else ""
+        rag_block = f"\n\n{rag_section}" if rag_section else ""
+
+        # Regenerate each selected test case
+        updated = []
+        for tc in cases:
+            if tc.get('id') not in test_case_ids:
+                continue
+            try:
+                prompt = f"""You are an expert QA engineer. Rewrite and improve this test case for the given user story.
+
+User Story:
+{story_content[:2000]}
+
+Test case to improve:
+- Title: {tc.get('title', '')}
+- Steps: {json.dumps(tc.get('steps', []))}
+- Expected Result: {tc.get('expected_result', '')}
+- Priority: {tc.get('priority', 'Medium')}{instructions_section}{extra_context_section}{rag_block}
+
+Return ONLY valid JSON, no other text:
+{{
+  "title": "improved title",
+  "steps": ["step 1", "step 2", "step 3"],
+  "expected_result": "specific expected result",
+  "priority": "{tc.get('priority', 'Medium')}"
+}}"""
+                response = Config.llm.invoke(prompt)
+                raw = response.content.strip()
+                if '```json' in raw:
+                    raw = raw.split('```json')[1].split('```')[0].strip()
+                elif '```' in raw:
+                    raw = raw.split('```')[1].strip()
+                start, end = raw.find('{'), raw.rfind('}') + 1
+                improved = json.loads(raw[start:end])
+                tc['title'] = improved.get('title', tc['title'])
+                tc['steps'] = improved.get('steps', tc.get('steps', []))
+                tc['expected_result'] = improved.get('expected_result', tc.get('expected_result', ''))
+                tc['priority'] = improved.get('priority', tc.get('priority', 'Medium'))
+                tc['status'] = 'Pending'
+                updated.append(tc)
+            except Exception as e:
+                print(f"[bulk_regen] TC {tc.get('id')} failed: {e}")
+                updated.append(tc)  # keep original on failure
+
+        # Persist
+        tc_json['test_cases'] = cases
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        return jsonify({'updated': [tc.get('id') for tc in updated], 'test_cases': updated}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/refine', methods=['POST'])
+@dev_jwt_required
+def refine_test_case(story_id, test_case_id):
+    """Iterative refinement — user reviews regenerated result and asks for more changes."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            instructions = request.form.get('instructions', '').strip()
+            current_title = request.form.get('current_title', '')
+            current_steps = json.loads(request.form.get('current_steps', '[]'))
+            current_expected = request.form.get('current_expected', '')
+            current_priority = request.form.get('current_priority', 'Medium')
+            extra_file = request.files.get('file')
+            extra_context = ''
+            if extra_file:
+                try:
+                    from app.datapipeline.text_extractor import extract_text
+                    import os, tempfile
+                    file_ext = os.path.splitext(extra_file.filename or '')[1].lower()
+                    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
+                        extra_file.save(tmp.name)
+                        extra_context = extract_text(tmp.name) or ''
+                    os.unlink(tmp.name)
+                except Exception:
+                    pass
+        else:
+            data = request.get_json() or {}
+            instructions = data.get('instructions', '').strip()
+            current_title = data.get('current_title', '')
+            current_steps = data.get('current_steps', [])
+            current_expected = data.get('current_expected', '')
+            current_priority = data.get('current_priority', 'Medium')
+            extra_context = data.get('extra_context', '').strip()
+
+        if not instructions:
+            return jsonify({'error': 'instructions required for refine'}), 400
+
+        # Get story content
+        story_content = ''
+        try:
+            import lancedb as _ldb
+            _db = _ldb.connect(Config.LANCE_DB_PATH)
+            _t = _db.open_table(Config.TABLE_NAME_LANCE)
+            _df = _t.to_pandas()
+            _rows = _df[_df['storyID'] == story_id]
+            if not _rows.empty:
+                story_content = str(_rows.iloc[0].get('doc_content_text', '') or '')
+        except Exception:
+            pass
+
+        extra_block = f"\n\nExtra context:\n{extra_context[:1500]}" if extra_context else ""
+
+        prompt = f"""You are an expert QA engineer. The user reviewed this test case and wants specific changes.
+
+User Story:
+{story_content[:2000]}
+
+Current test case (already improved from original):
+- Title: {current_title}
+- Steps: {json.dumps(current_steps)}
+- Expected Result: {current_expected}
+- Priority: {current_priority}
+
+User's refinement request: {instructions}{extra_block}
+
+Apply ONLY the changes the user requested. Keep everything else the same.
+Return ONLY valid JSON, no other text:
+{{
+  "title": "title",
+  "steps": ["step 1", "step 2"],
+  "expected_result": "expected result",
+  "priority": "{current_priority}"
+}}"""
+
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        refined = json.loads(raw[start:end])
+
+        return jsonify({'test_case_id': test_case_id, 'test_case': refined}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

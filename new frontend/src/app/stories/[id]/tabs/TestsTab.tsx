@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Check, Clock, RefreshCw, Sparkles, TestTube2,
   Pencil, Trash2, X, Plus, Loader2, CheckCircle2,
+  Paperclip, FileText,
 } from "lucide-react";
 import { type TestCase, type TestType } from "@/lib/seed";
 import { fadeInUp, duration, easeStandard } from "@/lib/motion";
 import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
 import { api } from "@/lib/api";
+import { invalidateStories } from "@/lib/storiesStore";
 
 function testConfidence(test: TestCase): number {
   let score = 55;
@@ -65,6 +67,27 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [editState, setEditState] = useState<EditState | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
+  // Regenerate modal (single + bulk share the same modal)
+  const [regenModalId, setRegenModalId] = useState<string | null>(null);  // null = bulk mode when regenBulkMode=true
+  const [regenBulkMode, setRegenBulkMode] = useState(false);
+  const [regenInstructions, setRegenInstructions] = useState("");
+  const [regenFile, setRegenFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Phase 2: Review & Refine state
+  type ReviewState = {
+    testCaseId: string | null; // null = bulk
+    original: TestCase | null;
+    result: { title: string; steps: string[]; expectedResult: string; priority: string };
+    isBulk: boolean;
+    bulkResults: { id: string; title: string; steps: string[]; expectedResult: string; priority: string }[];
+  };
+  const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  const [refineInstructions, setRefineInstructions] = useState("");
+  const [refineFile, setRefineFile] = useState<File | null>(null);
+  const [refineLoading, setRefineLoading] = useState(false);
+  const refineFileRef = useRef<HTMLInputElement>(null);
+
   // Toast
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -95,6 +118,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       await api.approveTestCase(storyId, testId, newStatus as any);
       setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: newStatus as any } : t));
       showToast(newStatus === 'Approved' ? 'Test case approved ✓' : 'Approval removed');
+      invalidateStories();
     } catch {
       showToast('Failed to update status', 'error');
     } finally {
@@ -125,6 +149,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       setTests((prev) => prev.filter((t) => t.id !== testId));
       if (selected === testId) setSelected(null);
       showToast('Test case deleted');
+      invalidateStories();
     } catch {
       showToast('Failed to delete', 'error');
     } finally {
@@ -149,28 +174,174 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }, [storyId, checked, selected]);
 
   // ── Regenerate single ─────────────────────────────────────────────────────
-  const handleRegenerate = useCallback(async (testId: string) => {
-    setRegenIds((p) => new Set(p).add(testId));
-    setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Regenerating' as any } : t));
+  const handleRegenerate = useCallback((testId: string) => {
+    setRegenInstructions("");
+    setRegenFile(null);
+    setRegenBulkMode(false);
+    setRegenModalId(testId);
+  }, []);
+
+  const handleRegenSubmit = useCallback(async () => {
+    if (regenBulkMode) {
+      // Bulk regen
+      setRegenModalId(null);
+      setBulkLoading(true);
+      const ids = Array.from(checked);
+      // Mark all as regenerating
+      setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Regenerating' as any } : t));
+      try {
+        const res = await api.bulkRegenerateTestCases(storyId, ids, regenInstructions || undefined, regenFile || undefined);
+        // Go to Phase 2 review for bulk
+        const bulkResults = (res.test_cases || []).map((tc: any) => ({
+          id: tc.id,
+          title: tc.title,
+          steps: tc.steps,
+          expectedResult: tc.expected_result,
+          priority: tc.priority,
+        }));
+        setReviewState({ testCaseId: null, original: null, result: bulkResults[0] ?? {} as any, isBulk: true, bulkResults });
+        setRefineInstructions("");
+      } catch {
+        setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Pending' as any } : t));
+        showToast('Bulk regeneration failed', 'error');
+      } finally {
+        setBulkLoading(false);
+        setRegenInstructions(""); setRegenFile(null);
+      }
+      return;
+    }
+
+    if (!regenModalId) return;
+    const tcId = regenModalId;
+    const original = tests.find((t) => t.id === tcId) ?? null;
+    setRegenModalId(null);
+    setRegenIds((p) => new Set(p).add(tcId));
+    setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Regenerating' as any } : t));
     try {
-      const res = await api.regenerateSingleTestCase(storyId, testId);
+      const res = await api.regenerateSingleTestCase(storyId, tcId, regenInstructions || undefined, regenFile || undefined);
       const updated = res.test_case;
-      setTests((prev) => prev.map((t) => t.id === testId ? {
-        ...t,
-        title: updated.title ?? t.title,
-        steps: updated.steps ?? t.steps,
-        expectedResult: updated.expected_result ?? t.expectedResult,
-        priority: updated.priority ?? t.priority,
-        status: 'Pending' as any,
-      } : t));
-      showToast('Test case regenerated ✓');
+      // Go to Phase 2 review
+      setReviewState({
+        testCaseId: tcId,
+        original,
+        result: {
+          title: updated.title ?? original?.title ?? '',
+          steps: updated.steps ?? original?.steps ?? [],
+          expectedResult: updated.expected_result ?? original?.expectedResult ?? '',
+          priority: updated.priority ?? original?.priority ?? 'Medium',
+        },
+        isBulk: false,
+        bulkResults: [],
+      });
+      setRefineInstructions("");
+      setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
     } catch {
-      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Pending' as any } : t));
+      setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
       showToast('Regeneration failed', 'error');
     } finally {
-      setRegenIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+      setRegenIds((p) => { const n = new Set(p); n.delete(tcId); return n; });
+      setRegenInstructions(""); setRegenFile(null);
     }
-  }, [storyId]);
+  }, [storyId, regenModalId, regenBulkMode, regenInstructions, regenFile, tests, checked]);
+
+  // ── Refine (Phase 2 iterative improvement) ────────────────────────────────
+  const handleRefine = useCallback(async () => {
+    if (!reviewState || !refineInstructions.trim()) return;
+    setRefineLoading(true);
+    try {
+      if (reviewState.isBulk) {
+        // Refine each bulk result
+        const refined = await Promise.all(
+          reviewState.bulkResults.map((r) =>
+            api.refineTestCase(storyId, r.id, {
+              instructions: refineInstructions,
+              current_title: r.title,
+              current_steps: r.steps,
+              current_expected: r.expectedResult,
+              current_priority: r.priority,
+              file: refineFile || undefined,
+            }).then((res) => ({
+              id: r.id,
+              title: res.test_case.title ?? r.title,
+              steps: res.test_case.steps ?? r.steps,
+              expectedResult: res.test_case.expected_result ?? r.expectedResult,
+              priority: res.test_case.priority ?? r.priority,
+            })).catch(() => r)
+          )
+        );
+        setReviewState((prev) => prev ? { ...prev, bulkResults: refined, result: refined[0] ?? prev.result } : null);
+      } else if (reviewState.testCaseId) {
+        const res = await api.refineTestCase(storyId, reviewState.testCaseId, {
+          instructions: refineInstructions,
+          current_title: reviewState.result.title,
+          current_steps: reviewState.result.steps,
+          current_expected: reviewState.result.expectedResult,
+          current_priority: reviewState.result.priority,
+          file: refineFile || undefined,
+        });
+        const tc = res.test_case;
+        setReviewState((prev) => prev ? {
+          ...prev,
+          result: {
+            title: tc.title ?? prev.result.title,
+            steps: tc.steps ?? prev.result.steps,
+            expectedResult: tc.expected_result ?? prev.result.expectedResult,
+            priority: tc.priority ?? prev.result.priority,
+          }
+        } : null);
+      }
+      setRefineInstructions("");
+      setRefineFile(null);
+    } catch {
+      showToast('Refinement failed', 'error');
+    } finally {
+      setRefineLoading(false);
+    }
+  }, [storyId, reviewState, refineInstructions, refineFile]);
+
+  // ── Accept Phase 2 result ─────────────────────────────────────────────────
+  const handleAcceptReview = useCallback(async () => {
+    if (!reviewState) return;
+    try {
+      if (reviewState.isBulk) {
+        await Promise.all(
+          reviewState.bulkResults.map((r) =>
+            api.updateTestCase(storyId, r.id, {
+              title: r.title, steps: r.steps,
+              expected_result: r.expectedResult, priority: r.priority,
+            })
+          )
+        );
+        setTests((prev) => prev.map((t) => {
+          const r = reviewState.bulkResults.find((x) => x.id === t.id);
+          return r ? { ...t, title: r.title, steps: r.steps, expectedResult: r.expectedResult, priority: r.priority as any, status: 'Pending' as any } : t;
+        }));
+        setChecked(new Set());
+        showToast(`${reviewState.bulkResults.length} test cases updated ✓`);
+        invalidateStories();
+      } else if (reviewState.testCaseId) {
+        await api.updateTestCase(storyId, reviewState.testCaseId, {
+          title: reviewState.result.title,
+          steps: reviewState.result.steps,
+          expected_result: reviewState.result.expectedResult,
+          priority: reviewState.result.priority,
+        });
+        setTests((prev) => prev.map((t) => t.id === reviewState.testCaseId ? {
+          ...t,
+          title: reviewState.result.title,
+          steps: reviewState.result.steps,
+          expectedResult: reviewState.result.expectedResult,
+          priority: reviewState.result.priority as any,
+          status: 'Pending' as any,
+        } : t));
+        showToast('Test case updated ✓');
+        invalidateStories();
+      }
+    } catch {
+      showToast('Failed to save', 'error');
+    }
+    setReviewState(null);
+  }, [storyId, reviewState]);
 
   // ── Edit ──────────────────────────────────────────────────────────────────
   const openEdit = (tc: TestCase) => {
@@ -224,6 +395,123 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   return (
     <div className="flex h-full relative" style={{ minHeight: "calc(100vh - 220px)" }}>
 
+      {/* Hidden file input for refine */}
+      <input ref={refineFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden"
+        onChange={(e) => setRefineFile(e.target.files?.[0] ?? null)} />
+
+      {/* Phase 2 — Review & Refine Modal */}
+      <AnimatePresence>
+        {reviewState && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-white z-10">
+                <div>
+                  <h2 className="text-base font-semibold text-navy">
+                    {reviewState.isBulk ? `Review ${reviewState.bulkResults.length} Regenerated Test Cases` : 'Review Regenerated Test Case'}
+                  </h2>
+                  <p className="text-xs text-muted mt-0.5">Accept to save, or ask for more improvements below</p>
+                </div>
+                <button onClick={() => setReviewState(null)} className="text-muted hover:text-navy"><X size={18} /></button>
+              </div>
+
+              <div className="px-6 py-5 space-y-5">
+                {/* Results */}
+                {reviewState.isBulk ? (
+                  <div className="space-y-3">
+                    {reviewState.bulkResults.map((r, i) => (
+                      <div key={r.id} className="border border-border rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-muted">#{i + 1}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[r.priority] ?? priorityColor.P2}`}>{r.priority}</span>
+                          <p className="text-sm font-semibold text-navy">{r.title}</p>
+                        </div>
+                        <ol className="space-y-1">
+                          {r.steps.map((s, j) => (
+                            <li key={j} className="flex gap-2 text-xs text-navy">
+                              <span className="text-muted w-4 flex-shrink-0">{j + 1}.</span>{s}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="text-xs text-muted mt-2"><span className="font-semibold">Expected:</span> {r.expectedResult}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[reviewState.result.priority] ?? priorityColor.P2}`}>
+                        {reviewState.result.priority}
+                      </span>
+                      <p className="text-sm font-semibold text-navy">{reviewState.result.title}</p>
+                    </div>
+                    <ol className="space-y-1">
+                      {reviewState.result.steps.map((s, i) => (
+                        <li key={i} className="flex gap-2 text-xs text-navy">
+                          <span className="text-muted w-4 flex-shrink-0">{i + 1}.</span>{s}
+                        </li>
+                      ))}
+                    </ol>
+                    <p className="text-xs text-muted mt-2"><span className="font-semibold">Expected:</span> {reviewState.result.expectedResult}</p>
+                    {reviewState.original && (
+                      <details className="mt-3">
+                        <summary className="text-xs text-muted cursor-pointer hover:text-navy">Show original</summary>
+                        <div className="mt-2 pl-3 border-l-2 border-border">
+                          <p className="text-xs text-muted line-through">{reviewState.original.title}</p>
+                          <p className="text-xs text-muted mt-1">Steps: {reviewState.original.steps.join(' → ')}</p>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+
+                {/* Refine prompt */}
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Want to improve further?</p>
+                  <div className="flex gap-2">
+                    <textarea
+                      value={refineInstructions}
+                      onChange={(e) => setRefineInstructions(e.target.value)}
+                      placeholder="e.g. Add more boundary cases, make step 3 more specific…"
+                      rows={2}
+                      className="flex-1 px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:border-pink resize-none placeholder:text-muted/60"
+                    />
+                    <div className="flex flex-col gap-1.5">
+                      <button onClick={() => refineFileRef.current?.click()}
+                        title="Attach document"
+                        className={`h-9 w-9 flex items-center justify-center rounded-xl border transition-colors ${refineFile ? 'border-pink text-pink bg-surface-pink' : 'border-border text-muted hover:border-pink hover:text-pink'}`}>
+                        <Paperclip size={14} />
+                      </button>
+                      <button onClick={handleRefine} disabled={!refineInstructions.trim() || refineLoading}
+                        className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-xl hover:bg-[#e0005f] disabled:opacity-40">
+                        {refineLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                  {refineFile && (
+                    <div className="flex items-center gap-2 mt-1.5 text-xs text-pink">
+                      <FileText size={12} />{refineFile.name}
+                      <button onClick={() => setRefineFile(null)}><X size={11} /></button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 px-6 py-4 border-t border-border sticky bottom-0 bg-white">
+                <button onClick={() => setReviewState(null)} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50">
+                  Discard
+                </button>
+                <button onClick={handleAcceptReview} className="h-9 px-5 text-sm bg-success text-white rounded-btn hover:bg-success/90 flex items-center gap-2">
+                  <Check size={14} /> Accept & Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Toast */}
       <AnimatePresence>
         {toast && (
@@ -236,6 +524,111 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             }`}
           >
             {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Regenerate Modal */}
+      <AnimatePresence>
+        {(regenModalId || regenBulkMode) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) { setRegenModalId(null); setRegenBulkMode(false); } }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-lg"
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div>
+                  <h2 className="text-base font-semibold text-navy">
+                    {regenBulkMode ? `Regenerate ${checked.size} Test Cases` : 'Regenerate Test Case'}
+                  </h2>
+                  <p className="text-xs text-muted mt-0.5">Tell the AI how to improve {regenBulkMode ? 'these test cases' : 'this test case'}</p>
+                </div>
+                <button onClick={() => { setRegenModalId(null); setRegenBulkMode(false); }} className="text-muted hover:text-navy">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Current test case preview */}
+              {(() => {
+                const tc = tests.find((t) => t.id === regenModalId);
+                return tc ? (
+                  <div className="px-6 pt-4 pb-2">
+                    <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Current test case</p>
+                    <div className="bg-gray-50 rounded-xl px-4 py-3 border border-border">
+                      <p className="text-sm font-semibold text-navy">{tc.title}</p>
+                      <p className="text-xs text-muted mt-1">{tc.steps.length} steps · Expected: {tc.expectedResult.slice(0, 60)}{tc.expectedResult.length > 60 ? '…' : ''}</p>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              <div className="px-6 py-4 space-y-4">
+                {/* Instructions */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-1.5">
+                    What should we improve? <span className="font-normal normal-case">(optional)</span>
+                  </label>
+                  <textarea
+                    value={regenInstructions}
+                    onChange={(e) => setRegenInstructions(e.target.value)}
+                    placeholder="e.g. Make steps more detailed, add edge cases for empty input, include error message validation…"
+                    rows={3}
+                    className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:border-pink resize-none placeholder:text-muted/60"
+                  />
+                </div>
+
+                {/* File attachment */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-1.5">
+                    Attach document for extra context <span className="font-normal normal-case">(optional)</span>
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.txt,.md"
+                    className="hidden"
+                    onChange={(e) => setRegenFile(e.target.files?.[0] ?? null)}
+                  />
+                  {regenFile ? (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-surface-pink border border-pink/30 rounded-xl">
+                      <FileText size={15} className="text-pink flex-shrink-0" />
+                      <span className="text-sm text-navy flex-1 truncate">{regenFile.name}</span>
+                      <button onClick={() => { setRegenFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="text-muted hover:text-error">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-3 py-2 border border-dashed border-border rounded-xl text-sm text-muted hover:border-pink hover:text-pink transition-colors w-full"
+                    >
+                      <Paperclip size={14} />
+                      Attach PDF, DOCX, or TXT
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
+                <button onClick={() => { setRegenModalId(null); setRegenBulkMode(false); }} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRegenSubmit}
+                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] flex items-center gap-2"
+                >
+                  <RefreshCw size={13} /> Regenerate
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -381,6 +774,10 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 {bulkLoading ? <Loader2 size={12} className="animate-spin text-muted" /> : (
                   <>
                     <button onClick={handleBulkApprove} className="text-xs text-success hover:underline font-medium">Approve all</button>
+                    <button
+                      onClick={() => { setRegenBulkMode(true); setRegenInstructions(""); setRegenFile(null); setRegenModalId("bulk"); }}
+                      className="text-xs text-pink hover:underline font-medium"
+                    >Regenerate all</button>
                     <button onClick={handleBulkDelete} className="text-xs text-error hover:underline font-medium">Delete all</button>
                   </>
                 )}
