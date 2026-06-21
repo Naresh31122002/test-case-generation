@@ -27,15 +27,27 @@ export function OverviewTab({ story }: { story: Story }) {
   const [quality, setQuality] = useState<QualityData | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityError, setQualityError] = useState(false);
+  // Sprint 1 Phase 4: AI Insights are collapsed by default and only fetched when
+  // the user explicitly asks for them, to reduce visual noise (and avoid an LLM
+  // call on every Overview view).
+  const [insightsRequested, setInsightsRequested] = useState(false);
 
-  useEffect(() => {
-    // Fetch real quality analysis from LLM on mount
+  function generateInsights() {
+    setInsightsRequested(true);
     setQualityLoading(true);
     setQualityError(false);
     api.getStoryQuality(story.id)
       .then((q) => setQuality(q))
       .catch(() => setQualityError(true))
       .finally(() => setQualityLoading(false));
+  }
+
+  // Reset insights when navigating between stories so they stay collapsed.
+  useEffect(() => {
+    setInsightsRequested(false);
+    setQuality(null);
+    setQualityError(false);
+    setQualityLoading(false);
   }, [story.id]);
 
   async function handleAsk() {
@@ -96,16 +108,9 @@ export function OverviewTab({ story }: { story: Story }) {
               <Info size={13} className="text-muted cursor-help" />
             </Tooltip>
           </h3>
-          {!qualityLoading && (
+          {insightsRequested && !qualityLoading && (
             <button
-              onClick={() => {
-                setQualityLoading(true);
-                setQualityError(false);
-                api.getStoryQuality(story.id)
-                  .then((q) => setQuality(q))
-                  .catch(() => setQualityError(true))
-                  .finally(() => setQualityLoading(false));
-              }}
+              onClick={generateInsights}
               className="text-muted hover:text-navy transition-colors"
               title="Re-analyze"
             >
@@ -114,17 +119,26 @@ export function OverviewTab({ story }: { story: Story }) {
           )}
         </div>
 
-        {qualityLoading ? (
+        {!insightsRequested ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <p className="text-sm text-muted max-w-sm">
+              Run AI analysis to score Completeness, Clarity and Testability, and surface risks and recommendations for this story.
+            </p>
+            <button
+              onClick={generateInsights}
+              className="inline-flex items-center gap-2 text-sm font-medium text-white bg-cyan rounded-btn px-4 py-2 hover:bg-cyan/90 transition-colors"
+            >
+              <Sparkles size={15} /> Generate AI Insights
+            </button>
+          </div>
+        ) : qualityLoading ? (
           <div className="flex items-center gap-3 py-6 justify-center text-muted">
             <Loader2 size={18} className="animate-spin" />
             <span className="text-sm">Analyzing story quality with AI…</span>
           </div>
         ) : qualityError ? (
           <div className="py-4 text-center text-sm text-muted">
-            Quality analysis unavailable. <button onClick={() => {
-              setQualityLoading(true); setQualityError(false);
-              api.getStoryQuality(story.id).then(setQuality).catch(() => setQualityError(true)).finally(() => setQualityLoading(false));
-            }} className="text-cyan hover:underline">Retry</button>
+            Quality analysis unavailable. <button onClick={generateInsights} className="text-cyan hover:underline">Retry</button>
           </div>
         ) : quality ? (
           <>

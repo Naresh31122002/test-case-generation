@@ -314,6 +314,13 @@ function normalizeTestCase(raw: RawTestCase): TestCase {
         ? (String(raw.severity).toLowerCase() as 'high' | 'medium' | 'low')
         : undefined,
     group: raw.group,
+    status:
+      raw.status === 'Approved' || raw.status === 'Rejected' || raw.status === 'Pending'
+        ? raw.status
+        : undefined,
+    tcStatus:
+      raw.tc_status === 'in_progress' || raw.tc_status === 'done' ? raw.tc_status : 'todo',
+    automationReady: Boolean(raw.automation_ready),
   }
 }
 
@@ -463,12 +470,22 @@ export const api = {
     to_date?: string,
     project_id?: string,
     sort_order: 'desc' | 'asc' = 'desc',
+    filters?: {
+      status?: string[];
+      priority?: string[];
+      impact?: 'detected' | 'none';
+      assignee?: string; // user_id | 'me' | 'unassigned'
+    },
   ): Promise<PaginatedResponse<Story>> {
     try {
       let url = `/api/stories/?page=${page}&per_page=${perPage}&sort_order=${sort_order}`
       if (from_date) url += `&from_date=${encodeURIComponent(from_date)}`
       if (to_date) url += `&to_date=${encodeURIComponent(to_date)}`
       if (project_id) url += `&project_id=${encodeURIComponent(project_id)}`
+      filters?.status?.forEach((s) => { url += `&status=${encodeURIComponent(s)}` })
+      filters?.priority?.forEach((p) => { url += `&priority=${encodeURIComponent(p)}` })
+      if (filters?.impact) url += `&impact=${encodeURIComponent(filters.impact)}`
+      if (filters?.assignee) url += `&assignee=${encodeURIComponent(filters.assignee)}`
       const data = await get<{ stories: RawStory[]; pagination: Record<string, unknown> }>(url)
       return normalizePaginatedStories(data)
     } catch (error: any) {
@@ -537,9 +554,23 @@ export const api = {
     }
   },
 
-  async getTestCases(storyId: string): Promise<TestCaseListResponse> {
+  async getTestCases(
+    storyId: string,
+    filters?: {
+      priority?: string[];
+      status?: string[];
+      automationReady?: boolean;
+      impacted?: boolean;
+    },
+  ): Promise<TestCaseListResponse> {
     try {
-      const data = await get<any>(`/api/stories/${storyId}/testcases`)
+      const qs = new URLSearchParams()
+      filters?.priority?.forEach((p) => qs.append('priority', p))
+      filters?.status?.forEach((s) => qs.append('status', s))
+      if (filters?.automationReady !== undefined) qs.set('automation_ready', String(filters.automationReady))
+      if (filters?.impacted !== undefined) qs.set('impacted', String(filters.impacted))
+      const suffix = qs.toString() ? `?${qs.toString()}` : ''
+      const data = await get<any>(`/api/stories/${storyId}/testcases${suffix}`)
       return {
         storyId: String(data.storyID ?? storyId),
         description: data.storyDescription ?? '',
@@ -837,6 +868,54 @@ export const api = {
   async deleteTestCase(storyId: string, testCaseId: string): Promise<{ deleted: string; remaining: number }> {
     const { request } = await import('./apiClient')
     return request(`/api/stories/${storyId}/testcases/${testCaseId}`, { method: 'DELETE' })
+  },
+
+  // ── Test Case Kanban status (Sprint 1 Phase 2) ─────────────────────────────
+  async updateTestCaseStatus(
+    storyId: string,
+    testCaseId: string,
+    tcStatus: 'todo' | 'in_progress' | 'done',
+  ): Promise<{ test_case_id: string; tc_status: string }> {
+    return patch(`/api/stories/${storyId}/testcases/${testCaseId}/tc-status`, { tc_status: tcStatus })
+  },
+
+  // ── Test Case collaboration: assignees / activity / comments (Phase 1) ──────
+  async getTestCaseAssignees(storyId: string, testCaseId: string): Promise<{
+    assignees: Array<{ user_id: string; email: string; assigned_by: string | null; assigned_by_email: string | null; assigned_at: string }>;
+  }> {
+    return get(`/api/stories/${storyId}/testcases/${testCaseId}/assignees`)
+  },
+
+  async addTestCaseAssignee(storyId: string, testCaseId: string, userId: string): Promise<{ assignee: any }> {
+    return post(`/api/stories/${storyId}/testcases/${testCaseId}/assignees`, { user_id: userId })
+  },
+
+  async removeTestCaseAssignee(storyId: string, testCaseId: string, userId: string): Promise<{ test_case_id: string; user_id: string }> {
+    return del(`/api/stories/${storyId}/testcases/${testCaseId}/assignees/${userId}`)
+  },
+
+  async getTestCaseActivity(storyId: string, testCaseId: string): Promise<{
+    activity: Array<{ id: string; event_type: string; details: any; created_at: string; actor_user_id: string | null; actor_email: string | null }>;
+  }> {
+    return get(`/api/stories/${storyId}/testcases/${testCaseId}/activity`)
+  },
+
+  async getTestCaseComments(storyId: string, testCaseId: string): Promise<{
+    comments: Array<{ id: string; test_case_id: string; user_id: string; user_email: string; body: string; created_at: string; updated_at: string }>;
+  }> {
+    return get(`/api/stories/${storyId}/testcases/${testCaseId}/comments`)
+  },
+
+  async addTestCaseComment(storyId: string, testCaseId: string, body: string): Promise<{ comment: any }> {
+    return post(`/api/stories/${storyId}/testcases/${testCaseId}/comments`, { body })
+  },
+
+  async editTestCaseComment(storyId: string, testCaseId: string, commentId: string, body: string): Promise<{ comment: any }> {
+    return patch(`/api/stories/${storyId}/testcases/${testCaseId}/comments/${commentId}`, { body })
+  },
+
+  async deleteTestCaseComment(storyId: string, testCaseId: string, commentId: string): Promise<{ test_case_id: string; comment_id: string }> {
+    return del(`/api/stories/${storyId}/testcases/${testCaseId}/comments/${commentId}`)
   },
 
   async regenerateSingleTestCase(

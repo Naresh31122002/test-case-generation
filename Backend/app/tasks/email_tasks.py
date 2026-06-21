@@ -82,3 +82,61 @@ def task_send_subscription_renewed(self, to_email, name, plan_name, amount):
         send_email(to_email, "TestSurge Subscription Renewed", text_body=url, html_body=html)
     except Exception as exc:
         raise self.retry(exc=exc)
+
+
+# ── Collaboration notifications (Sprint 1 Phase 5) ──────────────────────────────
+# All callers pass already-resolved, workspace-scoped recipient emails. These
+# tasks never look up membership themselves; tenant scoping is enforced at the
+# dispatch site (only workspace members are ever passed in).
+
+@celery.task(bind=True, max_retries=3, default_retry_delay=60)
+def task_send_story_assigned(self, to_email, actor_name, workspace_name, story_id, story_title, story_url):
+    try:
+        html = _render(
+            "story_assigned.html",
+            actor_name=actor_name, workspace_name=workspace_name,
+            story_id=story_id, story_title=story_title, link_url=story_url,
+        )
+        send_email(to_email, f"You were assigned {story_id} in {workspace_name}", text_body=story_url, html_body=html)
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery.task(bind=True, max_retries=3, default_retry_delay=60)
+def task_send_test_case_assigned(self, to_email, actor_name, workspace_name, test_case_id, test_case_title, link_url):
+    try:
+        html = _render(
+            "test_case_assigned.html",
+            actor_name=actor_name, workspace_name=workspace_name,
+            test_case_id=test_case_id, test_case_title=test_case_title, link_url=link_url,
+        )
+        send_email(to_email, f"You were assigned {test_case_id} in {workspace_name}", text_body=link_url, html_body=html)
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery.task(bind=True, max_retries=3, default_retry_delay=60)
+def task_send_comment_added(self, to_email, actor_name, workspace_name, target_label, target_id, comment_body, link_url):
+    try:
+        html = _render(
+            "comment_added.html",
+            actor_name=actor_name, workspace_name=workspace_name,
+            target_label=target_label, target_id=target_id,
+            comment_body=comment_body, link_url=link_url,
+        )
+        send_email(to_email, f"New comment on {target_id} in {workspace_name}", text_body=link_url, html_body=html)
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@celery.task(bind=True, max_retries=3, default_retry_delay=60)
+def task_send_mention(self, to_email, actor_name, workspace_name, target_id, comment_body, link_url):
+    try:
+        html = _render(
+            "mention.html",
+            actor_name=actor_name, workspace_name=workspace_name,
+            target_id=target_id, comment_body=comment_body, link_url=link_url,
+        )
+        send_email(to_email, f"{actor_name} mentioned you in {workspace_name}", text_body=link_url, html_body=html)
+    except Exception as exc:
+        raise self.retry(exc=exc)

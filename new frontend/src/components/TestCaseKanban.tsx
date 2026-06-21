@@ -21,8 +21,9 @@ import { ChevronDown, Loader2, TestTube2 } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { type TestCase as DomainTestCase } from "@/types/domain";
 import { api } from "@/lib/api";
+import { TestCaseDrawer } from "@/components/TestCaseDrawer";
 
-// Columns represent test execution status (local-only, no backend persist for now)
+// Columns represent test execution status, persisted to the backend (Phase 2).
 type TcStatus = "todo" | "in_progress" | "done";
 
 type TcItem = DomainTestCase & { _tcStatus: TcStatus };
@@ -39,11 +40,12 @@ const PRIORITY_COLOR: Record<string, string> = {
   Low:    "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-function TestCaseCard({ tc, dragging = false }: { tc: TcItem; dragging?: boolean }) {
+function TestCaseCard({ tc, dragging = false, onOpen }: { tc: TcItem; dragging?: boolean; onOpen?: () => void }) {
   return (
     <div
+      onClick={onOpen}
       className={`bg-white border rounded-xl p-3 shadow-sm transition-shadow ${
-        dragging ? "shadow-lg opacity-90 rotate-1" : "hover:shadow-md"
+        dragging ? "shadow-lg opacity-90 rotate-1" : "hover:shadow-md cursor-pointer"
       }`}
     >
       <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -61,7 +63,7 @@ function TestCaseCard({ tc, dragging = false }: { tc: TcItem; dragging?: boolean
   );
 }
 
-function SortableTcCard({ tc }: { tc: TcItem }) {
+function SortableTcCard({ tc, onOpen }: { tc: TcItem; onOpen: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tc.id });
   return (
     <div
@@ -71,7 +73,7 @@ function SortableTcCard({ tc }: { tc: TcItem }) {
       {...listeners}
       className="cursor-grab active:cursor-grabbing"
     >
-      <TestCaseCard tc={tc} />
+      <TestCaseCard tc={tc} onOpen={onOpen} />
     </div>
   );
 }
@@ -86,21 +88,33 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
   const [items, setItems] = useState<TcItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [openTcId, setOpenTcId] = useState<string | null>(null);
+  // Sprint 1 Phase 3: server-side test-case filters.
+  const [fPriority, setFPriority] = useState<string>("");
+  const [fStatus, setFStatus] = useState<string>("");
+  const [fAutomation, setFAutomation] = useState<string>(""); // '' | 'true' | 'false'
+  const [fImpacted, setFImpacted] = useState<string>("");     // '' | 'true' | 'false'
 
   const selectedStory = stories.find((s) => s.id === selectedStoryId);
 
-  // Load test cases whenever selected story changes
+  // Load test cases whenever the selected story or filters change. Filters are
+  // applied server-side (Phase 3); each card's column is initialised from the
+  // persisted tc_status (Phase 2), defaulting to "todo".
   useEffect(() => {
     if (!selectedStoryId) return;
     setLoading(true);
-    api.getTestCases(selectedStoryId)
+    api.getTestCases(selectedStoryId, {
+      ...(fPriority ? { priority: [fPriority] } : {}),
+      ...(fStatus ? { status: [fStatus] } : {}),
+      ...(fAutomation ? { automationReady: fAutomation === "true" } : {}),
+      ...(fImpacted ? { impacted: fImpacted === "true" } : {}),
+    })
       .then((res) => {
-        // Default all test cases to "todo"
-        setItems(res.testCases.map((tc) => ({ ...tc, _tcStatus: "todo" as TcStatus })));
+        setItems(res.testCases.map((tc) => ({ ...tc, _tcStatus: (tc.tcStatus ?? "todo") as TcStatus })));
       })
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [selectedStoryId]);
+  }, [selectedStoryId, fPriority, fStatus, fAutomation, fImpacted]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -109,6 +123,15 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
   function onDragStart(e: DragStartEvent) {
     setActiveId(String(e.active.id));
   }
+
+  // Persist a column change to the backend with an optimistic update + rollback.
+  const persistStatus = useCallback((tcId: string, targetStatus: TcStatus, prevStatus: TcStatus) => {
+    setItems((prev) => prev.map((t) => (t.id === tcId ? { ...t, _tcStatus: targetStatus } : t)));
+    api.updateTestCaseStatus(selectedStoryId, tcId, targetStatus).catch(() => {
+      // Roll back on failure so the board reflects the true persisted state.
+      setItems((prev) => prev.map((t) => (t.id === tcId ? { ...t, _tcStatus: prevStatus } : t)));
+    });
+  }, [selectedStoryId]);
 
   function onDragEnd(e: DragEndEvent) {
     setActiveId(null);
@@ -130,12 +153,11 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
     const dragged = items.find((t) => t.id === draggedId);
     if (!dragged || dragged._tcStatus === targetStatus) return;
 
-    setItems((prev) =>
-      prev.map((t) => (t.id === draggedId ? { ...t, _tcStatus: targetStatus! } : t))
-    );
+    persistStatus(draggedId, targetStatus, dragged._tcStatus);
   }
 
   const activeTc = activeId ? tcById(activeId) : null;
+  const openTc = openTcId ? tcById(openTcId) : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -183,6 +205,48 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
         )}
       </div>
 
+      {/* Phase 3: server-side test-case filters. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <select
+          value={fPriority}
+          onChange={(e) => setFPriority(e.target.value)}
+          className="h-8 px-2.5 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+        >
+          <option value="">All Priority</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <select
+          value={fStatus}
+          onChange={(e) => setFStatus(e.target.value)}
+          className="h-8 px-2.5 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+        >
+          <option value="">All Status</option>
+          <option value="Approved">Approved</option>
+          <option value="Pending">Pending</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+        <select
+          value={fAutomation}
+          onChange={(e) => setFAutomation(e.target.value)}
+          className="h-8 px-2.5 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+        >
+          <option value="">Automation: Any</option>
+          <option value="true">Automation Ready</option>
+          <option value="false">Not Automation Ready</option>
+        </select>
+        <select
+          value={fImpacted}
+          onChange={(e) => setFImpacted(e.target.value)}
+          className="h-8 px-2.5 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+        >
+          <option value="">Impacted: Any</option>
+          <option value="true">Impacted</option>
+          <option value="false">Not Impacted</option>
+        </select>
+      </div>
+
       {/* Kanban board */}
       {loading ? (
         <div className="h-48 flex items-center justify-center text-sm text-muted gap-2">
@@ -225,7 +289,9 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
                           <p className="text-xs text-muted">Drop here</p>
                         </div>
                       ) : (
-                        colItems.map((tc) => <SortableTcCard key={tc.id} tc={tc} />)
+                        colItems.map((tc) => (
+                          <SortableTcCard key={tc.id} tc={tc} onOpen={() => setOpenTcId(tc.id)} />
+                        ))
                       )}
                     </div>
                   </SortableContext>
@@ -242,6 +308,17 @@ export function TestCaseKanban({ stories }: TestCaseKanbanProps) {
             ) : null}
           </DragOverlay>
         </DndContext>
+      )}
+
+      {/* Test Case detail drawer (Phase 1) */}
+      {openTc && (
+        <TestCaseDrawer
+          storyId={selectedStoryId}
+          testCase={openTc}
+          tcStatus={openTc._tcStatus}
+          onClose={() => setOpenTcId(null)}
+          onStatusChange={(status) => persistStatus(openTc.id, status, openTc._tcStatus)}
+        />
       )}
     </div>
   );

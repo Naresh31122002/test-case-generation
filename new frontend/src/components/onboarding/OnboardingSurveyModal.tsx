@@ -27,17 +27,20 @@ const REFERRAL_SOURCES = [
   "Others",
 ] as const;
 
-const STEPS = 3;
+const STEPS = 4;
 
 /**
- * First-login-only survey modal (org name -> job title -> referral source).
- * Skippable at any point. Once submitted or skipped, /auth/onboarding marks
- * the user's onboarding_completed_at so this never renders again — the
- * gating check (AuthUser.onboardingCompleted) lives in the caller.
+ * First-login-only modal. Step 0 (Sprint 1 Phase 6) collects the user's Full Name
+ * (required) and an optional Workspace Name; the remaining steps are the original
+ * org / job-title / referral survey. Once submitted or skipped, /auth/onboarding
+ * marks onboarding_completed_at so this never renders again — the gating check
+ * (AuthUser.onboardingCompleted) lives in the caller.
  */
 export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
-  const { refresh } = useAuth();
+  const { user, refresh } = useAuth();
   const [step, setStep] = useState(0);
+  const [fullName, setFullName] = useState(user?.fullName ?? "");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [orgName, setOrgName] = useState("");
   const [jobTitle, setJobTitle] = useState<string | null>(null);
   const [referralSource, setReferralSource] = useState<string | null>(null);
@@ -47,6 +50,8 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
     setSaving(true);
     try {
       await completeOnboarding({
+        fullName: fullName.trim() || undefined,
+        workspaceName: workspaceName.trim() || undefined,
         orgName: orgName.trim() || undefined,
         jobTitle: jobTitle ?? undefined,
         referralSource: referralSource ?? undefined,
@@ -68,15 +73,23 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
     if (step > 0) setStep(step - 1);
   }
 
-  /** Skip just this step and move on — only closes the modal on the last step. */
+  /** Skip just this step and move on — only closes the modal on the last step.
+   * The Full Name step (0) is required, so skipping is disabled there. */
   function skip() {
     if (step < STEPS - 1) setStep(step + 1);
     else finish();
   }
 
-  // Org name is free text (optional); job title / referral require a pick.
+  // Step 0 requires a non-empty Full Name; org name is optional free text;
+  // job title / referral require a pick.
   const canProceed =
-    step === 0 ? true : step === 1 ? jobTitle !== null : referralSource !== null;
+    step === 0
+      ? fullName.trim().length > 0
+      : step === 1
+      ? true
+      : step === 2
+      ? jobTitle !== null
+      : referralSource !== null;
 
   return (
     <AnimatePresence>
@@ -111,14 +124,16 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
                   />
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={finish}
-                aria-label="Close"
-                className="text-muted hover:text-navy transition-colors"
-              >
-                <X size={20} />
-              </button>
+              {step > 0 && (
+                <button
+                  type="button"
+                  onClick={finish}
+                  aria-label="Close"
+                  className="text-muted hover:text-navy transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -138,6 +153,46 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
             <AnimatePresence mode="wait">
               {step === 0 && (
                 <motion.div
+                  key="identity"
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  className="w-full max-w-md text-center"
+                >
+                  <h2 className="text-2xl font-semibold text-navy mb-6">Let&apos;s set up your profile</h2>
+                  <div className="space-y-4 text-left">
+                    <div>
+                      <label className="block text-sm font-medium text-navy mb-1.5">
+                        Full Name <span className="text-pink">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="e.g. Jane Doe"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm text-navy focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-300 transition-colors"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-navy mb-1.5">
+                        Workspace Name <span className="text-muted font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={workspaceName}
+                        onChange={(e) => setWorkspaceName(e.target.value)}
+                        placeholder="e.g. Acme QA"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm text-navy focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-300 transition-colors"
+                      />
+                      <p className="text-[11px] text-muted mt-1.5">Renames your current workspace. Leave blank to keep the default.</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 1 && (
+                <motion.div
                   key="org"
                   initial={{ opacity: 0, x: 12 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -156,7 +211,7 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
                 </motion.div>
               )}
 
-              {step === 1 && (
+              {step === 2 && (
                 <motion.div
                   key="job"
                   initial={{ opacity: 0, x: 12 }}
@@ -184,7 +239,7 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
                 </motion.div>
               )}
 
-              {step === 2 && (
+              {step === 3 && (
                 <motion.div
                   key="referral"
                   initial={{ opacity: 0, x: 12 }}
@@ -221,9 +276,11 @@ export function OnboardingSurveyModal({ onDone }: { onDone: () => void }) {
                 Back
               </button>
             )}
-            <button type="button" onClick={skip} className="text-sm font-medium text-muted hover:text-navy">
-              Skip
-            </button>
+            {step > 0 && (
+              <button type="button" onClick={skip} className="text-sm font-medium text-muted hover:text-navy">
+                Skip
+              </button>
+            )}
             <button
               type="button"
               onClick={next}

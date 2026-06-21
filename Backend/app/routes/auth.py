@@ -149,10 +149,23 @@ def get_me():
     workspaces = WorkspaceModel.get_for_user(user_id)
     current_workspace = WorkspaceModel.get_default_for_user(user_id)
     return jsonify({
-        "user": user,  # includes email_verified
+        "user": user,  # includes email_verified + full_name
         "workspaces": workspaces,
         "current_workspace": current_workspace,
     }), 200
+
+
+@auth_bp.route("/me", methods=["PATCH"])
+@jwt_required()
+def update_me():
+    """Update the current user's profile (Sprint 1 Phase 6). Currently: full_name."""
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    full_name = (data.get("full_name") or "").strip() or None
+    user = UserModel.update_profile(user_id, full_name)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({"user": user}), 200
 
 
 # ── First-login onboarding survey ───────────────────────────────────────────────
@@ -161,9 +174,22 @@ def get_me():
 @jwt_required()
 def complete_onboarding():
     """Save the (optional, skippable) first-login survey and mark it done so
-    the modal never shows again for this user."""
+    the modal never shows again for this user. Sprint 1 Phase 6 adds full_name
+    (required by the modal) and an optional workspace rename."""
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
+
+    full_name = (data.get("full_name") or "").strip() or None
+    if full_name:
+        UserModel.update_profile(user_id, full_name)
+
+    # Optional workspace rename — applies to the user's current default workspace.
+    workspace_name = (data.get("workspace_name") or "").strip() or None
+    if workspace_name:
+        ws = WorkspaceModel.get_default_for_user(user_id)
+        if ws:
+            WorkspaceModel.rename(ws["id"], user_id, workspace_name)
+
     UserModel.complete_onboarding(
         user_id,
         (data.get("org_name") or "").strip() or None,

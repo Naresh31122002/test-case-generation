@@ -29,6 +29,11 @@ from app.utils.workspace import (
     get_current_workspace_id,
 )
 from app.models.story_collaboration_model import StoryAssigneesModel, StoryActivityModel, StoryCommentsModel
+from app.models.test_case_collaboration_model import (
+    TestCaseAssigneesModel,
+    TestCaseActivityModel,
+    TestCaseCommentsModel,
+)
 stories_bp = Blueprint('stories', __name__)
 
 # Backwards-compatible alias: existing routes are decorated with @dev_jwt_required.
@@ -54,6 +59,14 @@ def get_stories():
         per_page = request.args.get('per_page', 10, type=int)
         sort_order = request.args.get('sort_order', 'desc')
         project_id = request.args.get('project_id')
+
+        # Sprint 1 Phase 3: optional server-side filters. All are additive — when a
+        # filter is absent the query behaves exactly as before. Repeatable params
+        # (?status=in_review&status=completed) are read with getlist.
+        f_status = [s for s in request.args.getlist('status') if s in ('in_review', 'in_progress', 'completed')]
+        f_impact = request.args.get('impact')  # 'detected' | 'none'
+        f_assignee = request.args.get('assignee')  # user_id | 'me' | 'unassigned'
+        f_priority = [p for p in request.args.getlist('priority') if p in ('High', 'Medium', 'Low')]
 
         print("DEBUG:get_stories: Request received", {
             'page': page,
@@ -87,10 +100,44 @@ def get_stories():
         """
         params = [workspace_id]
 
-        # Add project filter if specified
+        # Build the shared, additive filter clause (used by both the page query and
+        # the count query so totals stay consistent with the filtered results).
+        filter_sql = ""
+        filter_params = []
         if project_id:
-            query += " AND project_id = %s"
-            params.append(project_id)
+            filter_sql += " AND project_id = %s"
+            filter_params.append(project_id)
+        if f_status:
+            filter_sql += " AND COALESCE(story_status, 'in_review') = ANY(%s)"
+            filter_params.append(f_status)
+        if f_impact == 'detected':
+            filter_sql += " AND COALESCE(impacted_test_cases_count, 0) > 0"
+        elif f_impact == 'none':
+            filter_sql += " AND COALESCE(impacted_test_cases_count, 0) = 0"
+        if f_priority:
+            # Story matches if it contains at least one test case of the priority.
+            filter_sql += """ AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(test_case_json->'test_cases', '[]'::jsonb)) tc
+                WHERE tc->>'priority' = ANY(%s)
+            )"""
+            filter_params.append(f_priority)
+        if f_assignee:
+            if f_assignee == 'unassigned':
+                filter_sql += """ AND NOT EXISTS (
+                    SELECT 1 FROM story_assignees sa
+                    WHERE sa.workspace_id = test_cases.workspace_id AND sa.story_id = test_cases.story_id
+                )"""
+            else:
+                target = user_id if f_assignee == 'me' else f_assignee
+                filter_sql += """ AND EXISTS (
+                    SELECT 1 FROM story_assignees sa
+                    WHERE sa.workspace_id = test_cases.workspace_id AND sa.story_id = test_cases.story_id
+                    AND sa.user_id = %s
+                )"""
+                filter_params.append(target)
+
+        query += filter_sql
+        params.extend(filter_params)
 
         # Add sorting
         query += f" ORDER BY created_on {sort_order}"
@@ -134,9 +181,8 @@ def get_stories():
                     AND workspace_id = %s
                 """
                 count_params = [workspace_id]
-                if project_id:
-                    count_query += " AND project_id = %s"
-                    count_params.append(project_id)
+                count_query += filter_sql
+                count_params.extend(filter_params)
 
                 cursor.execute(count_query, count_params)
                 total = cursor.fetchone()[0]
@@ -412,6 +458,12 @@ def get_story_testcases(story_id):
         print(f"DEBUG:get_story_testcases: Request received for story {story_id}")
         db_service = get_db_service()
 
+        # Sprint 1 Phase 3: optional server-side filters (additive; absent = no-op).
+        f_priority = [p for p in request.args.getlist('priority') if p in ('High', 'Medium', 'Low')]
+        f_status = [s for s in request.args.getlist('status') if s in ('Approved', 'Pending', 'Rejected')]
+        f_automation = request.args.get('automation_ready')  # 'true' | 'false'
+        f_impacted = request.args.get('impacted')  # 'true' | 'false'
+
         # Get test cases from PostgreSQL scoped to workspace
         print("DEBUG:get_story_testcases: Querying Postgres for test_case_json")
         with psycopg2.connect(**db_service.postgres_config) as conn:
@@ -452,6 +504,41 @@ def get_story_testcases(story_id):
 
                     # Prepare data in the same format as the download endpoint
                     testcases_list = test_case_json.get('test_cases', [])
+
+                    # Sprint 1 Phase 3: apply optional server-side filters over the
+                    # JSON test-case array. "Impacted" is resolved from
+                    # test_case_impacts (workspace-scoped); "Automation Ready" reads
+                    # the per-test-case automation_ready flag (default false).
+                    if f_priority or f_status or f_automation or f_impacted:
+                        impacted_ids = set()
+                        if f_impacted:
+                            with conn.cursor() as icur:
+                                icur.execute("""
+                                    SELECT original_test_case_id FROM test_case_impacts
+                                    WHERE workspace_id = %s AND original_story_id = %s
+                                    UNION
+                                    SELECT modified_test_case_id FROM test_case_impacts
+                                    WHERE workspace_id = %s AND new_story_id = %s
+                                """, (workspace_id, story_id, workspace_id, story_id))
+                                impacted_ids = {r[0] for r in icur.fetchall() if r[0]}
+
+                        def _keep(tc):
+                            if f_priority and tc.get('priority') not in f_priority:
+                                return False
+                            if f_status and tc.get('status', 'Pending') not in f_status:
+                                return False
+                            if f_automation:
+                                want = f_automation == 'true'
+                                if bool(tc.get('automation_ready', False)) != want:
+                                    return False
+                            if f_impacted:
+                                is_imp = tc.get('id') in impacted_ids
+                                if is_imp != (f_impacted == 'true'):
+                                    return False
+                            return True
+
+                        testcases_list = [tc for tc in testcases_list if _keep(tc)]
+
                     response_data = {
                         'storyID': story_id,
                         'storyDescription': result[1],
@@ -1995,6 +2082,14 @@ def add_story_assignee(story_id):
         StoryActivityModel.log(
             workspace_id, story_id, user_id, 'assignee_added', {'user_id': target_user_id}
         )
+        # Phase 5: notify the assignee (best-effort, workspace-scoped).
+        try:
+            from app.services.notification_service import notify_story_assigned
+            story = get_db_service().get_story(story_id, user_id=user_id, workspace_id=workspace_id)
+            story_title = (story or {}).get('storyDescription') or (story or {}).get('description') or story_id
+            notify_story_assigned(workspace_id, story_id, story_title, target_user_id, user_id)
+        except Exception as e:
+            print(f"[add_story_assignee] notify skipped: {e}")
         return jsonify({'assignee': result}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2057,6 +2152,16 @@ def add_story_comment(story_id):
         StoryActivityModel.log(
             workspace_id, story_id, user_id, 'comment_added', {'comment_id': comment['id']}
         )
+        # Phase 5: notify mentioned members + story assignees (best-effort).
+        try:
+            from app.services.notification_service import notify_mentions, notify_comment
+            link = f"{os.environ.get('APP_URL') or os.environ.get('FRONTEND_URL') or 'http://localhost:3000'}/stories/{story_id}"
+            mentioned = notify_mentions(workspace_id, user_id, story_id, body, link)
+            assignee_ids = [a['user_id'] for a in StoryAssigneesModel.get_assignees(workspace_id, story_id)]
+            recipients = [uid for uid in assignee_ids if uid not in mentioned]
+            notify_comment(workspace_id, user_id, 'story', story_id, body, link, recipients)
+        except Exception as e:
+            print(f"[add_story_comment] notify skipped: {e}")
         return jsonify({'comment': comment}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2240,6 +2345,232 @@ def update_test_case_status(story_id, test_case_id):
                 """, (json.dumps(tc_json), story_id, workspace_id))
 
         return jsonify({'test_case_id': test_case_id, 'status': new_status}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _find_test_case_in_story(story_id, workspace_id, test_case_id):
+    """Return the single test case dict (from test_case_json) matching test_case_id
+    within this story+workspace, or None. Used to enrich notifications/drawer."""
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                tc_json = row['test_case_json']
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+                for tc in tc_json.get('test_cases', []):
+                    if tc.get('id') == test_case_id:
+                        return tc
+    except Exception:
+        return None
+    return None
+
+
+# ─── Test Case Kanban execution status (Sprint 1 Phase 2) ─────────────────────
+# Distinct from the approve/reject "status" field. tc_status backs the Test Case
+# Kanban (To Do / In Progress / Done) and is stored inside the test case's JSON
+# object so it travels with the test case and survives refresh.
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/tc-status', methods=['PATCH'])
+@dev_jwt_required
+def update_test_case_kanban_status(story_id, test_case_id):
+    """Persist the Test Case Kanban column (todo / in_progress / done)."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json(silent=True) or {}
+        new_status = data.get('tc_status')
+        allowed = ('todo', 'in_progress', 'done')
+        if new_status not in allowed:
+            return jsonify({'error': f'tc_status must be one of: {", ".join(allowed)}'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                updated = False
+                for tc in tc_json.get('test_cases', []):
+                    if tc.get('id') == test_case_id:
+                        tc['tc_status'] = new_status
+                        updated = True
+                        break
+                if not updated:
+                    return jsonify({'error': 'Test case not found'}), 404
+
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
+
+        TestCaseActivityModel.log(
+            workspace_id, story_id, test_case_id, user_id,
+            'kanban_status_changed', {'tc_status': new_status},
+        )
+        return jsonify({'test_case_id': test_case_id, 'tc_status': new_status}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── Test Case collaboration: assignees + activity + comments (Sprint 1 Phase 1) ──
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/assignees', methods=['GET'])
+@dev_jwt_required
+def get_test_case_assignees(story_id, test_case_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        return jsonify({'assignees': TestCaseAssigneesModel.get_assignees(workspace_id, test_case_id)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/assignees', methods=['POST'])
+@dev_jwt_required
+def add_test_case_assignee(story_id, test_case_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    target_user_id = data.get('user_id')
+    if not target_user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+    try:
+        result = TestCaseAssigneesModel.assign(workspace_id, story_id, test_case_id, target_user_id, user_id)
+        if result is None:
+            return jsonify({'error': 'User is not a member of this workspace'}), 403
+
+        TestCaseActivityModel.log(
+            workspace_id, story_id, test_case_id, user_id, 'assignee_added', {'user_id': target_user_id}
+        )
+        # Phase 5: notify the assignee (best-effort, workspace-scoped).
+        try:
+            from app.services.notification_service import notify_test_case_assigned
+            tc = _find_test_case_in_story(story_id, workspace_id, test_case_id)
+            notify_test_case_assigned(
+                workspace_id, story_id, test_case_id,
+                (tc or {}).get('title'), target_user_id, user_id,
+            )
+        except Exception as e:
+            print(f"[add_test_case_assignee] notify skipped: {e}")
+        return jsonify({'assignee': result}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/assignees/<target_user_id>', methods=['DELETE'])
+@dev_jwt_required
+def remove_test_case_assignee(story_id, test_case_id, target_user_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        removed = TestCaseAssigneesModel.remove(workspace_id, test_case_id, target_user_id)
+        if not removed:
+            return jsonify({'error': 'Assignment not found'}), 404
+        TestCaseActivityModel.log(
+            workspace_id, story_id, test_case_id, user_id, 'assignee_removed', {'user_id': target_user_id}
+        )
+        return jsonify({'test_case_id': test_case_id, 'user_id': target_user_id}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/activity', methods=['GET'])
+@dev_jwt_required
+def get_test_case_activity(story_id, test_case_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        return jsonify({'activity': TestCaseActivityModel.get_timeline(workspace_id, test_case_id)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/comments', methods=['GET'])
+@dev_jwt_required
+def get_test_case_comments(story_id, test_case_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        return jsonify({'comments': TestCaseCommentsModel.list_comments(workspace_id, test_case_id)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/comments', methods=['POST'])
+@dev_jwt_required
+def add_test_case_comment(story_id, test_case_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'body is required'}), 400
+    try:
+        comment = TestCaseCommentsModel.add_comment(workspace_id, story_id, test_case_id, user_id, body)
+        TestCaseActivityModel.log(
+            workspace_id, story_id, test_case_id, user_id, 'comment_added', {'comment_id': comment['id']}
+        )
+        # Phase 5: notify mentioned members + test-case assignees (best-effort).
+        try:
+            from app.services.notification_service import notify_mentions, notify_comment
+            link = f"{os.environ.get('APP_URL') or os.environ.get('FRONTEND_URL') or 'http://localhost:3000'}/stories/{story_id}?tc={test_case_id}"
+            mentioned = notify_mentions(workspace_id, user_id, test_case_id, body, link)
+            assignee_ids = [a['user_id'] for a in TestCaseAssigneesModel.get_assignees(workspace_id, test_case_id)]
+            recipients = [uid for uid in assignee_ids if uid not in mentioned]
+            notify_comment(workspace_id, user_id, 'test case', test_case_id, body, link, recipients)
+        except Exception as e:
+            print(f"[add_test_case_comment] notify skipped: {e}")
+        return jsonify({'comment': comment}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/comments/<comment_id>', methods=['PATCH'])
+@dev_jwt_required
+def edit_test_case_comment(story_id, test_case_id, comment_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'body is required'}), 400
+    try:
+        comment = TestCaseCommentsModel.edit_comment(workspace_id, test_case_id, comment_id, user_id, body)
+        if not comment:
+            return jsonify({'error': 'Comment not found or not editable by this user'}), 404
+        return jsonify({'comment': comment}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/comments/<comment_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_test_case_comment(story_id, test_case_id, comment_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        deleted = TestCaseCommentsModel.delete_comment(workspace_id, test_case_id, comment_id, user_id)
+        if not deleted:
+            return jsonify({'error': 'Comment not found or not deletable by this user'}), 404
+        TestCaseActivityModel.log(
+            workspace_id, story_id, test_case_id, user_id, 'comment_deleted', {'comment_id': comment_id}
+        )
+        return jsonify({'test_case_id': test_case_id, 'comment_id': comment_id}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

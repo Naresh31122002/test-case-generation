@@ -22,39 +22,43 @@ interface NavSection {
   items: NavItem[];
 }
 
-const navSections: NavSection[] = [
-  {
-    label: "Workspace",
-    items: [
-      { label: "Workspace",     href: "/settings/workspace" },
-      { label: "Integrations",  href: "/settings/integrations" },
-      { label: "API Keys",      href: "/settings/api-keys" },
-      { label: "Notifications", href: "/settings/notifications" },
-    ],
-  },
-  {
-    label: "Account",
-    items: [
-      { label: "Profile",     href: "/settings/profile" },
-      { label: "Preferences", href: "/settings/preferences" },
-      { label: "Team",        href: "/settings/team" },
-      { label: "Billing",     href: "/settings/billing" },
-    ],
-  },
-  {
-    label: "Support",
-    items: [
-      { label: "Contact Us",    href: "/settings/contact" },
-      { label: "Documentation", href: DOCS_URL, external: true },
-      { label: "Report Bug",    href: "/settings/contact?type=bug" },
-    ],
-  },
-];
+// Phase 6: the Team item is only included once the user has a workspace.
+function buildNavSections(hasWorkspace: boolean): NavSection[] {
+  return [
+    {
+      label: "Workspace",
+      items: [
+        { label: "Workspace",     href: "/settings/workspace" },
+        { label: "Integrations",  href: "/settings/integrations" },
+        { label: "API Keys",      href: "/settings/api-keys" },
+        { label: "Notifications", href: "/settings/notifications" },
+      ],
+    },
+    {
+      label: "Account",
+      items: [
+        { label: "Profile",     href: "/settings/profile" },
+        { label: "Preferences", href: "/settings/preferences" },
+        ...(hasWorkspace ? [{ label: "Team", href: "/settings/team" }] : []),
+        { label: "Billing",     href: "/settings/billing" },
+      ],
+    },
+    {
+      label: "Support",
+      items: [
+        { label: "Contact Us",    href: "/settings/contact" },
+        { label: "Documentation", href: DOCS_URL, external: true },
+        { label: "Report Bug",    href: "/settings/contact?type=bug" },
+      ],
+    },
+  ];
+}
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [showLogout, setShowLogout] = useState(false);
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
+  const navSections = buildNavSections(Boolean(user?.currentWorkspace));
 
   async function handleSignOut() {
     await signOut();

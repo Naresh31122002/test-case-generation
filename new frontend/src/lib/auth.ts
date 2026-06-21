@@ -15,6 +15,10 @@ export interface AuthUser {
   emailVerified: boolean
   currentWorkspace: string | null
   onboardingCompleted: boolean
+  /** Display name set in the first-login modal (Sprint 1 Phase 6). */
+  fullName: string | null
+  /** Human-friendly name of the current workspace, for the sidebar. */
+  currentWorkspaceName: string | null
 }
 
 export class AuthApiError extends Error {
@@ -47,13 +51,18 @@ async function authRequest<T>(path: string, body?: object): Promise<T> {
   return data as T
 }
 
-function normalizeUser(raw: any): AuthUser {
+function normalizeUser(raw: any, workspace?: any): AuthUser {
+  const ws = workspace ?? raw?.current_workspace ?? raw?.currentWorkspace
+  const wsName = ws && typeof ws === 'object' ? (ws.name ?? null) : null
+  const wsId = ws && typeof ws === 'object' ? (ws.id ?? null) : (raw?.current_workspace ?? raw?.currentWorkspace ?? null)
   return {
     user_id: String(raw?.user_id ?? raw?.id ?? ''),
     email: String(raw?.email ?? ''),
     emailVerified: !!(raw?.email_verified ?? raw?.emailVerified ?? false),
-    currentWorkspace: raw?.current_workspace ?? raw?.currentWorkspace ?? null,
+    currentWorkspace: wsId,
     onboardingCompleted: !!(raw?.onboarding_completed ?? raw?.onboardingCompleted ?? false),
+    fullName: raw?.full_name ?? raw?.fullName ?? null,
+    currentWorkspaceName: wsName,
   }
 }
 
@@ -120,10 +129,20 @@ export async function logout(): Promise<void> {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const data = await authRequest<any>('/api/auth/me')
-    return normalizeUser(data?.user ?? data)
+    return normalizeUser(data?.user ?? data, data?.current_workspace)
   } catch {
     return null
   }
+}
+
+/** Update the current user's profile (full name). Sprint 1 Phase 6. */
+export async function updateProfile(fullName: string): Promise<void> {
+  await fetch(`${BASE_URL}/api/auth/me`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: fullName }),
+  })
 }
 
 export async function refreshAccessToken(): Promise<boolean> {
@@ -164,11 +183,15 @@ export async function resetPassword(token: string, password: string): Promise<vo
 
 /** Save the first-login onboarding survey (any field may be omitted if skipped). */
 export async function completeOnboarding(answers: {
+  fullName?: string
+  workspaceName?: string
   orgName?: string
   jobTitle?: string
   referralSource?: string
 }): Promise<void> {
   await authRequest('/api/auth/onboarding', {
+    full_name: answers.fullName,
+    workspace_name: answers.workspaceName,
     org_name: answers.orgName,
     job_title: answers.jobTitle,
     referral_source: answers.referralSource,
