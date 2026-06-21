@@ -647,9 +647,92 @@ def get_projects():
         project_ids = lance_stories['project_id'].dropna().unique().tolist()
         project_ids = [pid for pid in project_ids if pid and pid.strip()]
 
-        return jsonify({
-            'projects': project_ids
-        })
+        return jsonify({'projects': project_ids})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/projects/<project_id>', methods=['PATCH'])
+@dev_jwt_required
+def rename_project(project_id):
+    """Rename a project — updates project_id on all stories in that project."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        new_id = (data.get('new_id') or '').strip().lower().replace(' ', '-')
+        if not new_id:
+            return jsonify({'error': 'new_id required'}), 400
+        if new_id == project_id:
+            return jsonify({'project_id': new_id}), 200
+
+        # Update Postgres
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE test_cases SET project_id = %s
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (new_id, project_id, workspace_id))
+
+        # Update LanceDB
+        try:
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            t = db.open_table(Config.TABLE_NAME_LANCE)
+            df = t.to_pandas()
+            mask = (df['project_id'] == project_id)
+            if workspace_id and 'workspace_id' in df.columns:
+                mask = mask & (df['workspace_id'] == workspace_id)
+            df.loc[mask, 'project_id'] = new_id
+            db.drop_table(Config.TABLE_NAME_LANCE)
+            db.create_table(Config.TABLE_NAME_LANCE, df)
+        except Exception as le:
+            print(f"[rename_project] LanceDB update failed: {le}")
+
+        return jsonify({'project_id': new_id}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/projects/<project_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_project(project_id):
+    """Delete all stories in a project."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        # Get story IDs in this project
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT story_id FROM test_cases
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (project_id, workspace_id))
+                story_ids = [r[0] for r in cur.fetchall()]
+
+                # Delete from Postgres
+                cur.execute("""
+                    DELETE FROM test_cases
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (project_id, workspace_id))
+
+        # Delete from LanceDB
+        try:
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            t = db.open_table(Config.TABLE_NAME_LANCE)
+            df = t.to_pandas()
+            mask = (df['project_id'] == project_id)
+            if workspace_id and 'workspace_id' in df.columns:
+                mask = mask & (df['workspace_id'] == workspace_id)
+            df = df[~mask]
+            db.drop_table(Config.TABLE_NAME_LANCE)
+            db.create_table(Config.TABLE_NAME_LANCE, df)
+        except Exception as le:
+            print(f"[delete_project] LanceDB update failed: {le}")
+
+        return jsonify({'deleted': project_id, 'stories_removed': len(story_ids)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -853,6 +936,15 @@ def upload_story():
         )
         thread.start()
         print(f"[Upload] Background pipeline started for story {story_id}")
+
+        # Log activity event
+        try:
+            from app.routes.activity import log_activity
+            log_activity(workspace_id, user_id, 'story_uploaded',
+                         f'Story uploaded: {short_title}',
+                         body=f'Test generation started for {story_id}',
+                         story_id=story_id)
+        except Exception: pass
 
         return jsonify({
             'message': 'Story uploaded. Test generation started in background.',
@@ -1834,7 +1926,148 @@ def get_story_versions(story_id):
         return jsonify({'error': str(e)}), 500
 
 
-@stories_bp.route('/<story_id>/regenerate', methods=['POST'])
+@stories_bp.route('/<story_id>/compare', methods=['POST'])
+@dev_jwt_required
+def compare_story_versions(story_id):
+    """Compare two versions of a story — returns a structured diff of content and test counts."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        v1 = data.get('version_a')  # version number (int) or 'current'
+        v2 = data.get('version_b')
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Get version content from story_versions table
+                def get_version_content(v):
+                    if v == 'current' or v is None:
+                        cur.execute("""
+                            SELECT tc.story_description as description,
+                                   jsonb_array_length(tc.test_case_json->'test_cases') as tc_count,
+                                   tc.test_case_json
+                            FROM test_cases tc
+                            WHERE tc.story_id = %s AND tc.workspace_id = %s
+                            ORDER BY tc.created_on DESC LIMIT 1
+                        """, (story_id, workspace_id))
+                        r = cur.fetchone()
+                        if not r: return None
+                        return {'label': 'Current', 'description': r['description'] or '', 'tc_count': r['tc_count'] or 0, 'test_cases': (r['test_case_json'] or {}).get('test_cases', [])}
+                    else:
+                        cur.execute("""
+                            SELECT version_number, description, content
+                            FROM story_versions
+                            WHERE story_id = %s AND workspace_id = %s AND version_number = %s
+                        """, (story_id, workspace_id, int(v)))
+                        r = cur.fetchone()
+                        if not r: return None
+                        return {'label': f'v{r["version_number"]}', 'description': r['description'] or '', 'tc_count': 0, 'test_cases': []}
+
+                va = get_version_content(v1)
+                vb = get_version_content(v2)
+
+        if not va or not vb:
+            return jsonify({'error': 'One or both versions not found'}), 404
+
+        # Simple text diff using difflib
+        import difflib
+        desc_a = (va['description'] or '').splitlines(keepends=True)
+        desc_b = (vb['description'] or '').splitlines(keepends=True)
+        diff_lines = list(difflib.unified_diff(desc_a, desc_b, fromfile=va['label'], tofile=vb['label'], lineterm=''))
+
+        # Test case diff — compare titles
+        titles_a = {tc.get('title', '') for tc in va['test_cases']}
+        titles_b = {tc.get('title', '') for tc in vb['test_cases']}
+        added_tests = list(titles_b - titles_a)
+        removed_tests = list(titles_a - titles_b)
+
+        return jsonify({
+            'version_a': {'label': va['label'], 'tc_count': va['tc_count']},
+            'version_b': {'label': vb['label'], 'tc_count': vb['tc_count']},
+            'content_diff': diff_lines[:200],  # cap at 200 lines
+            'tests_added': added_tests[:20],
+            'tests_removed': removed_tests[:20],
+            'tc_delta': vb['tc_count'] - va['tc_count'],
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/export-code', methods=['GET'])
+@dev_jwt_required
+def export_code(story_id):
+    """Generate framework-specific test code from a story's test cases using LLM."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        fmt = request.args.get('format', 'playwright').lower()
+        approved_only = request.args.get('approved_only', 'false').lower() == 'true'
+
+        SUPPORTED = {'playwright', 'cypress', 'pytest', 'bdd', 'selenium', 'postman'}
+        if fmt not in SUPPORTED:
+            return jsonify({'error': f'Unsupported format: {fmt}'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT tc.test_case_json, tc.story_description
+                    FROM test_cases tc
+                    WHERE tc.story_id = %s AND tc.workspace_id = %s
+                    ORDER BY tc.created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                story_desc = row['story_description'] or story_id
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+        cases = tc_json.get('test_cases', [])
+        if approved_only:
+            cases = [tc for tc in cases if tc.get('status') == 'Approved']
+        if not cases:
+            return jsonify({'error': 'No test cases to export'}), 404
+
+        # Build compact test case list for the LLM
+        tc_list = '\n'.join([
+            f"- [{tc.get('priority','M')}] {tc.get('title','')}:"
+            f" Steps: {'; '.join(tc.get('steps',[]))}"
+            f" | Expected: {tc.get('expected_result','')}"
+            for tc in cases[:15]  # cap at 15 to keep prompt manageable
+        ])
+
+        FRAMEWORK_INSTRUCTIONS = {
+            'playwright': "TypeScript Playwright tests using @playwright/test. Use test.describe blocks. Use async/await, page.goto, page.fill, page.click, expect().",
+            'cypress':    "JavaScript Cypress tests. Use describe/it blocks, cy.visit, cy.get, cy.type, cy.click, cy.should.",
+            'pytest':     "Python pytest tests. Use def test_ functions. Use assertions with assert. Add docstrings per test.",
+            'bdd':        "Gherkin feature file (BDD). Use Feature/Scenario/Given/When/Then format. One scenario per test case.",
+            'selenium':   "Python Selenium WebDriver tests using unittest.TestCase. Use driver.get, driver.find_element, driver.click.",
+            'postman':    "Postman Collection JSON v2.1. Include request items with pre-request scripts and test scripts.",
+        }
+
+        prompt = f"""Convert these test cases to {fmt.upper()} code.
+
+Story: {story_desc}
+
+Test cases:
+{tc_list}
+
+Instructions: {FRAMEWORK_INSTRUCTIONS[fmt]}
+
+Generate complete, runnable {fmt} test code. Return ONLY the code, no explanation."""
+
+        response = Config.llm.invoke(prompt)
+        code = response.content.strip()
+        if code.startswith('```'):
+            code = code.split('\n', 1)[1] if '\n' in code else code
+            code = code.rsplit('```', 1)[0].strip()
+
+        return jsonify({'format': fmt, 'code': code, 'test_count': len(cases)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @dev_jwt_required
 def regenerate_tests(story_id):
     """Re-run test case generation for an existing story using its stored content."""

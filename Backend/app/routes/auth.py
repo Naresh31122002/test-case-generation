@@ -149,10 +149,35 @@ def get_me():
     workspaces = WorkspaceModel.get_for_user(user_id)
     current_workspace = WorkspaceModel.get_default_for_user(user_id)
     return jsonify({
-        "user": user,  # includes email_verified
+        "user": user,
         "workspaces": workspaces,
         "current_workspace": current_workspace,
     }), 200
+
+
+@auth_bp.route("/me", methods=["PATCH"])
+@jwt_required()
+def update_me():
+    """Update the current user's profile (display_name, avatar_url)."""
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    allowed = {k: v for k, v in data.items() if k in ('display_name', 'avatar_url')}
+    if not allowed:
+        return jsonify({"error": "No valid fields to update"}), 400
+    try:
+        from app.config import Config
+        import psycopg2.extras
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                sets = ', '.join(f"{k} = %s" for k in allowed)
+                cur.execute(
+                    f"UPDATE users SET {sets} WHERE user_id = %s RETURNING user_id, email, display_name, avatar_url, email_verified",
+                    list(allowed.values()) + [user_id]
+                )
+                row = dict(cur.fetchone())
+        return jsonify({"user": row}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── First-login onboarding survey ───────────────────────────────────────────────
@@ -173,7 +198,110 @@ def complete_onboarding():
     return jsonify({"message": "Onboarding saved"}), 200
 
 
-# ── Email verification ────────────────────────────────────────────────────────
+@auth_bp.route("/me/notifications", methods=["GET"])
+@jwt_required()
+def get_notification_prefs():
+    user_id = get_jwt_identity()
+    try:
+        from app.config import Config
+        import psycopg2.extras, json as _json
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("SELECT notification_prefs FROM users WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                prefs = row['notification_prefs'] if row else {}
+                if isinstance(prefs, str): prefs = _json.loads(prefs)
+        return jsonify({"prefs": prefs}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@auth_bp.route("/me/notifications", methods=["PUT"])
+@jwt_required()
+def update_notification_prefs():
+    user_id = get_jwt_identity()
+    prefs = request.get_json(silent=True) or {}
+    try:
+        from app.config import Config
+        import json as _json
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET notification_prefs = %s WHERE user_id = %s",
+                    (_json.dumps(prefs), user_id)
+                )
+        return jsonify({"prefs": prefs}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API Keys ──────────────────────────────────────────────────────────────────
+
+@auth_bp.route("/api-keys", methods=["GET"])
+@jwt_required()
+def list_api_keys():
+    user_id = get_jwt_identity()
+    try:
+        from app.config import Config
+        import psycopg2.extras
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT id, name, key_prefix, created_at, last_used_at
+                    FROM api_keys WHERE user_id = %s AND revoked_at IS NULL
+                    ORDER BY created_at DESC
+                """, (user_id,))
+                keys = [dict(r) for r in cur.fetchall()]
+        return jsonify({"keys": keys}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@auth_bp.route("/api-keys", methods=["POST"])
+@jwt_required()
+def create_api_key():
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip() or "My API Key"
+    try:
+        import secrets, hashlib
+        from app.config import Config
+        from app.utils.workspace import get_current_workspace_id
+        workspace_id = None
+        try: workspace_id = get_current_workspace_id()
+        except: pass
+        raw_key = "ts_" + secrets.token_hex(32)
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        key_prefix = raw_key[:10] + "…"
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO api_keys (user_id, workspace_id, name, key_hash, key_prefix)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id
+                """, (user_id, workspace_id, name, key_hash, key_prefix))
+                key_id = cur.fetchone()[0]
+        return jsonify({"id": str(key_id), "key": raw_key, "prefix": key_prefix, "name": name}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@auth_bp.route("/api-keys/<key_id>", methods=["DELETE"])
+@jwt_required()
+def revoke_api_key(key_id):
+    user_id = get_jwt_identity()
+    try:
+        from app.config import Config
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE api_keys SET revoked_at = NOW()
+                    WHERE id = %s AND user_id = %s AND revoked_at IS NULL
+                """, (key_id, user_id))
+                if cur.rowcount == 0:
+                    return jsonify({"error": "Key not found"}), 404
+        return jsonify({"revoked": key_id}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @auth_bp.route("/verify-email", methods=["POST"])
 def verify_email():

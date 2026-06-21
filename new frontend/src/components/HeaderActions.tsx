@@ -630,41 +630,61 @@ function CreditsIndicator() {
 function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Activity[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const ref = useClickOutside(() => {
     setOpen(false);
     setShowClearConfirm(false);
   });
-  const unreadCount = items.filter((n) => !n.read).length;
 
-  // Load activity from the reusable service (mock now, API-ready later).
+  // Load real activity from backend
   useEffect(() => {
     let alive = true;
-    activityService.list().then((data) => {
-      if (alive) setItems(data);
-    });
+    fetch('/api/activity/?limit=20', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (!alive) return;
+        const events = (d.events ?? []).map((e: any) => ({
+          id: e.id,
+          type: (e.event_type as ActivityType) ?? 'story_uploaded',
+          title: e.title,
+          body: e.body ?? '',
+          timestamp: new Date(e.created_at).getTime(),
+          read: e.is_read ?? false,
+          storyId: e.story_id ?? undefined,
+        }));
+        setItems(events);
+        setUnreadCount(d.unread ?? 0);
+      })
+      .catch(() => {
+        // Fallback to mock if backend unavailable
+        activityService.list().then((data) => { if (alive) setItems(data); });
+      });
     return () => { alive = false; };
   }, []);
 
   const markAllRead = async () => {
-    await activityService.markAllRead();
+    try {
+      await fetch('/api/activity/mark-read', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    } catch { await activityService.markAllRead(); }
     setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
   const toggleRead = async (id: string, current: boolean) => {
-    await activityService.markRead(id, !current);
-    setItems((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: !current } : n))
-    );
+    try {
+      await fetch('/api/activity/mark-read', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id] }) });
+    } catch { await activityService.markRead(id, !current); }
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: !current } : n)));
+    if (!current) setUnreadCount(c => Math.max(0, c - 1));
   };
 
   const removeItem = async (id: string) => {
-    await activityService.remove(id);
     setItems((prev) => prev.filter((n) => n.id !== id));
   };
 
   const clearAll = async () => {
-    await activityService.clearAll();
+    await markAllRead();
     setItems([]);
     setShowClearConfirm(false);
   };

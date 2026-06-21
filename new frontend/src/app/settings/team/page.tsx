@@ -1,33 +1,73 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Trash2, Loader2 } from "lucide-react";
 
-const initialMembers = [
-  { id: "1", name: "Jane Doe",    email: "jane@acme.com",   role: "Admin",  avatar: "JD" },
-  { id: "2", name: "Alex Smith",  email: "alex@acme.com",   role: "Member", avatar: "AS" },
-  { id: "3", name: "Sam Rivera",  email: "sam@acme.com",    role: "Member", avatar: "SR" },
-];
+interface Member { user_id: string; email: string; role: string; }
 
 export default function TeamSettings() {
-  const [members, setMembers] = useState(initialMembers);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"Admin" | "Member">("Member");
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviting, setInviting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const invite = () => {
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
+
+  useEffect(() => {
+    fetch('/api/workspaces/members', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setMembers(d.members ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function invite() {
     if (!inviteEmail.trim()) return;
-    setMembers([...members, {
-      id: Date.now().toString(),
-      name: inviteEmail.split("@")[0],
-      email: inviteEmail,
-      role: inviteRole,
-      avatar: inviteEmail.slice(0, 2).toUpperCase(),
-    }]);
-    setInviteEmail("");
-  };
+    setInviting(true); setError(null);
+    try {
+      const r = await fetch('/api/workspaces/invites', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? 'Invite failed');
+      setInviteEmail("");
+      showToast('Invite sent ✓');
+    } catch (e: any) { setError(e.message); }
+    finally { setInviting(false); }
+  }
+
+  async function changeRole(userId: string, role: string) {
+    try {
+      await fetch(`/api/workspaces/members/${userId}`, {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role } : m));
+      showToast('Role updated ✓');
+    } catch { showToast('Failed to update role'); }
+  }
+
+  async function removeMember(userId: string) {
+    if (!confirm('Remove this member?')) return;
+    try {
+      await fetch(`/api/workspaces/members/${userId}`, { method: 'DELETE', credentials: 'include' });
+      setMembers(prev => prev.filter(m => m.user_id !== userId));
+      showToast('Member removed');
+    } catch { showToast('Failed to remove member'); }
+  }
 
   return (
     <>
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 px-4 py-2.5 bg-success text-white text-sm rounded-xl shadow-lg">{toast}</div>
+      )}
+
       <div>
         <h2 className="text-[18px] font-semibold text-navy mb-1">Team</h2>
         <p className="text-sm text-muted">Manage workspace members and roles.</p>
@@ -38,49 +78,48 @@ export default function TeamSettings() {
         <p className="text-sm font-semibold text-navy mb-3">Invite a member</p>
         <div className="flex gap-3">
           <input
-            type="email"
-            placeholder="colleague@acme.com"
-            value={inviteEmail}
+            type="email" placeholder="colleague@company.com" value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && invite()}
             className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
           />
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as "Admin" | "Member")}
-            className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none focus:border-cyan transition-colors"
-          >
-            <option>Member</option>
-            <option>Admin</option>
+          <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
+            className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none">
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
           </select>
-          <button onClick={invite} className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2">
-            <Plus size={14} /> Invite
+          <button onClick={invite} disabled={inviting || !inviteEmail.trim()}
+            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+            {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />} Invite
           </button>
         </div>
+        {error && <p className="text-xs text-error mt-2">{error}</p>}
       </div>
 
       {/* Member list */}
       <div className="bg-white border border-border rounded-card overflow-hidden">
-        {members.map((m, idx) => (
-          <div key={m.id} className={`flex items-center gap-4 px-5 py-3.5 ${idx < members.length - 1 ? "border-b border-border" : ""}`}>
+        {loading ? (
+          <div className="flex items-center justify-center py-8 gap-2 text-muted text-sm">
+            <Loader2 size={16} className="animate-spin" /> Loading members…
+          </div>
+        ) : members.length === 0 ? (
+          <p className="text-sm text-muted text-center py-8">No members yet</p>
+        ) : members.map((m, idx) => (
+          <div key={m.user_id} className={`flex items-center gap-4 px-5 py-3.5 ${idx < members.length - 1 ? "border-b border-border" : ""}`}>
             <div className="w-9 h-9 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-              {m.avatar}
+              {m.email.slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-navy">{m.name}</p>
-              <p className="text-xs text-muted">{m.email}</p>
+              <p className="text-sm font-semibold text-navy truncate">{m.email}</p>
             </div>
-            <select
-              defaultValue={m.role}
-              className="h-8 px-2 text-xs border border-border rounded-btn text-navy bg-white focus:outline-none cursor-pointer"
-            >
-              <option>Admin</option>
-              <option>Member</option>
+            <select value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}
+              className="h-8 px-2 text-xs border border-border rounded-btn text-navy bg-white focus:outline-none cursor-pointer">
+              <option value="owner">Owner</option>
+              <option value="admin">Admin</option>
+              <option value="member">Member</option>
             </select>
-            <button
-              onClick={() => setMembers(members.filter((x) => x.id !== m.id))}
-              className="w-7 h-7 flex items-center justify-center rounded text-muted hover:text-error hover:bg-[#FEF2F2] transition-colors"
-            >
+            <button onClick={() => removeMember(m.user_id)}
+              className="w-7 h-7 flex items-center justify-center rounded text-muted hover:text-error hover:bg-[#FEF2F2] transition-colors">
               <Trash2 size={13} />
             </button>
           </div>

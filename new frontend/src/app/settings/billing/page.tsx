@@ -1,11 +1,63 @@
-const plans = [
-  { id: "free",  name: "Free",       price: "$0",   features: ["5 stories", "50 tests/mo", "1 user"] },
-  { id: "pro",   name: "Pro",        price: "$49",  features: ["Unlimited stories", "Unlimited tests", "5 users", "Impact analysis"] },
-  { id: "team",  name: "Team",       price: "$149", features: ["Unlimited everything", "25 users", "Priority support", "API access"] },
+"use client";
+
+import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
+import { api } from "@/lib/api";
+
+const PLANS = [
+  { id: "free",       name: "Free",       price: "$0",   features: ["200 credits/mo", "1 workspace", "1 user"] },
+  { id: "starter",    name: "Starter",    price: "$19",  features: ["500 credits/mo", "3 workspaces", "3 users"] },
+  { id: "pro",        name: "Pro",        price: "$49",  features: ["2,000 credits/mo", "Unlimited workspaces", "5 users", "Impact analysis"] },
+  { id: "team",       name: "Team",       price: "$149", features: ["10,000 credits/mo", "Unlimited everything", "25 users", "Priority support"] },
 ];
 
 export default function BillingSettings() {
-  const current = "pro";
+  const [credits, setCredits] = useState<any>(null);
+  const [workspace, setWorkspace] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/workspaces/current/credits', { credentials: 'include' }).then(r => r.json()),
+      fetch('/api/workspaces/current', { credentials: 'include' }).then(r => r.json()),
+    ]).then(([c, w]) => {
+      setCredits(c.credits);
+      setWorkspace(w);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const currentPlan = workspace?.plan ?? 'free';
+  const usedPct = credits ? Math.round((credits.used / credits.limit) * 100) : 0;
+
+  async function handleUpgrade(planId: string) {
+    setCheckoutLoading(planId);
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planId, success_url: window.location.href, cancel_url: window.location.href }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch { /* show nothing — Stripe not configured in dev */ }
+    finally { setCheckoutLoading(null); }
+  }
+
+  async function handleManageBilling() {
+    setPortalLoading(true);
+    try {
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ return_url: window.location.href }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch { }
+    finally { setPortalLoading(false); }
+  }
 
   return (
     <>
@@ -14,70 +66,76 @@ export default function BillingSettings() {
         <p className="text-sm text-muted">Manage your plan and billing details.</p>
       </div>
 
-      {/* Current usage */}
+      {/* Credits usage */}
       <div className="bg-white border border-border rounded-card p-5 space-y-3">
-        <p className="text-sm font-semibold text-navy">Usage this month</p>
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: "Stories", used: 4, limit: "Unlimited" },
-            { label: "Tests generated", used: 93, limit: "Unlimited" },
-            { label: "Active users", used: 3, limit: 5 },
-          ].map((u) => (
-            <div key={u.label}>
-              <p className="text-2xl font-bold text-navy">{u.used}</p>
-              <p className="text-xs text-muted mt-0.5">{u.label}</p>
-              <p className="text-[11px] text-muted">of {u.limit}</p>
-            </div>
-          ))}
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-navy">Credits this month</p>
+          {loading && <Loader2 size={14} className="animate-spin text-muted" />}
         </div>
+        {credits ? (
+          <>
+            <div className="flex items-end gap-2">
+              <span className="text-2xl font-bold text-navy">{credits.used}</span>
+              <span className="text-sm text-muted mb-0.5">/ {credits.limit} used</span>
+            </div>
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${usedPct > 85 ? 'bg-error' : usedPct > 60 ? 'bg-warning' : 'bg-success'}`}
+                style={{ width: `${Math.min(usedPct, 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted">Resets {credits.reset_date ? new Date(credits.reset_date).toLocaleDateString() : 'monthly'}</p>
+          </>
+        ) : !loading ? (
+          <p className="text-xs text-muted">Could not load usage data</p>
+        ) : null}
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-3 gap-3">
-        {plans.map((plan) => (
-          <div
-            key={plan.id}
-            className={`border rounded-card p-4 ${
-              plan.id === current
-                ? "border-pink bg-surface-pink"
-                : "border-border bg-white"
-            }`}
-          >
-            <div className="flex items-start justify-between mb-3">
-              <p className="text-sm font-semibold text-navy">{plan.name}</p>
-              {plan.id === current && (
-                <span className="text-[10px] font-bold text-pink bg-white px-1.5 py-0.5 rounded border border-pink">Current</span>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {PLANS.map((plan) => {
+          const isCurrent = plan.id === currentPlan;
+          const isLoading = checkoutLoading === plan.id;
+          return (
+            <div key={plan.id} className={`border rounded-card p-4 ${isCurrent ? 'border-pink bg-surface-pink' : 'border-border bg-white'}`}>
+              <div className="flex items-start justify-between mb-3">
+                <p className="text-sm font-semibold text-navy">{plan.name}</p>
+                {isCurrent && <span className="text-[10px] font-bold text-pink bg-white px-1.5 py-0.5 rounded border border-pink">Current</span>}
+              </div>
+              <p className="text-2xl font-bold text-navy mb-1">{plan.price}<span className="text-sm font-normal text-muted">/mo</span></p>
+              <ul className="space-y-1 mt-3 mb-4">
+                {plan.features.map((f) => <li key={f} className="text-xs text-muted flex items-center gap-1.5"><span className="text-success">✓</span>{f}</li>)}
+              </ul>
+              {!isCurrent && (
+                <button
+                  onClick={() => handleUpgrade(plan.id)}
+                  disabled={!!checkoutLoading}
+                  className={`w-full h-8 text-xs font-medium rounded-btn border transition-colors flex items-center justify-center gap-1 disabled:opacity-60 ${
+                    plan.id === 'free' ? 'border-border text-navy hover:bg-gray-50' : 'bg-pink text-white border-pink hover:bg-[#e0005f]'
+                  }`}
+                >
+                  {isLoading && <Loader2 size={11} className="animate-spin" />}
+                  {plan.id === 'free' ? 'Downgrade' : 'Upgrade'}
+                </button>
               )}
             </div>
-            <p className="text-2xl font-bold text-navy mb-1">{plan.price}<span className="text-sm font-normal text-muted">/mo</span></p>
-            <ul className="space-y-1 mt-3 mb-4">
-              {plan.features.map((f) => (
-                <li key={f} className="text-xs text-muted flex items-center gap-1.5">
-                  <span className="text-success">✓</span> {f}
-                </li>
-              ))}
-            </ul>
-            {plan.id !== current && (
-              <button className={`w-full h-8 text-xs font-medium rounded-btn border transition-colors ${
-                plan.id === "team"
-                  ? "bg-pink text-white border-pink hover:bg-[#e0005f]"
-                  : "border-border text-navy hover:bg-gray-50"
-              }`}>
-                {plan.id === "free" ? "Downgrade" : "Upgrade"}
-              </button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Payment method */}
+      {/* Manage billing */}
       <div className="bg-white border border-border rounded-card p-5 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-navy">Payment method</p>
-          <p className="text-xs text-muted mt-0.5">Visa ending in 4242 · Expires 12/27</p>
+          <p className="text-sm font-semibold text-navy">Billing portal</p>
+          <p className="text-xs text-muted mt-0.5">Update payment method, view invoices</p>
         </div>
-        <button className="h-8 px-4 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors">
-          Update
+        <button
+          onClick={handleManageBilling}
+          disabled={portalLoading}
+          className="h-8 px-4 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+        >
+          {portalLoading && <Loader2 size={11} className="animate-spin" />}
+          Manage Billing
         </button>
       </div>
     </>

@@ -309,6 +309,7 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
   const [error, setError] = useState("");
   const [current, setCurrent] = useState(versions[0]);
   const [previous, setPrevious] = useState(versions[1] ?? versions[0]);
+  const [result, setResult] = useState<any>(null);
 
   const sameVersion = current === previous;
 
@@ -316,7 +317,15 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
     setPhase("loading");
     setError("");
     try {
-      await runMockAsync();
+      const res = await fetch(`/api/stories/${story.id}/compare`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version_a: current === 'Current' ? 'current' : current.replace('v',''), version_b: previous === 'Current' ? 'current' : previous.replace('v','') }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Comparison failed');
+      setResult(data);
       setPhase("success");
     } catch (err) {
       setError((err as Error).message);
@@ -326,56 +335,68 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
 
   return (
     <Modal title="Compare Versions" icon={GitCompare} onClose={onClose}>
-      {phase === "success" || phase === "error" ? (
-        <ResultPanel
-          phase={phase}
-          successTitle="Comparison ready"
-          successBody={`Differences between ${previous} and ${current} of ${story.id} are ready to review.`}
-          error={error}
-          onRetry={submit}
-          onClose={onClose}
-        />
+      {phase === "success" && result ? (
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="font-semibold text-navy">{result.version_a.label}</p>
+              <p className="text-muted">{result.version_a.tc_count} test cases</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="font-semibold text-navy">{result.version_b.label}</p>
+              <p className="text-muted">{result.version_b.tc_count} test cases</p>
+            </div>
+          </div>
+          {result.tc_delta !== 0 && (
+            <p className={`text-sm font-medium ${result.tc_delta > 0 ? 'text-success' : 'text-error'}`}>
+              {result.tc_delta > 0 ? `+${result.tc_delta}` : result.tc_delta} test cases
+            </p>
+          )}
+          {result.tests_added?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-success mb-1">Added tests ({result.tests_added.length})</p>
+              <ul className="space-y-0.5">{result.tests_added.map((t: string, i: number) => <li key={i} className="text-xs text-navy truncate">+ {t}</li>)}</ul>
+            </div>
+          )}
+          {result.tests_removed?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-error mb-1">Removed tests ({result.tests_removed.length})</p>
+              <ul className="space-y-0.5">{result.tests_removed.map((t: string, i: number) => <li key={i} className="text-xs text-navy truncate">- {t}</li>)}</ul>
+            </div>
+          )}
+          {result.content_diff?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted mb-1">Content changes</p>
+              <pre className="text-[10px] bg-gray-50 border border-border rounded p-2 overflow-auto max-h-32 font-mono">{result.content_diff.join('')}</pre>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button onClick={onClose} className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">Close</button>
+          </div>
+        </div>
+      ) : phase === "error" ? (
+        <ResultPanel phase={phase} successTitle="" successBody="" error={error} onRetry={submit} onClose={onClose} />
       ) : (
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-navy mb-1.5">Current version</label>
-              <select
-                value={current}
-                onChange={(e) => setCurrent(e.target.value)}
-                className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer"
-              >
-                {versions.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
+              <label className="block text-sm font-medium text-navy mb-1.5">Version A</label>
+              <select value={current} onChange={(e) => setCurrent(e.target.value)}
+                className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer">
+                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-navy mb-1.5">Previous version</label>
-              <select
-                value={previous}
-                onChange={(e) => setPrevious(e.target.value)}
-                className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer"
-              >
-                {versions.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
+              <label className="block text-sm font-medium text-navy mb-1.5">Version B</label>
+              <select value={previous} onChange={(e) => setPrevious(e.target.value)}
+                className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer">
+                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
           </div>
-
-          {sameVersion && (
-            <p className="text-xs text-error">Select two different versions to compare.</p>
-          )}
-
+          {sameVersion && <p className="text-xs text-error">Select two different versions to compare.</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
+            <button type="button" onClick={onClose} className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">Cancel</button>
             <SubmitButton loading={phase === "loading"} disabled={sameVersion} onClick={submit}>
               {phase === "loading" ? "Comparing…" : "Run Comparison"}
             </SubmitButton>

@@ -797,6 +797,10 @@ export const api = {
     return post(`/api/stories/${storyId}/testcases/regroup`, {})
   },
 
+  async updateProfile(data: { display_name?: string; avatar_url?: string }): Promise<{ user: any }> {
+    return patch('/api/auth/me', data)
+  },
+
   async uploadNewVersion(storyId: string, formData: FormData): Promise<{
     message: string; story_id: string; version_number: number; description: string;
   }> {

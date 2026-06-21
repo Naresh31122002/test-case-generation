@@ -210,6 +210,9 @@ def create_app():
     from app.routes.admin import admin_bp
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
+    from app.routes.activity import activity_bp
+    app.register_blueprint(activity_bp, url_prefix='/api/activity')
+
     @app.route('/health', methods=['GET'])
     @app.route('/api/health', methods=['GET'])
     def health_check():

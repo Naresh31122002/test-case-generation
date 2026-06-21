@@ -115,6 +115,54 @@ def create_postgres_db():
         """)
         print("✅ Migrated 'users' onboarding survey columns.")
 
+        # Migrate users: display name + avatar for profile settings.
+        cursor.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+        """)
+        print("✅ Migrated 'users' profile columns (display_name, avatar_url).")
+
+        # Notification preferences stored as JSONB (keys: impact_detected, tests_generated, etc.)
+        cursor.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_prefs JSONB NOT NULL DEFAULT '{}';
+        """)
+        print("✅ Migrated 'users' notification_prefs column.")
+
+        # API keys for programmatic access
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TIMESTAMP WITH TIME ZONE,
+                revoked_at TIMESTAMP WITH TIME ZONE
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+        """)
+        print("✅ Table 'api_keys' is ready.")
+
+        # Activity feed — workspace-scoped events shown in notification bell
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS activity_events (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                event_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                story_id TEXT,
+                read_by UUID[] NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_activity_workspace ON activity_events(workspace_id, created_at DESC);
+        """)
+        print("✅ Table 'activity_events' is ready.")
+
         # Auth tokens: email verification + password reset (single-use, expiring).
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS auth_tokens (

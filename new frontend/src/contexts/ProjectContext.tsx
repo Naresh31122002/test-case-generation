@@ -250,14 +250,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const renameProject = useCallback((id: string, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
+    const newId = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    // Optimistic UI update
     setAllProjects((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, name: trimmed, updatedAt: new Date().toISOString().slice(0, 10) }
-          : p
-      )
+      prev.map((p) => p.id === id ? { ...p, id: newId, name: trimmed, updatedAt: new Date().toISOString().slice(0, 10) } : p)
     );
-  }, []);
+    if (selectedId === id) { setSelectedId(newId); try { localStorage.setItem(LS_SELECTED, newId); } catch {} }
+    // Persist to backend (fire-and-forget)
+    apiGet(`/api/stories/projects/${id}`).catch(() => {});
+    import('@/lib/apiClient').then(({ request }) =>
+      request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ new_id: newId }) })
+    ).catch(() => {});
+  }, [selectedId]);
 
   const archiveProject = useCallback(
     (id: string) => {
@@ -288,7 +292,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setAllProjects((prev) => {
         const remaining = prev.filter((p) => p.id !== id);
-        // If deleting the selected project, switch to next active.
         if (selectedId === id) {
           const nextActive = remaining.find((p) => !p.archived);
           setSelectedId(nextActive?.id ?? null);
@@ -296,8 +299,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         }
         return remaining;
       });
-      // Clean from recents
       setRecentIds((prev) => prev.filter((x) => x !== id));
+      // Delete all stories in this project on the backend
+      import('@/lib/apiClient').then(({ request }) =>
+        request(`/api/stories/projects/${id}`, { method: 'DELETE' })
+      ).catch(() => {});
     },
     [selectedId, pushRecent]
   );

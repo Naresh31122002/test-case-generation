@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 
 const notifGroups = [
   {
@@ -26,12 +27,43 @@ const notifGroups = [
   },
 ];
 
+const ALL_IDS = notifGroups.flatMap((g) => g.items).map((i) => i.id);
+
 export default function NotificationsSettings() {
   const [prefs, setPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(notifGroups.flatMap((g) => g.items).map((i) => [i.id, i.defaultOn]))
   );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/me/notifications', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.prefs && Object.keys(d.prefs).length > 0) {
+          setPrefs(p => ({ ...p, ...d.prefs }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const toggle = (id: string) => setPrefs((p) => ({ ...p, [id]: !p[id] }));
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    try {
+      await fetch('/api/auth/me/notifications', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prefs),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch { }
+    finally { setSaving(false); }
+  }
 
   return (
     <>
@@ -40,7 +72,11 @@ export default function NotificationsSettings() {
         <p className="text-sm text-muted">Control which email alerts you receive.</p>
       </div>
 
-      {notifGroups.map((group) => (
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted text-sm py-4">
+          <Loader2 size={15} className="animate-spin" /> Loading preferences…
+        </div>
+      ) : notifGroups.map((group) => (
         <div key={group.label} className="bg-white border border-border rounded-card overflow-hidden">
           <div className="px-5 py-3 border-b border-border bg-gray-50">
             <p className="text-[13px] font-semibold text-navy">{group.label}</p>
@@ -53,9 +89,7 @@ export default function NotificationsSettings() {
               </div>
               <button
                 onClick={() => toggle(item.id)}
-                className={`relative w-10 h-5.5 rounded-full transition-colors flex-shrink-0 ${
-                  prefs[item.id] ? "bg-pink" : "bg-border"
-                }`}
+                className={`relative w-10 rounded-full transition-colors flex-shrink-0 ${prefs[item.id] ? "bg-pink" : "bg-border"}`}
                 style={{ height: "22px" }}
               >
                 <span
@@ -68,10 +102,13 @@ export default function NotificationsSettings() {
         </div>
       ))}
 
-      <div>
-        <button className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors">
-          Save Preferences
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving}
+          className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-60 flex items-center gap-2">
+          {saving && <Loader2 size={13} className="animate-spin" />}
+          {saving ? 'Saving…' : 'Save Preferences'}
         </button>
+        {saved && <span className="text-sm text-success font-medium">Saved ✓</span>}
       </div>
     </>
   );
