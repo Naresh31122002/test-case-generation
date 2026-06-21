@@ -137,8 +137,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
     // Still 401 after one refresh attempt — clear cookies and force login
     if (res.status === 401) {
-      // Only redirect once — prevent infinite loops if already on login page
-      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+      // Don't redirect if already on login page or on admin routes (admin has its own auth)
+      if (typeof window !== 'undefined'
+          && !window.location.pathname.includes('/login')
+          && !window.location.pathname.includes('/admin')) {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
         const loginPath = appUrl ? `${appUrl}/login` : '/login'
