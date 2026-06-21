@@ -66,6 +66,31 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [regenIds, setRegenIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [regrouping, setRegrouping] = useState(false);
+
+  const handleRegroup = useCallback(async () => {
+    setRegrouping(true);
+    try {
+      await api.regroupTestCases(storyId);
+      // Re-fetch test cases to get updated group fields
+      const tc = await api.getTestCases(storyId);
+      setTests(tc.testCases.map((t) => ({
+        id: t.id, storyId,
+        title: t.title,
+        type: "Functional" as const,
+        priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
+        status: "Pending" as const,
+        steps: t.steps,
+        expectedResult: t.expectedResult,
+        group: t.group,
+      })));
+      showToast('Test cases regrouped with AI ✓');
+    } catch {
+      showToast('Regrouping failed', 'error');
+    } finally {
+      setRegrouping(false);
+    }
+  }, [storyId]);
 
   // Edit modal
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -760,8 +785,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
       {/* Left panel */}
       <div className="w-[320px] flex-shrink-0 border-r border-border flex flex-col">
-        {/* Filter chips */}
-        <div className="px-3 pt-4 pb-2 flex flex-wrap gap-1.5">
+        {/* Filter chips + Regroup button */}
+        <div className="px-3 pt-3 pb-2 flex flex-wrap gap-1.5 items-center">
           {TYPE_FILTERS.map((f) => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
@@ -771,6 +796,15 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
               {f}
             </button>
           ))}
+          <button
+            onClick={handleRegroup}
+            disabled={regrouping}
+            title="Re-assign AI groups"
+            className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-border rounded-full text-muted hover:border-pink hover:text-pink transition-colors disabled:opacity-50"
+          >
+            {regrouping ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+            {regrouping ? 'Grouping…' : 'AI Group'}
+          </button>
         </div>
         {/* Search */}
         <div className="px-3 pb-2">
