@@ -17,8 +17,8 @@ export default function AdminApiUsagePage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-white mb-1">API Usage</h1>
-      <p className="text-sm text-gray-400 mb-6">Recent story uploads and test case generation events</p>
+      <h1 className="text-2xl font-bold text-white mb-1">Generation Activity</h1>
+      <p className="text-sm text-gray-400 mb-6">Recent test case generation events (not request-level API metrics)</p>
 
       {loading ? (
         <div className="flex items-center gap-2 text-gray-400"><Loader2 className="animate-spin" size={16}/>Loading…</div>
@@ -30,8 +30,8 @@ export default function AdminApiUsagePage() {
             <thead>
               <tr className="border-b border-gray-800 text-xs text-gray-400 uppercase tracking-wide">
                 <th className="text-left px-5 py-3">Project</th>
-                <th className="text-left px-5 py-3">Source</th>
-                <th className="text-left px-5 py-3">Tests Generated</th>
+                <th className="text-left px-5 py-3">Triggered By</th>
+                <th className="text-left px-5 py-3">Generation Succeeded</th>
                 <th className="text-left px-5 py-3">Date</th>
               </tr>
             </thead>

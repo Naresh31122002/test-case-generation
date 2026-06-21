@@ -1,26 +1,17 @@
-/**
- * Team members — single source of truth for "invited" members who can be
- * assigned to test cards on the Kanban board.
- *
- * Mock-backed today; swap `teamMembers` for an API call later without changing
- * consumers. Set to an empty array to exercise the "no team members" state.
- */
-
 export interface TeamMember {
   id: string;
   name: string;
   email: string;
-  role: "Admin" | "Member";
-  /** Two-letter avatar initials. */
+  role: string;
   avatar: string;
 }
 
 export const teamMembers: TeamMember[] = [
-  { id: "1", name: "Jane Doe",   email: "jane@acme.com", role: "Admin",  avatar: "JD" },
-  { id: "2", name: "Alex Smith", email: "alex@acme.com", role: "Member", avatar: "AS" },
-  { id: "3", name: "Sam Rivera", email: "sam@acme.com",  role: "Member", avatar: "SR" },
+  { id: "me", name: "You", email: "you@example.com", role: "Admin", avatar: "ME" },
+  { id: "qa", name: "QA Lead", email: "qa@example.com", role: "Reviewer", avatar: "QA" },
+  { id: "dev", name: "Developer", email: "dev@example.com", role: "Contributor", avatar: "DV" },
 ];
 
 export function memberById(id: string): TeamMember | undefined {
-  return teamMembers.find((m) => m.id === id);
+  return teamMembers.find((member) => member.id === id);
 }

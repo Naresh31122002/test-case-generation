@@ -13,6 +13,38 @@
 //   - All requests flow through apiClient which enforces credentials:'include'.
 
 import { get, post, patch, upload, del, ApiError } from './apiClient'
+
+export interface StoryIntelligence {
+  risk_score: {
+    level: 'Low' | 'Medium' | 'High';
+    risk_areas: Array<{ area: string; severity: string; description: string }>;
+  };
+  requirement_quality: {
+    score: number;
+    completeness: number;
+    clarity: number;
+    testability: number;
+    issues: Array<{ title: string; description: string; area: string }>;
+    recommendations: string[];
+  };
+  missing_criteria: {
+    missing_scenarios: string[];
+    missing_validations: string[];
+    missing_security_requirements: string[];
+  };
+  suggested_test_areas: {
+    functional: boolean;
+    security: boolean;
+    performance: boolean;
+    accessibility: boolean;
+  };
+  impact_summary: {
+    impacted_stories: string[];
+    impacted_modules: string[];
+    impacted_test_cases: string[];
+  };
+  generated_at: string;
+}
 import type {
   Story,
   TestCase,
@@ -674,6 +706,71 @@ export const api = {
     return patch(`/api/stories/${storyId}/status`, { status })
   },
 
+  async getStoryAssignees(storyId: string): Promise<{
+    assignees: Array<{
+      user_id: string;
+      email: string;
+      assigned_by: string | null;
+      assigned_by_email: string | null;
+      assigned_at: string;
+    }>;
+  }> {
+    return get(`/api/stories/${storyId}/assignees`)
+  },
+
+  async addStoryAssignee(storyId: string, userId: string): Promise<{ assignee: any }> {
+    return post(`/api/stories/${storyId}/assignees`, { user_id: userId })
+  },
+
+  async removeStoryAssignee(storyId: string, userId: string): Promise<{ story_id: string; user_id: string }> {
+    return del(`/api/stories/${storyId}/assignees/${userId}`)
+  },
+
+  async getStoryActivity(storyId: string): Promise<{
+    activity: Array<{
+      id: string;
+      event_type: string;
+      details: any;
+      created_at: string;
+      actor_user_id: string | null;
+      actor_email: string | null;
+    }>;
+  }> {
+    return get(`/api/stories/${storyId}/activity`)
+  },
+
+  async getWorkspaceMembers(): Promise<{
+    members: Array<{ user_id: string; email: string; role: string; joined_at: string }>;
+  }> {
+    return get(`/api/workspaces/members`)
+  },
+
+  async getStoryComments(storyId: string): Promise<{
+    comments: Array<{
+      id: string;
+      story_id: string;
+      user_id: string;
+      user_email: string;
+      body: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+  }> {
+    return get(`/api/stories/${storyId}/comments`)
+  },
+
+  async addStoryComment(storyId: string, body: string): Promise<{ comment: any }> {
+    return post(`/api/stories/${storyId}/comments`, { body })
+  },
+
+  async editStoryComment(storyId: string, commentId: string, body: string): Promise<{ comment: any }> {
+    return patch(`/api/stories/${storyId}/comments/${commentId}`, { body })
+  },
+
+  async deleteStoryComment(storyId: string, commentId: string): Promise<{ story_id: string; comment_id: string }> {
+    return del(`/api/stories/${storyId}/comments/${commentId}`)
+  },
+
   async getStoryQuality(storyId: string): Promise<{
     overall_score: number;
     completeness: number;
@@ -684,6 +781,14 @@ export const api = {
     recommendations: string[];
   }> {
     return get(`/api/stories/${storyId}/quality`)
+  },
+
+  async getStoryIntelligence(storyId: string): Promise<StoryIntelligence> {
+    return get(`/api/stories/${storyId}/intelligence`)
+  },
+
+  async refreshStoryIntelligence(storyId: string): Promise<StoryIntelligence> {
+    return post(`/api/stories/${storyId}/intelligence/refresh`, {})
   },
 
   async generateStoriesFromRequirements(

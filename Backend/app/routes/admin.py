@@ -86,15 +86,66 @@ def get_metrics():
                 cur.execute("SELECT SUM(credits_used) FROM workspace_credits")
                 credits_result = cur.fetchone()[0]
                 credits_consumed = credits_result if credits_result else 0
-                
+
+                # User growth: signups per day, last 30 days
+                cur.execute("""
+                    SELECT DATE(created_on) as day, COUNT(*) as count
+                    FROM users
+                    WHERE created_on >= NOW() - INTERVAL '30 days'
+                    GROUP BY DATE(created_on)
+                    ORDER BY day ASC
+                """)
+                user_growth = [dict(row) for row in cur.fetchall()]
+
+                # Workspace growth: workspaces created per day, last 30 days
+                cur.execute("""
+                    SELECT DATE(created_at) as day, COUNT(*) as count
+                    FROM workspaces
+                    WHERE created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY DATE(created_at)
+                    ORDER BY day ASC
+                """)
+                workspace_growth = [dict(row) for row in cur.fetchall()]
+
+                # Plan distribution (all workspaces, regardless of status)
+                cur.execute("""
+                    SELECT plan, COUNT(*) as count
+                    FROM workspaces
+                    GROUP BY plan
+                """)
+                plan_distribution = [dict(row) for row in cur.fetchall()]
+
+                # Trial (free) vs Paid (non-free plan) workspace counts
+                cur.execute("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE plan = 'free') as trial_count,
+                        COUNT(*) FILTER (WHERE plan != 'free') as paid_count
+                    FROM workspaces
+                """)
+                trial_vs_paid = dict(cur.fetchone())
+
+                # Recent signups
+                cur.execute("""
+                    SELECT user_id, email, created_on, org_name
+                    FROM users
+                    ORDER BY created_on DESC
+                    LIMIT 10
+                """)
+                recent_signups = [dict(row) for row in cur.fetchall()]
+
         return jsonify({
             "mrr": mrr,
             "arr": arr,
             "churn": churn,
             "active_users": active_users,
-            "credits_consumed": credits_consumed
+            "credits_consumed": credits_consumed,
+            "user_growth": user_growth,
+            "workspace_growth": workspace_growth,
+            "plan_distribution": plan_distribution,
+            "trial_vs_paid": trial_vs_paid,
+            "recent_signups": recent_signups,
         }), 200
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -265,7 +316,7 @@ def get_subscriptions():
                 cur.execute("""
                     SELECT
                         w.id, w.name, w.plan, w.subscription_status,
-                        w.stripe_subscription_id, w.current_period_end,
+                        w.stripe_subscription_id, w.subscription_current_period_end AS current_period_end,
                         w.created_at, u.email as owner_email
                     FROM workspaces w
                     JOIN users u ON w.owner_id = u.user_id
@@ -313,6 +364,63 @@ def get_credits():
                 cur.execute("SELECT SUM(credits_used) as total, SUM(monthly_limit) as total_limit FROM workspace_credits")
                 totals = dict(cur.fetchone())
 
-        return jsonify({"credits": credits, "totals": totals}), 200
+                # Recent credit activity (most recent transactions across all workspaces)
+                cur.execute("""
+                    SELECT ct.id, ct.workspace_id, w.name as workspace_name,
+                           ct.user_id, u.email as user_email,
+                           ct.amount, ct.action, ct.story_id, ct.created_at
+                    FROM credit_transactions ct
+                    JOIN workspaces w ON ct.workspace_id = w.id
+                    LEFT JOIN users u ON ct.user_id = u.user_id
+                    ORDER BY ct.created_at DESC
+                    LIMIT 50
+                """)
+                recent_activity = [dict(row) for row in cur.fetchall()]
+
+                # Consumption trend: credits used per day, last 30 days
+                cur.execute("""
+                    SELECT DATE(ct.created_at) as day, SUM(ct.amount) as credits_used
+                    FROM credit_transactions ct
+                    WHERE ct.created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY DATE(ct.created_at)
+                    ORDER BY day ASC
+                """)
+                consumption_trend = [dict(row) for row in cur.fetchall()]
+
+                # Top credit-consuming workspaces (last 30 days)
+                cur.execute("""
+                    SELECT ct.workspace_id, w.name as workspace_name, w.plan,
+                           SUM(ct.amount) as total_consumed
+                    FROM credit_transactions ct
+                    JOIN workspaces w ON ct.workspace_id = w.id
+                    WHERE ct.created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY ct.workspace_id, w.name, w.plan
+                    ORDER BY total_consumed DESC
+                    LIMIT 10
+                """)
+                top_workspaces = [dict(row) for row in cur.fetchall()]
+
+                # Top credit-consuming users (last 30 days)
+                cur.execute("""
+                    SELECT ct.user_id, u.email as user_email,
+                           SUM(ct.amount) as total_consumed
+                    FROM credit_transactions ct
+                    LEFT JOIN users u ON ct.user_id = u.user_id
+                    WHERE ct.created_at >= NOW() - INTERVAL '30 days'
+                      AND ct.user_id IS NOT NULL
+                    GROUP BY ct.user_id, u.email
+                    ORDER BY total_consumed DESC
+                    LIMIT 10
+                """)
+                top_users = [dict(row) for row in cur.fetchall()]
+
+        return jsonify({
+            "credits": credits,
+            "totals": totals,
+            "recent_activity": recent_activity,
+            "consumption_trend": consumption_trend,
+            "top_workspaces": top_workspaces,
+            "top_users": top_users,
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
