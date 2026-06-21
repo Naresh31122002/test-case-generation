@@ -192,7 +192,10 @@ export default function StoriesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Derive the active project ID to filter by.
+  // Wait until ProjectContext is ready — otherwise first render fetches ALL stories
+  // before the selected project is known, causing a flash of unfiltered results.
   const activeProjectId = useMemo(() => {
+    if (!ready) return null; // null = don't fetch yet
     if (typeof window !== "undefined") {
       const urlParam = new URLSearchParams(window.location.search).get("project_id");
       if (urlParam) return urlParam;
@@ -201,11 +204,15 @@ export default function StoriesPage() {
     if (selectedProject?.id && !sampleIds.has(selectedProject.id)) {
       return selectedProject.id;
     }
-    return undefined;
-  }, [selectedProject?.id]);
+    return undefined; // show all stories when no real project is selected
+  }, [selectedProject?.id, ready]);
 
   // Real stories from backend — use the global store with background polling
-  const { stories: projectStories, loading: storiesLoading } = useStoriesStore(activeProjectId);
+  // Pass undefined (not null) to skip fetching while project context loads
+  const { stories: projectStories, loading: storiesLoading } = useStoriesStore(
+    activeProjectId === null ? undefined : activeProjectId,
+    activeProjectId === null ? false : true // enabled flag
+  );
   const projectStoryIds = useMemo(
     () => new Set(projectStories.map((s) => s.id)),
     [projectStories]

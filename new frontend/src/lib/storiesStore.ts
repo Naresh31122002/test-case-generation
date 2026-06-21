@@ -1,20 +1,9 @@
 "use client";
 
-/**
- * Global stories store with background polling and event-based invalidation.
- *
- * Usage:
- *   const { stories, loading, refresh } = useStoriesStore(projectId)
- *   invalidateStories()  // call from anywhere after mutations
- */
-
 import { useEffect, useCallback, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
 import type { Story } from "@/lib/seed";
-
-// ── Global invalidation event ─────────────────────────────────────────────────
-// Any component can call invalidateStories() and all subscribers will re-fetch.
 
 const INVALIDATE_EVENT = "testsurge:stories:invalidate";
 
@@ -24,11 +13,9 @@ export function invalidateStories() {
   }
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
-
-export function useStoriesStore(projectId?: string) {
+export function useStoriesStore(projectId?: string, enabled = true) {
   const [stories, setStories] = useState<Story[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled); // start as loading only if enabled
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
@@ -45,36 +32,40 @@ export function useStoriesStore(projectId?: string) {
     }
   }, [projectId]);
 
-  // Initial fetch + re-fetch when projectId changes
+  // Only fetch when enabled (i.e. project context is ready)
   useEffect(() => {
     mountedRef.current = true;
-    fetch(false);
+    if (enabled) {
+      fetch(false);
+    } else {
+      setLoading(false);
+    }
     return () => { mountedRef.current = false; };
-  }, [fetch]);
+  }, [fetch, enabled]);
 
-  // Background polling — fires every 8s when any story is still generating
-  // (testCount === 0). Stops automatically when all stories are settled.
+  // Background polling when any story is still generating
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    if (!enabled) return;
 
     const hasGenerating = stories.some((s) => s.testCount === 0);
     if (!hasGenerating) return;
 
     pollingRef.current = setInterval(() => {
-      fetch(true); // silent — no loading spinner
+      fetch(true);
     }, 8000);
 
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [stories, fetch]);
+  }, [stories, fetch, enabled]);
 
-  // Listen for global invalidation events (after mutations from other components)
+  // Listen for global invalidation events
   useEffect(() => {
-    const handler = () => fetch(true);
+    const handler = () => { if (enabled) fetch(true); };
     window.addEventListener(INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(INVALIDATE_EVENT, handler);
-  }, [fetch]);
+  }, [fetch, enabled]);
 
   const refresh = useCallback(() => fetch(true), [fetch]);
 
