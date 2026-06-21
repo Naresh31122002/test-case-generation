@@ -419,9 +419,29 @@ def create_postgres_db():
                     ALTER TABLE test_cases ADD COLUMN workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE;
                     CREATE INDEX IF NOT EXISTS idx_test_cases_workspace ON test_cases(workspace_id);
                 END IF;
+                -- Kanban: story_status column backing the Stories Kanban board.
+                -- Additive only; existing rows default to 'in_review'.
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'test_cases' AND column_name = 'story_status'
+                ) THEN
+                    ALTER TABLE test_cases ADD COLUMN story_status TEXT DEFAULT 'in_review';
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_name = 'test_cases' AND constraint_name = 'chk_test_cases_story_status'
+                ) THEN
+                    ALTER TABLE test_cases ADD CONSTRAINT chk_test_cases_story_status
+                        CHECK (story_status IN ('in_review', 'in_progress', 'completed'));
+                END IF;
             END $$;
         """)
-        print("✅ Migrated 'test_cases' user_id/workspace_id columns and constraint.")
+        print("✅ Migrated 'test_cases' user_id/workspace_id/story_status columns and constraint.")
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_test_cases_workspace_story_status
+            ON test_cases(workspace_id, story_status);
+        """)
+        print("✅ Ensured index on 'test_cases(workspace_id, story_status)'.")
 
         # Create test_case_impacts table with enhanced referential integrity
         cursor.execute("""
@@ -501,6 +521,16 @@ def create_postgres_db():
             END $$;
         """)
         print("✅ Migrated 'test_case_impacts' user_id/workspace_id columns.")
+
+        # Story Intelligence: composite index for get_impact_summary()'s
+        # WHERE workspace_id = %s AND original_story_id = %s AND impact_status = 'active'
+        # (previously covered only by single-column indexes, requiring a
+        # bitmap-and/recheck across them instead of one composite scan).
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_ws_story_status
+            ON test_case_impacts(workspace_id, original_story_id, impact_status);
+        """)
+        print("✅ Migrated 'test_case_impacts' workspace/original_story/status composite index.")
 
         # Create impact_history table
         cursor.execute("""
@@ -676,6 +706,56 @@ def create_postgres_db():
             END $$;
         """)
         print("✅ Migrated 'story_versions' workspace_id column.")
+
+        # Kanban collaboration: story assignees (additive, Phase 2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS story_assignees (
+                id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                story_id     TEXT NOT NULL,
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id      UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                assigned_by  UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                assigned_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uq_story_assignee UNIQUE (workspace_id, story_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_story_assignees_story
+            ON story_assignees(workspace_id, story_id);
+            CREATE INDEX IF NOT EXISTS idx_story_assignees_user
+            ON story_assignees(workspace_id, user_id);
+        """)
+        print("✅ Table 'story_assignees' is ready.")
+
+        # Kanban collaboration: story activity timeline (additive, Phase 2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS story_activity (
+                id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                story_id      TEXT NOT NULL,
+                workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                actor_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                event_type    TEXT NOT NULL,
+                details       JSONB,
+                created_at    TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_story_activity_story
+            ON story_activity(workspace_id, story_id, created_at DESC);
+        """)
+        print("✅ Table 'story_activity' is ready.")
+
+        # Kanban collaboration: story comments (additive, Phase 3A)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS story_comments (
+                id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                story_id     TEXT NOT NULL,
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id      UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                body         TEXT NOT NULL,
+                created_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_story_comments_story
+            ON story_comments(workspace_id, story_id, created_at ASC);
+        """)
+        print("✅ Table 'story_comments' is ready.")
 
         conn.commit()
         print("\n✅ All database structures have been created/updated successfully!")

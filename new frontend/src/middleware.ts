@@ -16,7 +16,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const ACCESS_COOKIE = "access_token_cookie";
 const REFRESH_COOKIE = "refresh_token_cookie";
-const APP_BASE_PATH = "/app";
+// Matches next.config.js: basePath "/app" is only active in production builds.
+const APP_BASE_PATH = process.env.NODE_ENV === "production" ? "/app" : "";
 
 // Routes that make up the auth journey — reachable while logged OUT.
 const AUTH_ROUTES = [

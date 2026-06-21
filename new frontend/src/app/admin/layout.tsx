@@ -14,7 +14,7 @@ const NAV = [
   { href: "/admin/subscriptions", label: "Subscriptions", icon: CreditCard },
   { href: "/admin/credits", label: "Credits", icon: Zap },
   { href: "/admin/tokens", label: "Token Usage", icon: Cpu },
-  { href: "/admin/usage", label: "API Usage", icon: Activity },
+  { href: "/admin/usage", label: "Generation Activity", icon: Activity },
   { href: "/admin/errors", label: "Errors", icon: AlertTriangle },
 ];
 

@@ -28,6 +28,7 @@ from app.utils.workspace import (
     get_current_user_id,
     get_current_workspace_id,
 )
+from app.models.story_collaboration_model import StoryAssigneesModel, StoryActivityModel, StoryCommentsModel
 stories_bp = Blueprint('stories', __name__)
 
 # Backwards-compatible alias: existing routes are decorated with @dev_jwt_required.
@@ -1609,24 +1610,23 @@ Return ONLY a valid JSON array, no other text:
 
 # ── Story quality analysis ────────────────────────────────────────────────────
 
-@stories_bp.route('/<story_id>/quality', methods=['GET'])
-@dev_jwt_required
-def get_story_quality(story_id):
+def _compute_or_get_quality(story_id, workspace_id, user_id, force_refresh=False):
     """
+    Shared quality-analysis implementation. One LLM call, cached in the
+    story's inputs JSONB column. Used by both GET /<story_id>/quality and
+    GET /<story_id>/intelligence (which reuses this exact function instead
+    of running a second LLM pipeline). Returns (result_dict, status_code).
+
     Use LLM to analyze story quality and return:
       - overall_score (0-100)
       - completeness, clarity, testability sub-scores (0-100)
       - issues: list of {title, description, area}
       - risk_areas: list of {area, severity, description}
       - recommendations: list of strings
-
-    Results are cached in the story's inputs JSONB column to avoid
-    re-calling the LLM on every page load.
+      - missing_scenarios / missing_validations / missing_security_requirements
+      - suggested_test_areas: {functional, security, performance, accessibility}
     """
     try:
-        user_id = get_current_user_id()
-        workspace_id = get_current_workspace_id()
-
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute("""
@@ -1649,7 +1649,7 @@ def get_story_quality(story_id):
             if 'workspace_id' in story_rows.columns:
                 story_rows = story_rows[story_rows['workspace_id'] == workspace_id]
             if story_rows.empty:
-                return jsonify({'error': 'Story not found'}), 404
+                return {'error': 'Story not found'}, 404
             content = str(story_rows.iloc[0].get('doc_content_text', ''))
             description = str(story_rows.iloc[0].get('storyDescription', ''))
             cached_quality = None
@@ -1668,15 +1668,15 @@ def get_story_quality(story_id):
                     inputs = json.loads(inputs)
                 except Exception:
                     inputs = {}
-            cached_quality = inputs.get('quality_analysis')
+            cached_quality = None if force_refresh else inputs.get('quality_analysis')
 
         # Return cached result if available (avoid re-calling LLM)
         if cached_quality:
-            return jsonify(cached_quality), 200
+            return cached_quality, 200
 
         story_text = content or description
         if not story_text or len(story_text) < 30:
-            return jsonify({'error': 'Story content too short for analysis'}), 422
+            return {'error': 'Story content too short for analysis'}, 422
 
         # Build LLM prompt
         prompt = f"""You are a senior QA analyst and business analyst expert. Analyze this user story and return a quality assessment.
@@ -1693,6 +1693,8 @@ Also identify:
 - Quality issues (things that would cause poor test generation)
 - Risk areas (potential defects or security concerns)
 - Recommendations (specific improvements)
+- Missing acceptance criteria: scenarios, validations, and security requirements this story does NOT cover but should
+- Which test areas this story needs: functional, security, performance, accessibility
 
 Return ONLY this JSON, no other text:
 {{
@@ -1707,10 +1709,25 @@ Return ONLY this JSON, no other text:
   ],
   "recommendations": [
     "Specific actionable recommendation"
-  ]
+  ],
+  "missing_scenarios": [
+    "Specific missing scenario"
+  ],
+  "missing_validations": [
+    "Specific missing validation"
+  ],
+  "missing_security_requirements": [
+    "Specific missing security requirement"
+  ],
+  "suggested_test_areas": {{
+    "functional": <true|false>,
+    "security": <true|false>,
+    "performance": <true|false>,
+    "accessibility": <true|false>
+  }}
 }}
 
-Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to THIS story, not generic."""
+Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4, and each missing_* list to 0-3 (empty list if nothing is missing). Be specific to THIS story, not generic."""
 
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
@@ -1731,7 +1748,7 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
         start = raw.find('{')
         end = raw.rfind('}') + 1
         if start == -1 or end == 0:
-            return jsonify({'error': 'LLM did not return valid JSON'}), 500
+            return {'error': 'LLM did not return valid JSON'}, 500
 
         result = json.loads(raw[start:end])
 
@@ -1741,14 +1758,26 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
         testability = min(100, max(0, int(result.get('testability', 70))))
         overall = round(completeness * 0.35 + clarity * 0.35 + testability * 0.30)
 
+        risk_areas = result.get('risk_areas', [])[:3]
+        suggested_test_areas = result.get('suggested_test_areas') or {}
+
         quality = {
             'overall_score': overall,
             'completeness': completeness,
             'clarity': clarity,
             'testability': testability,
             'issues': result.get('issues', [])[:4],
-            'risk_areas': result.get('risk_areas', [])[:3],
+            'risk_areas': risk_areas,
             'recommendations': result.get('recommendations', [])[:4],
+            'missing_scenarios': result.get('missing_scenarios', [])[:3],
+            'missing_validations': result.get('missing_validations', [])[:3],
+            'missing_security_requirements': result.get('missing_security_requirements', [])[:3],
+            'suggested_test_areas': {
+                'functional': bool(suggested_test_areas.get('functional', True)),
+                'security': bool(suggested_test_areas.get('security', False)),
+                'performance': bool(suggested_test_areas.get('performance', False)),
+                'accessibility': bool(suggested_test_areas.get('accessibility', False)),
+            },
         }
 
         # Cache result in inputs column
@@ -1764,10 +1793,137 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4. Be specific to TH
         except Exception:
             pass  # caching failure is non-fatal
 
-        return jsonify(quality), 200
+        return quality, 200
 
     except Exception as e:
         print(f'❌ Error in quality analysis for {story_id}: {e}')
+        return {'error': str(e)}, 500
+
+
+@stories_bp.route('/<story_id>/quality', methods=['GET'])
+@dev_jwt_required
+def get_story_quality(story_id):
+    """
+    Use LLM to analyze story quality and return overall_score, completeness,
+    clarity, testability, issues, risk_areas, recommendations, and the
+    missing-criteria / suggested-test-area fields. See _compute_or_get_quality
+    for the full implementation (shared with GET /<story_id>/intelligence).
+    """
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    result, status = _compute_or_get_quality(story_id, workspace_id, user_id)
+    return jsonify(result), status
+
+
+# ── Story Intelligence (AI Insights panel) ─────────────────────────────────────
+# Reuses _compute_or_get_quality (same prompt/cache as /quality) for risk +
+# requirement-quality + missing-criteria + suggested-test-areas, and
+# StoryIntelligenceModel for the impact summary (pure aggregation of rows the
+# existing impact analyzer already wrote). No second LLM pipeline.
+
+def _build_intelligence_response(story_id, workspace_id, user_id, force_refresh=False):
+    from app.models.story_intelligence_model import StoryIntelligenceModel, aggregate_risk_level
+
+    quality, status = _compute_or_get_quality(story_id, workspace_id, user_id, force_refresh=force_refresh)
+    if status != 200:
+        return quality, status
+
+    risk_areas = quality.get('risk_areas', [])
+    impact_summary = StoryIntelligenceModel.get_impact_summary(workspace_id, story_id)
+
+    intelligence = {
+        'risk_score': {
+            'level': aggregate_risk_level(risk_areas),
+            'risk_areas': risk_areas,
+        },
+        'requirement_quality': {
+            'score': quality.get('overall_score'),
+            'completeness': quality.get('completeness'),
+            'clarity': quality.get('clarity'),
+            'testability': quality.get('testability'),
+            'issues': quality.get('issues', []),
+            'recommendations': quality.get('recommendations', []),
+        },
+        'missing_criteria': {
+            'missing_scenarios': quality.get('missing_scenarios', []),
+            'missing_validations': quality.get('missing_validations', []),
+            'missing_security_requirements': quality.get('missing_security_requirements', []),
+        },
+        'suggested_test_areas': quality.get('suggested_test_areas', {}),
+        'impact_summary': impact_summary,
+        'generated_at': datetime.utcnow().isoformat(),
+    }
+    return intelligence, 200
+
+
+@stories_bp.route('/<story_id>/intelligence', methods=['GET'])
+@dev_jwt_required
+def get_story_intelligence(story_id):
+    """AI Insights for the Story Detail Drawer: risk score, requirement quality,
+    missing acceptance criteria, suggested test areas, impact summary. Reuses
+    the existing quality-analysis cache (test_cases.inputs.quality_analysis) —
+    a cache hit costs zero LLM calls, identical to GET /<story_id>/quality."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        # Deduct a credit only when this actually triggers a fresh LLM call.
+        # Determine cache status the same way _compute_or_get_quality does,
+        # so a cache hit (the common case) never costs a credit.
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                    (story_id, workspace_id),
+                )
+                row = cur.fetchone()
+        cached = False
+        if row and row[0]:
+            inputs = row[0]
+            if isinstance(inputs, str):
+                try:
+                    inputs = json.loads(inputs)
+                except Exception:
+                    inputs = {}
+            cached = bool(inputs.get('quality_analysis'))
+
+        if not cached:
+            try:
+                from app.models.credits_model import CreditsModel, OutOfCreditsException
+                CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="story_intelligence", story_id=story_id)
+            except OutOfCreditsException as e:
+                return jsonify({'error': str(e)}), 402
+            except Exception as e:
+                return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
+        result, status = _build_intelligence_response(story_id, workspace_id, user_id)
+        return jsonify(result), status
+    except Exception as e:
+        print(f'❌ Error in story intelligence for {story_id}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/intelligence/refresh', methods=['POST'])
+@dev_jwt_required
+def refresh_story_intelligence(story_id):
+    """Force-regenerate AI Insights, bypassing the cache. Always deducts a
+    credit since this always triggers a fresh LLM call by design."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="story_intelligence_refresh", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
+        result, status = _build_intelligence_response(story_id, workspace_id, user_id, force_refresh=True)
+        return jsonify(result), status
+    except Exception as e:
+        print(f'❌ Error refreshing story intelligence for {story_id}: {e}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -1799,7 +1955,146 @@ def update_story_status(story_id):
                     return jsonify({'error': 'Story not found'}), 404
                 conn.commit()
 
+        StoryActivityModel.log(
+            workspace_id, story_id, user_id, 'status_changed', {'new_status': new_status}
+        )
+
         return jsonify({'story_id': story_id, 'status': new_status}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Story Kanban collaboration: assignees + activity (Phase 2) ────────────────
+
+@stories_bp.route('/<story_id>/assignees', methods=['GET'])
+@dev_jwt_required
+def get_story_assignees(story_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        assignees = StoryAssigneesModel.get_assignees(workspace_id, story_id)
+        return jsonify({'assignees': assignees}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/assignees', methods=['POST'])
+@dev_jwt_required
+def add_story_assignee(story_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    target_user_id = data.get('user_id')
+    if not target_user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
+    try:
+        result = StoryAssigneesModel.assign(workspace_id, story_id, target_user_id, user_id)
+        if result is None:
+            return jsonify({'error': 'User is not a member of this workspace'}), 403
+
+        StoryActivityModel.log(
+            workspace_id, story_id, user_id, 'assignee_added', {'user_id': target_user_id}
+        )
+        return jsonify({'assignee': result}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/assignees/<target_user_id>', methods=['DELETE'])
+@dev_jwt_required
+def remove_story_assignee(story_id, target_user_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        removed = StoryAssigneesModel.remove(workspace_id, story_id, target_user_id)
+        if not removed:
+            return jsonify({'error': 'Assignment not found'}), 404
+
+        StoryActivityModel.log(
+            workspace_id, story_id, user_id, 'assignee_removed', {'user_id': target_user_id}
+        )
+        return jsonify({'story_id': story_id, 'user_id': target_user_id}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/activity', methods=['GET'])
+@dev_jwt_required
+def get_story_activity(story_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        timeline = StoryActivityModel.get_timeline(workspace_id, story_id)
+        return jsonify({'activity': timeline}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Story comments (Phase 3A) ──────────────────────────────────────────────────
+
+@stories_bp.route('/<story_id>/comments', methods=['GET'])
+@dev_jwt_required
+def get_story_comments(story_id):
+    workspace_id = get_current_workspace_id()
+    try:
+        comments = StoryCommentsModel.list_comments(workspace_id, story_id)
+        return jsonify({'comments': comments}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/comments', methods=['POST'])
+@dev_jwt_required
+def add_story_comment(story_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'body is required'}), 400
+
+    try:
+        comment = StoryCommentsModel.add_comment(workspace_id, story_id, user_id, body)
+        StoryActivityModel.log(
+            workspace_id, story_id, user_id, 'comment_added', {'comment_id': comment['id']}
+        )
+        return jsonify({'comment': comment}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/comments/<comment_id>', methods=['PATCH'])
+@dev_jwt_required
+def edit_story_comment(story_id, comment_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    body = (data.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'body is required'}), 400
+
+    try:
+        comment = StoryCommentsModel.edit_comment(workspace_id, story_id, comment_id, user_id, body)
+        if not comment:
+            return jsonify({'error': 'Comment not found or not editable by this user'}), 404
+        return jsonify({'comment': comment}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/comments/<comment_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_story_comment(story_id, comment_id):
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        deleted = StoryCommentsModel.delete_comment(workspace_id, story_id, comment_id, user_id)
+        if not deleted:
+            return jsonify({'error': 'Comment not found or not deletable by this user'}), 404
+
+        StoryActivityModel.log(
+            workspace_id, story_id, user_id, 'comment_deleted', {'comment_id': comment_id}
+        )
+        return jsonify({'story_id': story_id, 'comment_id': comment_id}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2087,6 +2382,14 @@ def regenerate_single_test_case(story_id, test_case_id):
                 if not target_tc:
                     return jsonify({'error': 'Test case not found'}), 404
 
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="regenerate_test_case", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
         # Get story content from LanceDB for richer context
         import lancedb
         story_content = story_desc
@@ -2229,6 +2532,17 @@ def bulk_regenerate_test_cases(story_id):
                     tc_json = json.loads(tc_json)
                 cases = tc_json.get('test_cases', [])
 
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(
+                workspace_id, user_id, action="bulk_regenerate_test_cases",
+                amount=len(test_case_ids), story_id=story_id,
+            )
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
         # Build RAG context once for all TCs
         story_content = story_desc
         rag_section = ""
@@ -2347,6 +2661,14 @@ def refine_test_case(story_id, test_case_id):
         if not instructions:
             return jsonify({'error': 'instructions required for refine'}), 400
 
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="refine_test_case", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
         # Get story content
         story_content = ''
         try:
@@ -2423,6 +2745,15 @@ def regroup_test_cases(story_id):
                     tc_json = json.loads(tc_json)
 
                 cases = tc_json.get('test_cases', [])
+
+                try:
+                    from app.models.credits_model import CreditsModel, OutOfCreditsException
+                    CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="regroup_test_cases", story_id=story_id)
+                except OutOfCreditsException as e:
+                    return jsonify({'error': str(e)}), 402
+                except Exception as e:
+                    return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+
                 from app.LLM.Test_case_generator import assign_groups
                 assign_groups(cases, story_desc)
                 tc_json['test_cases'] = cases
@@ -2478,6 +2809,14 @@ def upload_new_version(story_id):
             story_content = extract_text(file_path)
             if not story_content:
                 return jsonify({'error': 'Could not extract text from file'}), 400
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="upload_story_version", story_id=story_id)
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception as e:
+            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
         # Determine next version number
         with Config.get_postgres_connection() as conn:
