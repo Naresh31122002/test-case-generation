@@ -1,27 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Clock, RefreshCw, Sparkles, TestTube2 } from "lucide-react";
+import {
+  Check, Clock, RefreshCw, Sparkles, TestTube2,
+  Pencil, Trash2, X, Plus, Loader2, CheckCircle2,
+} from "lucide-react";
 import { type TestCase, type TestType } from "@/lib/seed";
 import { fadeInUp, duration, easeStandard } from "@/lib/motion";
-import {
-  AIConfidenceBadge,
-  confidenceLevel,
-} from "@/components/ui/AIConfidenceBadge";
-import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
+import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
+import { api } from "@/lib/api";
 
-/** Shared mock async op (~1.8s, ~10% failure) for AI actions in this tab. */
-function mockRun(ms = 1800): Promise<void> {
-  return new Promise((resolve, reject) =>
-    setTimeout(() => (Math.random() < 0.1 ? reject(new Error("Something went wrong. Please try again.")) : resolve()), ms)
-  );
-}
-
-/**
- * Derive a deterministic AI confidence score for a generated test from
- * existing signals: approval status, priority, and presence of AI review.
- */
 function testConfidence(test: TestCase): number {
   let score = 55;
   if (test.status === "Approved") score += 25;
@@ -37,31 +26,51 @@ const priorityColor: Record<string, string> = {
   P1: "bg-[#ECFEFF] text-cyan border-cyan/40",
   P2: "bg-[#FFFBEB] text-[#92400E] border-[#FCD34D]",
   P3: "bg-[#F8FAFC] text-muted border-border",
+  High:   "bg-[#FEF2F2] text-red-700 border-red-200",
+  Medium: "bg-[#FFFBEB] text-[#92400E] border-[#FCD34D]",
+  Low:    "bg-[#F8FAFC] text-muted border-border",
 };
 
-const typeColor: Record<TestType, string> = {
-  Functional: "bg-[#EFF6FF] text-[#1E40AF]",
-  Negative: "bg-[#FEF2F2] text-[#991B1B]",
-  Boundary: "bg-[#FFFBEB] text-[#92400E]",
-  Security: "bg-[#FFF0F7] text-pink",
+const typeColor: Record<string, string> = {
+  Functional:    "bg-[#EFF6FF] text-[#1E40AF]",
+  Negative:      "bg-[#FEF2F2] text-[#991B1B]",
+  Boundary:      "bg-[#FFFBEB] text-[#92400E]",
+  Security:      "bg-[#FFF0F7] text-pink",
   Accessibility: "bg-[#ECFDF5] text-[#065F46]",
-  Performance: "bg-[#EFF6FF] text-[#1E40AF]",
+  Performance:   "bg-[#EFF6FF] text-[#1E40AF]",
 };
 
-export function TestsTab({ tests }: { tests: TestCase[] }) {
-  const { runAIAction } = useAIAction();
-  const generateTests = () =>
-    runAIAction({
-      name: "Generate Tests",
-      credits: AI_ACTION_COSTS.generateTests,
-      description: "Generate a full suite of functional, negative, boundary, security and accessibility tests for this story.",
-      run: () => mockRun(),
-    });
+interface EditState {
+  title: string;
+  steps: string[];
+  expectedResult: string;
+  priority: string;
+}
 
+export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; storyId: string }) {
+  const [tests, setTests] = useState<TestCase[]>(initialTests);
   const [filter, setFilter] = useState<TestType | "All">("All");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<string | null>(tests[0]?.id ?? null);
+  const [selected, setSelected] = useState<string | null>(initialTests[0]?.id ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  // Per-card loading states
+  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
+  const [regenIds, setRegenIds] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Edit modal
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const filtered = tests.filter((t) => {
     if (filter !== "All" && t.type !== filter) return false;
@@ -70,11 +79,134 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
   });
 
   const selectedTest = tests.find((t) => t.id === selected);
+
   const toggleCheck = (id: string) => {
     const next = new Set(checked);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(id)) next.delete(id); else next.add(id);
     setChecked(next);
+  };
+
+  // ── Approve ──────────────────────────────────────────────────────────────
+  const handleApprove = useCallback(async (testId: string) => {
+    setApprovingIds((p) => new Set(p).add(testId));
+    try {
+      const tc = tests.find((t) => t.id === testId);
+      const newStatus = tc?.status === 'Approved' ? 'Pending' : 'Approved';
+      await api.approveTestCase(storyId, testId, newStatus as any);
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: newStatus as any } : t));
+      showToast(newStatus === 'Approved' ? 'Test case approved ✓' : 'Approval removed');
+    } catch {
+      showToast('Failed to update status', 'error');
+    } finally {
+      setApprovingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+    }
+  }, [storyId, tests]);
+
+  const handleBulkApprove = useCallback(async () => {
+    setBulkLoading(true);
+    try {
+      await Promise.all(Array.from(checked).map((id) => api.approveTestCase(storyId, id, 'Approved')));
+      setTests((prev) => prev.map((t) => checked.has(t.id) ? { ...t, status: 'Approved' as any } : t));
+      setChecked(new Set());
+      showToast(`${checked.size} test cases approved ✓`);
+    } catch {
+      showToast('Some approvals failed', 'error');
+    } finally {
+      setBulkLoading(false);
+    }
+  }, [storyId, checked]);
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const handleDelete = useCallback(async (testId: string) => {
+    if (!confirm('Delete this test case? This cannot be undone.')) return;
+    setDeletingIds((p) => new Set(p).add(testId));
+    try {
+      await api.deleteTestCase(storyId, testId);
+      setTests((prev) => prev.filter((t) => t.id !== testId));
+      if (selected === testId) setSelected(null);
+      showToast('Test case deleted');
+    } catch {
+      showToast('Failed to delete', 'error');
+    } finally {
+      setDeletingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+    }
+  }, [storyId, selected]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (!confirm(`Delete ${checked.size} test cases? This cannot be undone.`)) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all(Array.from(checked).map((id) => api.deleteTestCase(storyId, id)));
+      setTests((prev) => prev.filter((t) => !checked.has(t.id)));
+      if (selected && checked.has(selected)) setSelected(null);
+      setChecked(new Set());
+      showToast(`${checked.size} test cases deleted`);
+    } catch {
+      showToast('Some deletions failed', 'error');
+    } finally {
+      setBulkLoading(false);
+    }
+  }, [storyId, checked, selected]);
+
+  // ── Regenerate single ─────────────────────────────────────────────────────
+  const handleRegenerate = useCallback(async (testId: string) => {
+    setRegenIds((p) => new Set(p).add(testId));
+    setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Regenerating' as any } : t));
+    try {
+      const res = await api.regenerateSingleTestCase(storyId, testId);
+      const updated = res.test_case;
+      setTests((prev) => prev.map((t) => t.id === testId ? {
+        ...t,
+        title: updated.title ?? t.title,
+        steps: updated.steps ?? t.steps,
+        expectedResult: updated.expected_result ?? t.expectedResult,
+        priority: updated.priority ?? t.priority,
+        status: 'Pending' as any,
+      } : t));
+      showToast('Test case regenerated ✓');
+    } catch {
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Pending' as any } : t));
+      showToast('Regeneration failed', 'error');
+    } finally {
+      setRegenIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+    }
+  }, [storyId]);
+
+  // ── Edit ──────────────────────────────────────────────────────────────────
+  const openEdit = (tc: TestCase) => {
+    setEditingId(tc.id);
+    setEditState({
+      title: tc.title,
+      steps: [...tc.steps],
+      expectedResult: tc.expectedResult,
+      priority: tc.priority,
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editState) return;
+    setEditSaving(true);
+    try {
+      await api.updateTestCase(storyId, editingId, {
+        title: editState.title,
+        steps: editState.steps.filter((s) => s.trim()),
+        expected_result: editState.expectedResult,
+        priority: editState.priority,
+      });
+      setTests((prev) => prev.map((t) => t.id === editingId ? {
+        ...t,
+        title: editState.title,
+        steps: editState.steps.filter((s) => s.trim()),
+        expectedResult: editState.expectedResult,
+        priority: editState.priority as any,
+      } : t));
+      setEditingId(null);
+      showToast('Test case updated ✓');
+    } catch {
+      showToast('Failed to save changes', 'error');
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   if (tests.length === 0) {
@@ -83,110 +215,207 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
         <div className="w-16 h-16 rounded-full bg-surface-pink text-pink flex items-center justify-center mb-5">
           <TestTube2 size={28} />
         </div>
-        <h2 className="text-h2 text-navy mb-2">No tests generated yet</h2>
-        <p className="text-sm text-muted max-w-sm mb-6">
-          Generate a full suite of functional, negative, boundary, security and
-          accessibility tests for this story with AI.
-        </p>
-        <button
-          onClick={generateTests}
-          className="inline-flex items-center gap-2 h-10 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors"
-        >
-          <Sparkles size={16} />
-          Generate Tests
-        </button>
+        <h2 className="text-h2 text-navy mb-2">No tests yet</h2>
+        <p className="text-sm text-muted max-w-sm">Test cases will appear here once generated.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full" style={{ minHeight: "calc(100vh - 220px)" }}>
+    <div className="flex h-full relative" style={{ minHeight: "calc(100vh - 220px)" }}>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg ${
+              toast.type === 'success' ? 'bg-success text-white' : 'bg-error text-white'
+            }`}
+          >
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Modal */}
+      <AnimatePresence>
+        {editingId && editState && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setEditingId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <h2 className="text-base font-semibold text-navy">Edit Test Case</h2>
+                <button onClick={() => setEditingId(null)} className="text-muted hover:text-navy">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                {/* Title */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-1">Title</label>
+                  <input
+                    value={editState.title}
+                    onChange={(e) => setEditState({ ...editState, title: e.target.value })}
+                    className="w-full h-9 px-3 text-sm border border-border rounded-btn focus:outline-none focus:border-pink"
+                  />
+                </div>
+                {/* Priority */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-1">Priority</label>
+                  <select
+                    value={editState.priority}
+                    onChange={(e) => setEditState({ ...editState, priority: e.target.value })}
+                    className="h-9 px-3 text-sm border border-border rounded-btn focus:outline-none focus:border-pink bg-white"
+                  >
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                    <option value="P1">P1</option>
+                    <option value="P2">P2</option>
+                    <option value="P3">P3</option>
+                  </select>
+                </div>
+                {/* Steps */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-2">Steps</label>
+                  <div className="space-y-2">
+                    {editState.steps.map((step, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-muted w-5 text-right flex-shrink-0">{i + 1}.</span>
+                        <input
+                          value={step}
+                          onChange={(e) => {
+                            const s = [...editState.steps];
+                            s[i] = e.target.value;
+                            setEditState({ ...editState, steps: s });
+                          }}
+                          className="flex-1 h-8 px-3 text-sm border border-border rounded-btn focus:outline-none focus:border-pink"
+                        />
+                        <button
+                          onClick={() => setEditState({ ...editState, steps: editState.steps.filter((_, j) => j !== i) })}
+                          className="text-muted hover:text-error flex-shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setEditState({ ...editState, steps: [...editState.steps, ''] })}
+                      className="flex items-center gap-1.5 text-xs text-pink font-medium hover:underline mt-1"
+                    >
+                      <Plus size={13} /> Add step
+                    </button>
+                  </div>
+                </div>
+                {/* Expected Result */}
+                <div>
+                  <label className="text-xs font-semibold text-muted uppercase tracking-wide block mb-1">Expected Result</label>
+                  <textarea
+                    value={editState.expectedResult}
+                    onChange={(e) => setEditState({ ...editState, expectedResult: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-btn focus:outline-none focus:border-pink resize-none"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
+                <button onClick={() => setEditingId(null)} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={editSaving}
+                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] disabled:opacity-60 flex items-center gap-2"
+                >
+                  {editSaving && <Loader2 size={13} className="animate-spin" />}
+                  Save changes
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Left panel */}
       <div className="w-[320px] flex-shrink-0 border-r border-border flex flex-col">
         {/* Filter chips */}
         <div className="px-3 pt-4 pb-2 flex flex-wrap gap-1.5">
           {TYPE_FILTERS.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
+            <button key={f} onClick={() => setFilter(f)}
               className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                filter === f
-                  ? "bg-pink text-white border-pink"
-                  : "bg-white text-muted border-border hover:border-navy hover:text-navy"
+                filter === f ? "bg-pink text-white border-pink" : "bg-white text-muted border-border hover:border-navy hover:text-navy"
               }`}
             >
               {f}
             </button>
           ))}
         </div>
-
         {/* Search */}
         <div className="px-3 pb-2">
-          <input
-            type="text"
-            placeholder="Search tests…"
-            value={search}
+          <input type="text" placeholder="Search tests…" value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full h-8 px-3 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
           />
         </div>
-
         {/* Bulk action bar */}
         <AnimatePresence>
           {checked.size > 0 && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: duration.fast }}
-              className="overflow-hidden"
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }} transition={{ duration: duration.fast }} className="overflow-hidden"
             >
               <div className="px-3 py-2 bg-surface-pink border-b border-border flex items-center gap-2">
                 <span className="text-xs font-semibold text-navy">{checked.size} selected</span>
-                <button className="text-xs text-success hover:underline">Approve</button>
-                <button className="text-xs text-muted hover:underline">Regenerate</button>
-                <button className="text-xs text-error hover:underline">Delete</button>
+                {bulkLoading ? <Loader2 size={12} className="animate-spin text-muted" /> : (
+                  <>
+                    <button onClick={handleBulkApprove} className="text-xs text-success hover:underline font-medium">Approve all</button>
+                    <button onClick={handleBulkDelete} className="text-xs text-error hover:underline font-medium">Delete all</button>
+                  </>
+                )}
+                <button onClick={() => setChecked(new Set())} className="ml-auto text-muted hover:text-navy"><X size={13} /></button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
-
         {/* Test list */}
         <div className="flex-1 overflow-y-auto">
           {filtered.map((test) => (
-            <button
-              key={test.id}
-              onClick={() => setSelected(test.id)}
+            <button key={test.id} onClick={() => setSelected(test.id)}
               className={`w-full flex items-center gap-3 px-3 h-12 text-left border-b border-border transition-colors relative ${
                 selected === test.id ? "bg-surface-pink" : "hover:bg-gray-50"
               }`}
             >
               {selected === test.id && (
-                <motion.div
-                  layoutId="test-active-row"
+                <motion.div layoutId="test-active-row"
                   className="absolute left-0 top-0 bottom-0 w-0.5 bg-pink"
                   transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 />
               )}
-              <input
-                type="checkbox"
-                checked={checked.has(test.id)}
+              <input type="checkbox" checked={checked.has(test.id)}
                 onChange={(e) => { e.stopPropagation(); toggleCheck(test.id); }}
                 onClick={(e) => e.stopPropagation()}
                 className="w-3.5 h-3.5 accent-pink flex-shrink-0"
               />
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[test.priority]}`}>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[test.priority] ?? priorityColor.P2}`}>
                 {test.priority}
               </span>
               <span className="flex-1 text-[12px] font-semibold text-navy truncate">{test.title}</span>
-              <AIConfidenceBadge level={confidenceLevel(testConfidence(test))} />
-              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${typeColor[test.type]}`}>
-                {test.type}
-              </span>
-              {test.status === "Approved" ? (
-                <Check size={13} className="text-success flex-shrink-0" />
-              ) : test.status === "Regenerating" ? (
-                <RefreshCw size={13} className="text-warning flex-shrink-0 animate-spin" />
+              {regenIds.has(test.id) ? (
+                <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
+              ) : test.status === "Approved" ? (
+                <CheckCircle2 size={13} className="text-success flex-shrink-0" />
               ) : (
                 <Clock size={13} className="text-muted flex-shrink-0" />
               )}
@@ -199,11 +428,8 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
       <div className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           {selectedTest ? (
-            <motion.div
-              key={selectedTest.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <motion.div key={selectedTest.id}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: duration.fast, ease: easeStandard }}
               className="p-6 space-y-5"
             >
@@ -211,20 +437,21 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-[18px] font-semibold text-navy mb-2">{selectedTest.title}</h2>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${priorityColor[selectedTest.priority]}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${priorityColor[selectedTest.priority] ?? priorityColor.P2}`}>
                       {selectedTest.priority}
                     </span>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${typeColor[selectedTest.type]}`}>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${typeColor[selectedTest.type] ?? typeColor.Functional}`}>
                       {selectedTest.type}
                     </span>
-                    <AIConfidenceBadge
-                      level={confidenceLevel(testConfidence(selectedTest))}
-                      score={testConfidence(selectedTest)}
-                    />
+                    <AIConfidenceBadge level={confidenceLevel(testConfidence(selectedTest))} score={testConfidence(selectedTest)} />
                     {selectedTest.status === "Approved" ? (
                       <span className="text-[11px] font-semibold text-success flex items-center gap-1">
                         <Check size={12} /> Approved
+                      </span>
+                    ) : regenIds.has(selectedTest.id) ? (
+                      <span className="text-[11px] font-semibold text-pink flex items-center gap-1">
+                        <Loader2 size={12} className="animate-spin" /> Regenerating…
                       </span>
                     ) : (
                       <span className="text-[11px] font-semibold text-muted flex items-center gap-1">
@@ -233,35 +460,47 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button className="h-8 px-3 text-xs font-medium bg-success/10 text-success border border-success/30 rounded-btn hover:bg-success/20 transition-colors">
-                    Approve
+                <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                  {/* Approve */}
+                  <button
+                    onClick={() => handleApprove(selectedTest.id)}
+                    disabled={approvingIds.has(selectedTest.id)}
+                    className={`h-8 px-3 text-xs font-medium rounded-btn border transition-colors flex items-center gap-1.5 disabled:opacity-60 ${
+                      selectedTest.status === 'Approved'
+                        ? 'bg-success/10 text-success border-success/30 hover:bg-gray-50 hover:text-muted hover:border-border'
+                        : 'bg-success/10 text-success border-success/30 hover:bg-success/20'
+                    }`}
+                  >
+                    {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    {selectedTest.status === 'Approved' ? 'Approved' : 'Approve'}
                   </button>
-                  <button className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors">
+                  {/* Regenerate */}
+                  <button
+                    onClick={() => handleRegenerate(selectedTest.id)}
+                    disabled={regenIds.has(selectedTest.id)}
+                    className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    {regenIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                     Regenerate
                   </button>
-                  <button className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors">
-                    Edit
+                  {/* Edit */}
+                  <button
+                    onClick={() => openEdit(selectedTest)}
+                    className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+                  >
+                    <Pencil size={12} /> Edit
                   </button>
-                  <button className="h-8 px-3 text-xs font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors">
+                  {/* Delete */}
+                  <button
+                    onClick={() => handleDelete(selectedTest.id)}
+                    disabled={deletingIds.has(selectedTest.id)}
+                    className="h-8 px-3 text-xs font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    {deletingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                     Delete
                   </button>
                 </div>
               </div>
-
-              {/* Preconditions */}
-              {selectedTest.preconditions && selectedTest.preconditions.length > 0 && (
-                <div>
-                  <p className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-2">Preconditions</p>
-                  <ul className="space-y-1">
-                    {selectedTest.preconditions.map((p, i) => (
-                      <li key={i} className="text-sm text-navy flex items-start gap-2">
-                        <span className="text-muted">•</span> {p}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
 
               {/* Steps */}
               <div>
@@ -290,30 +529,11 @@ export function TestsTab({ tests }: { tests: TestCase[] }) {
                     <span className="text-[13px] font-semibold text-cyan">AI Review</span>
                   </div>
                   <p className="text-[13px] text-muted leading-relaxed">{selectedTest.aiReview}</p>
-                  <button className="mt-3 text-[12px] font-medium text-cyan hover:underline">
-                    Suggest Missing Cases
-                  </button>
                 </div>
               )}
-
-              {/* AI assistant */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Ask about this test…"
-                  className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink focus:ring-1 focus:ring-pink/20 transition-colors"
-                />
-                <button className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors">
-                  <Sparkles size={15} />
-                </button>
-              </div>
             </motion.div>
           ) : (
-            <motion.div
-              key="empty"
-              {...fadeInUp}
-              className="flex items-center justify-center h-full py-24"
-            >
+            <motion.div key="empty" {...fadeInUp} className="flex items-center justify-center h-full py-24">
               <p className="text-sm text-muted">Select a test to view details</p>
             </motion.div>
           )}

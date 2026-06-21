@@ -1901,6 +1901,239 @@ def regenerate_tests(story_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ─── Per-test-case CRUD endpoints ─────────────────────────────────────────────
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/status', methods=['PATCH'])
+@dev_jwt_required
+def update_test_case_status(story_id, test_case_id):
+    """Approve or reject a single test case."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json()
+        new_status = data.get('status')
+        if new_status not in ('Approved', 'Pending', 'Rejected'):
+            return jsonify({'error': 'status must be Approved, Pending or Rejected'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                cases = tc_json.get('test_cases', [])
+                updated = False
+                for tc in cases:
+                    if tc.get('id') == test_case_id:
+                        tc['status'] = new_status
+                        updated = True
+                        break
+                if not updated:
+                    return jsonify({'error': 'Test case not found'}), 404
+
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        return jsonify({'test_case_id': test_case_id, 'status': new_status}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>', methods=['PATCH'])
+@dev_jwt_required
+def update_test_case(story_id, test_case_id):
+    """Edit a single test case (title, steps, expected_result, priority)."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                cases = tc_json.get('test_cases', [])
+                updated = False
+                for tc in cases:
+                    if tc.get('id') == test_case_id:
+                        if 'title' in data:
+                            tc['title'] = data['title']
+                        if 'steps' in data:
+                            tc['steps'] = data['steps']
+                        if 'expected_result' in data:
+                            tc['expected_result'] = data['expected_result']
+                        if 'priority' in data:
+                            tc['priority'] = data['priority']
+                        updated = True
+                        break
+                if not updated:
+                    return jsonify({'error': 'Test case not found'}), 404
+
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        return jsonify({'test_case_id': test_case_id, 'updated': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_test_case(story_id, test_case_id):
+    """Delete a single test case from the story."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                cases = tc_json.get('test_cases', [])
+                original_len = len(cases)
+                cases = [tc for tc in cases if tc.get('id') != test_case_id]
+                if len(cases) == original_len:
+                    return jsonify({'error': 'Test case not found'}), 404
+
+                tc_json['test_cases'] = cases
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        return jsonify({'deleted': test_case_id, 'remaining': len(cases)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/regenerate', methods=['POST'])
+@dev_jwt_required
+def regenerate_single_test_case(story_id, test_case_id):
+    """Regenerate a single test case using its existing title/type as context."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json, story_description FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                story_desc = row['story_description'] or ''
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                cases = tc_json.get('test_cases', [])
+                target_tc = next((tc for tc in cases if tc.get('id') == test_case_id), None)
+                if not target_tc:
+                    return jsonify({'error': 'Test case not found'}), 404
+
+        # Get story content from LanceDB for richer context
+        import lancedb
+        story_content = story_desc
+        try:
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            table = db.open_table(Config.TABLE_NAME_LANCE)
+            df = table.to_pandas()
+            story_rows = df[df['storyID'] == story_id]
+            if not story_rows.empty:
+                story_content = str(story_rows.iloc[0].get('doc_content_text', story_desc) or story_desc)
+        except Exception:
+            pass
+
+        # Build prompt to regenerate this specific test case
+        prompt = f"""You are an expert QA engineer. Given the following user story, rewrite and improve this specific test case.
+
+User Story:
+{story_content[:3000]}
+
+Existing test case to improve:
+- Title: {target_tc.get('title', '')}
+- Steps: {json.dumps(target_tc.get('steps', []))}
+- Expected Result: {target_tc.get('expected_result', '')}
+- Priority: {target_tc.get('priority', 'Medium')}
+
+Write an improved version of this test case with clearer steps and a more specific expected result.
+Return ONLY valid JSON in this exact format, no other text:
+{{
+  "title": "improved title",
+  "steps": ["step 1", "step 2", "step 3"],
+  "expected_result": "specific expected result",
+  "priority": "{target_tc.get('priority', 'Medium')}"
+}}"""
+
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start = raw.find('{')
+        end = raw.rfind('}') + 1
+        improved = json.loads(raw[start:end])
+
+        # Update the test case in place
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                for tc in cases:
+                    if tc.get('id') == test_case_id:
+                        tc['title'] = improved.get('title', tc['title'])
+                        tc['steps'] = improved.get('steps', tc.get('steps', []))
+                        tc['expected_result'] = improved.get('expected_result', tc.get('expected_result', ''))
+                        tc['priority'] = improved.get('priority', tc.get('priority', 'Medium'))
+                        tc['status'] = 'Pending'
+                        break
+                tc_json['test_cases'] = cases
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        updated_tc = next((tc for tc in cases if tc.get('id') == test_case_id), {})
+        return jsonify({'test_case_id': test_case_id, 'test_case': updated_tc}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @stories_bp.route('/<story_id>/upload-version', methods=['POST'])
 @dev_jwt_required
 def upload_new_version(story_id):

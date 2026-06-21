@@ -714,6 +714,29 @@ export const api = {
     return post(`/api/stories/${storyId}/regenerate`, {})
   },
 
+  async approveTestCase(storyId: string, testCaseId: string, status: 'Approved' | 'Pending' | 'Rejected' = 'Approved'): Promise<{ test_case_id: string; status: string }> {
+    return post(`/api/stories/${storyId}/testcases/${testCaseId}/status`, { status })
+  },
+
+  async updateTestCase(storyId: string, testCaseId: string, data: {
+    title?: string; steps?: string[]; expected_result?: string; priority?: string;
+  }): Promise<{ test_case_id: string; updated: boolean }> {
+    const { request } = await import('./apiClient')
+    return request(`/api/stories/${storyId}/testcases/${testCaseId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
+
+  async deleteTestCase(storyId: string, testCaseId: string): Promise<{ deleted: string; remaining: number }> {
+    const { request } = await import('./apiClient')
+    return request(`/api/stories/${storyId}/testcases/${testCaseId}`, { method: 'DELETE' })
+  },
+
+  async regenerateSingleTestCase(storyId: string, testCaseId: string): Promise<{ test_case_id: string; test_case: any }> {
+    return post(`/api/stories/${storyId}/testcases/${testCaseId}/regenerate`, {})
+  },
+
   async uploadNewVersion(storyId: string, formData: FormData): Promise<{
     message: string; story_id: string; version_number: number; description: string;
   }> {

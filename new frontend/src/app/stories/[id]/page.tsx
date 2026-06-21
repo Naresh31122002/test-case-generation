@@ -364,7 +364,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                       <p className="text-sm text-muted max-w-xs">Our AI is writing test cases for this story. This usually takes 15–30 seconds.</p>
                     </div>
                   ) : (
-                    <TestsTab tests={storyTests} />
+                    <TestsTab tests={storyTests} storyId={storyId} />
                   )
                 )}
                 {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} realTests={domainTestCases} />}
