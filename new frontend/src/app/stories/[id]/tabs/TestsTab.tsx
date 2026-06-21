@@ -802,7 +802,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             title="Re-assign AI groups"
             className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-border rounded-full text-muted hover:border-pink hover:text-pink transition-colors disabled:opacity-50"
           >
-            {regrouping ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+            {regrouping && <Loader2 size={10} className="animate-spin" />}
             {regrouping ? 'Grouping…' : 'AI Group'}
           </button>
         </div>
