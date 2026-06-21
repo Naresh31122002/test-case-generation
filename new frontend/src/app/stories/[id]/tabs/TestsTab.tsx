@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Check, Clock, RefreshCw, Sparkles, TestTube2,
   Pencil, Trash2, X, Plus, Loader2, CheckCircle2,
-  Paperclip, FileText,
+  Paperclip, FileText, ChevronDown,
 } from "lucide-react";
 import { type TestCase, type TestType } from "@/lib/seed";
 import { fadeInUp, duration, easeStandard } from "@/lib/motion";
@@ -55,6 +55,11 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(initialTests[0]?.id ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (g: string) => setCollapsedGroups(prev => {
+    const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
+  });
 
   // Per-card loading states
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
@@ -100,6 +105,17 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Group by AI group name (falls back to type)
+  const groupedTests = useMemo(() => {
+    const grouped: Record<string, typeof tests[0][]> = {};
+    filtered.forEach(t => {
+      const g = t.group || t.type || 'General';
+      if (!grouped[g]) grouped[g] = [];
+      grouped[g].push(t);
+    });
+    return grouped;
+  }, [filtered]);
 
   const selectedTest = tests.find((t) => t.id === selected);
 
@@ -786,38 +802,57 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Test list */}
+        {/* Test list — grouped by AI feature group */}
         <div className="flex-1 overflow-y-auto">
-          {filtered.map((test) => (
-            <button key={test.id} onClick={() => setSelected(test.id)}
-              className={`w-full flex items-center gap-3 px-3 h-12 text-left border-b border-border transition-colors relative ${
-                selected === test.id ? "bg-surface-pink" : "hover:bg-gray-50"
-              }`}
-            >
-              {selected === test.id && (
-                <motion.div layoutId="test-active-row"
-                  className="absolute left-0 top-0 bottom-0 w-0.5 bg-pink"
-                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                />
-              )}
-              <input type="checkbox" checked={checked.has(test.id)}
-                onChange={(e) => { e.stopPropagation(); toggleCheck(test.id); }}
-                onClick={(e) => e.stopPropagation()}
-                className="w-3.5 h-3.5 accent-pink flex-shrink-0"
-              />
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[test.priority] ?? priorityColor.P2}`}>
-                {test.priority}
-              </span>
-              <span className="flex-1 text-[12px] font-semibold text-navy truncate">{test.title}</span>
-              {regenIds.has(test.id) ? (
-                <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
-              ) : test.status === "Approved" ? (
-                <CheckCircle2 size={13} className="text-success flex-shrink-0" />
-              ) : (
-                <Clock size={13} className="text-muted flex-shrink-0" />
-              )}
-            </button>
-          ))}
+          {Object.entries(groupedTests).map(([groupName, groupTests]) => {
+            const isCollapsed = collapsedGroups.has(groupName);
+            return (
+              <div key={groupName}>
+                {/* Group header */}
+                <button
+                  onClick={() => toggleGroup(groupName)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-border hover:bg-gray-100 transition-colors sticky top-0 z-10"
+                >
+                  <span className="text-[11px] font-bold text-navy uppercase tracking-wide truncate">{groupName}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-[10px] text-muted font-medium">{groupTests.length}</span>
+                    <ChevronDown size={13} className={`text-muted transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
+                  </div>
+                </button>
+                {/* Group items */}
+                {!isCollapsed && groupTests.map((test) => (
+                  <button key={test.id} onClick={() => setSelected(test.id)}
+                    className={`w-full flex items-center gap-3 px-3 h-11 text-left border-b border-border transition-colors relative ${
+                      selected === test.id ? "bg-surface-pink" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    {selected === test.id && (
+                      <motion.div layoutId="test-active-row"
+                        className="absolute left-0 top-0 bottom-0 w-0.5 bg-pink"
+                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                      />
+                    )}
+                    <input type="checkbox" checked={checked.has(test.id)}
+                      onChange={(e) => { e.stopPropagation(); toggleCheck(test.id); }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-3.5 h-3.5 accent-pink flex-shrink-0"
+                    />
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${priorityColor[test.priority] ?? priorityColor.P2}`}>
+                      {test.priority}
+                    </span>
+                    <span className="flex-1 text-[12px] font-semibold text-navy truncate">{test.title}</span>
+                    {regenIds.has(test.id) ? (
+                      <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
+                    ) : test.status === "Approved" ? (
+                      <CheckCircle2 size={13} className="text-success flex-shrink-0" />
+                    ) : (
+                      <Clock size={13} className="text-muted flex-shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </div>
       </div>
 

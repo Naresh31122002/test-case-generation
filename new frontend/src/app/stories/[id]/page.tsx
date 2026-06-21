@@ -213,6 +213,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           status: "Approved" as const,
           steps: t.steps,
           expectedResult: t.expectedResult,
+          group: t.group,
         })));
 
         if (s.testCaseCount > 0) {

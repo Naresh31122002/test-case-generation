@@ -281,6 +281,7 @@ function normalizeTestCase(raw: RawTestCase): TestCase {
       raw.severity !== undefined
         ? (String(raw.severity).toLowerCase() as 'high' | 'medium' | 'low')
         : undefined,
+    group: raw.group,
   }
 }
 
@@ -790,6 +791,10 @@ export const api = {
       current_expected: opts.current_expected,
       current_priority: opts.current_priority,
     })
+  },
+
+  async regroupTestCases(storyId: string): Promise<{ story_id: string; groups: string[] }> {
+    return post(`/api/stories/${storyId}/testcases/regroup`, {})
   },
 
   async uploadNewVersion(storyId: string, formData: FormData): Promise<{

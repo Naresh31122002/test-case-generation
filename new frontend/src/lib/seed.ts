@@ -58,6 +58,8 @@ export interface TestCase {
   expectedResult: string;
   preconditions?: string[];
   aiReview?: string;
+  /** AI-generated feature group e.g. "Login & Authentication" */
+  group?: string;
 }
 
 export interface CoverageGap {

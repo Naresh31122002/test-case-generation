@@ -2399,7 +2399,42 @@ Return ONLY valid JSON, no other text:
         return jsonify({'error': str(e)}), 500
 
 
-@stories_bp.route('/<story_id>/upload-version', methods=['POST'])
+@stories_bp.route('/<story_id>/testcases/regroup', methods=['POST'])
+@dev_jwt_required
+def regroup_test_cases(story_id):
+    """Re-run AI group assignment on all test cases for a story."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT test_case_json, story_description FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                    ORDER BY created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                story_desc = row['story_description'] or ''
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+                cases = tc_json.get('test_cases', [])
+                from app.LLM.Test_case_generator import assign_groups
+                assign_groups(cases, story_desc)
+                tc_json['test_cases'] = cases
+
+                cur.execute("""
+                    UPDATE test_cases SET test_case_json = %s
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (json.dumps(tc_json), story_id, workspace_id))
+
+        return jsonify({'story_id': story_id, 'groups': list({tc.get('group','General') for tc in cases})}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @dev_jwt_required
 def upload_new_version(story_id):
     """Upload a new version of an existing story, archive the old one, and regenerate tests."""

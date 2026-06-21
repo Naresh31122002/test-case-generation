@@ -66,18 +66,13 @@ export interface RawTestCase {
   id?: string;
   test_case_id?: string;
   title: string;
-  /** Returned by the list endpoint. */
   steps?: string[];
-  /**
-   * Alias for steps returned by the single-test endpoint.
-   * Normalizers must map this to steps on the domain TestCase type.
-   */
   test_steps?: string[];
   expected_result: string;
-  /** Title-case: "High" | "Medium" | "Low" */
   priority: string;
-  /** Lowercase: "high" | "medium" | "low" */
   severity?: string;
+  /** AI-generated feature group name e.g. "Login & Authentication" */
+  group?: string;
 }
 
 /** Raw impact row from the test_case_impacts table. */
@@ -230,6 +225,8 @@ export interface TestCase {
    * Present only from the single-test endpoint.
    */
   severity?: 'high' | 'medium' | 'low';
+  /** AI-generated feature group e.g. "Login & Authentication" */
+  group?: string;
 }
 
 /** Response shape for the test cases list endpoint (normalized). */

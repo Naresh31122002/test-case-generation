@@ -303,7 +303,13 @@ class TestCaseGenerator:
             
             # Update total count
             final_test_cases["total_test_cases"] = len(final_test_cases["test_cases"])
-            
+
+            # Assign AI-generated group names to each test case
+            try:
+                assign_groups(final_test_cases["test_cases"], story_description)
+            except Exception as grp_err:
+                print(f"[groups] Group assignment failed (non-fatal): {grp_err}")
+
             return final_test_cases
             
         except Exception as e:
@@ -637,6 +643,32 @@ def Chat_RAG(user_query, top_k=3, workspace_id=None):
         # so the caller can handle "no context" gracefully.
         print(f"Chat_RAG: unexpected error: {e}")
         return []
+
+
+
+def assign_groups(test_cases, story_description=''):
+    if not test_cases:
+        return
+    lines = '\n'.join(str(i+1)+'. ['+tc.get('id','?')+'] '+tc.get('title','') for i,tc in enumerate(test_cases))
+    prompt = (
+        'Group these test cases into 3-8 logical feature areas.\n'
+        'Story: ' + story_description[:200] + '\n'
+        + lines +
+        '\nReturn ONLY JSON: {"groups":[{"name":"Group Name","ids":["id1"]}]}'
+    )
+    try:
+        import json as _j
+        from app.config import Config
+        raw = Config.llm.invoke(prompt).content.strip()
+        if '```json' in raw: raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw: raw = raw.split('```')[1].strip()
+        res = _j.loads(raw[raw.find('{'):raw.rfind('}')+1])
+        m = {i:g['name'] for g in res.get('groups',[]) for i in g.get('ids',[])}
+        for tc in test_cases: tc['group'] = m.get(tc.get('id',''), 'General')
+        print('[groups] done:', len(m), 'TCs')
+    except Exception as e:
+        print('[groups] fallback:', e)
+        for tc in test_cases: tc['group'] = tc.get('type','General').title()
 
 if __name__ == "__main__":
     # Run RAG search on a sample query
