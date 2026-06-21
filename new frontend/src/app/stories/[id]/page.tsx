@@ -134,10 +134,14 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
     selectedProject?.id ??
     "default";
 
-  // Check if we arrived from the Create Story wizard
-  const isAnalyzing =
+  // Track generating state — true when arriving from wizard OR when testCount is 0
+  // Resets to false once test cases arrive (unlike URL param which never changes)
+  const arrivedAnalyzing =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("analyzing") === "true";
+  const [isGenerating, setIsGenerating] = useState(arrivedAnalyzing);
+  // Keep backward-compat alias
+  const isAnalyzing = isGenerating || (story !== null && story.testCount === 0);
 
   function inferCategory(title: string): SeedTestCase["type"] {
     const t = title.toLowerCase();
@@ -177,26 +181,23 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
     return () => { cancelled = true; };
   }, [storyId]);
 
-  // Polling — starts when testCount is 0 OR arriving from wizard (?analyzing=true)
-  // Also runs briefly for existing stories to pick up impact count updates
+  // Polling — runs until test cases appear, then keeps going until impact settles
   useEffect(() => {
     if (loading) return;
-
-    // Skip polling entirely only if tests exist AND we're not in analyzing mode
-    // AND we already have a non-zero impact count (fully settled)
-    const alreadySettled = !isAnalyzing
-      && (story?.testCount ?? 0) > 0
-      && (story?.impactCount ?? 0) > 0;
-    if (alreadySettled) return;
+    // Only skip polling if story is fully settled:
+    // tests exist AND impact has been checked (impactCount >= 0 and we've polled at least once)
+    if (!arrivedAnalyzing && (story?.testCount ?? 0) > 0 && story?.impactCount !== undefined) return;
 
     let stopped = false;
     let attempts = 0;
-    // If tests exist but impact is 0, only poll for a short time (impact analysis ~30s)
-    const MAX = (story?.testCount ?? 0) > 0 ? 12 : 30; // 12×4s=48s or 30×4s=2min
+    let testsFound = (story?.testCount ?? 0) > 0;
+    // Poll up to 2 min when generating, 90s when just checking impact
+    const MAX = testsFound ? 23 : 30; // 23×4s≈92s or 30×4s=2min
 
     const interval = setInterval(async () => {
       if (stopped || attempts++ >= MAX) {
         clearInterval(interval);
+        setIsGenerating(false);
         return;
       }
       try {
@@ -213,17 +214,23 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           steps: t.steps,
           expectedResult: t.expectedResult,
         })));
-        // Stop when tests are done — impact may still be running but we'll catch it
-        // on subsequent polls or the short-window poll above
-        if (s.testCaseCount > 0 && !isAnalyzing) {
+
+        if (s.testCaseCount > 0) {
+          testsFound = true;
+          setIsGenerating(false); // clears the spinner immediately
+          invalidateStories();
+        }
+
+        // Stop once tests exist — impact analysis keeps running server-side,
+        // we'll catch the final count on the next few polls
+        if (testsFound && attempts > 3) {
           clearInterval(interval);
-          invalidateStories(); // update the stories list in background
         }
       } catch { /* keep polling silently */ }
     }, 4000);
 
     return () => { stopped = true; clearInterval(interval); };
-  }, [storyId, loading, isAnalyzing, story?.testCount]);
+  }, [storyId, loading, arrivedAnalyzing]);
 
   if (loading) {
     return (
