@@ -147,7 +147,7 @@ export default function TeamSettings() {
           </div>
         ))}
       </div>
-      <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+      <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
     </>
   );
 }

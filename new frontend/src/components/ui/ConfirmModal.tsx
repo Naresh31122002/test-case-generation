@@ -12,15 +12,15 @@ interface ConfirmState {
 }
 
 export function ConfirmModal({
-  state,
+  config,
   onClose,
 }: {
-  state: ConfirmState | null;
+  config: ConfirmState | null;
   onClose: () => void;
 }) {
-  if (!state) return null;
+  if (!config) return null;
 
-  const { title = "Are you sure?", message, confirmLabel = "Confirm", destructive = true, onConfirm } = state;
+  const { title = "Are you sure?", message, confirmLabel = "Confirm", destructive = true, onConfirm } = config;
 
   return (
     <AnimatePresence>

@@ -261,7 +261,7 @@ export default function StoriesPage() {
   const selectedStories = filtered.filter((s) => selected.has(s.id));
 
   // Permanently delete one or more stories. Backend deletes from Postgres +
-  // LanceDB (workspace-scoped); on success we drop them from local state,
+  // LanceDB (workspace-scoped); on success we drop them from local config,
   // clear any selection, refresh project counts, and toast the result.
   const deleteStories = (ids: string[]) => {
     if (ids.length === 0) return;
@@ -291,7 +291,7 @@ export default function StoriesPage() {
     });
   };
 
-  // Empty state: no projects yet.
+  // Empty config: no projects yet.
   if (storiesLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -521,7 +521,7 @@ export default function StoriesPage() {
         </AnimatePresence>
       </PageBody>
     </PageLayout>
-    <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+    <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
   );
 }
 
