@@ -60,6 +60,8 @@ export interface TestCase {
   aiReview?: string;
   /** AI-generated feature group e.g. "Login & Authentication" */
   group?: string;
+  /** Version number when this test case was introduced (1 = original, 2 = added in v2 upload, etc.) */
+  version?: number;
 }
 
 export interface CoverageGap {

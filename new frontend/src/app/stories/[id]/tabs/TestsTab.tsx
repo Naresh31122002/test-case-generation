@@ -157,6 +157,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [filter, setFilter] = useState<TestType | "All">("All");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [versionFilter, setVersionFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(initialTests[0]?.id ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -254,6 +255,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const filtered = tests.filter((t) => {
     if (filter !== "All" && t.type !== filter) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (versionFilter && String(t.version ?? 1) !== versionFilter) return false;
     return true;
   });
 
@@ -1002,6 +1004,24 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 <ChevronDown size={12} className="text-muted" />
               </div>
             </div>
+            {/* Version filter — only shown if any test case has version > 1 */}
+            {tests.some(t => t.version && t.version > 1) && (
+              <div className="relative">
+                <select
+                  value={versionFilter}
+                  onChange={(e) => setVersionFilter(e.target.value)}
+                  className="h-8 pl-3 pr-7 text-xs font-medium border border-pink/40 rounded-btn bg-pink/5 text-pink appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+                >
+                  <option value="">All Versions</option>
+                  {Array.from(new Set(tests.map(t => t.version).filter(Boolean))).sort().map(v => (
+                    <option key={v} value={String(v)}>v{v} only</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                  <ChevronDown size={12} className="text-pink" />
+                </div>
+              </div>
+            )}
           </div>
           {/* Row 2: Search + AI Group button */}
           <div className="flex items-center gap-2">
@@ -1031,7 +1051,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             </button>
           </div>
           {/* Active filter indicator */}
-          {(filter !== 'All' || priorityFilter || statusFilter) && (
+          {(filter !== 'All' || priorityFilter || statusFilter || versionFilter) && (
             <div className="flex items-center gap-1.5 flex-wrap">
               {filter !== 'All' && (
                 <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
@@ -1048,7 +1068,12 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   {statusFilter} <button onClick={() => setStatusFilter('')}><X size={9} /></button>
                 </span>
               )}
-              <button onClick={() => { setFilter('All'); setPriorityFilter(''); setStatusFilter(''); }} className="text-[10px] text-muted hover:text-error ml-auto">
+              {versionFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
+                  v{versionFilter} only <button onClick={() => setVersionFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              <button onClick={() => { setFilter('All'); setPriorityFilter(''); setStatusFilter(''); setVersionFilter(''); }} className="text-[10px] text-muted hover:text-error ml-auto">
                 Clear all
               </button>
             </div>
@@ -1116,6 +1141,11 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       {test.priority}
                     </span>
                     <span className="flex-1 text-[12px] font-semibold text-navy truncate">{test.title}</span>
+                    {test.version && test.version > 1 && (
+                      <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-pink/10 text-pink border border-pink/20 flex-shrink-0">
+                        v{test.version}
+                      </span>
+                    )}
                     {regenIds.has(test.id) ? (
                       <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
                     ) : test.status === "Approved" ? (
@@ -1153,6 +1183,15 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${typeColor[selectedTest.type] ?? typeColor.Functional}`}>
                       {selectedTest.type}
                     </span>
+                    {selectedTest.version && (
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                        selectedTest.version > 1
+                          ? 'bg-pink/10 text-pink border-pink/20'
+                          : 'bg-gray-50 text-muted border-border'
+                      }`}>
+                        v{selectedTest.version}
+                      </span>
+                    )}
                     <AIConfidenceBadge level={confidenceLevel(testConfidence(selectedTest))} score={testConfidence(selectedTest)} />
                     {selectedTest.status === "Approved" ? (
                       <span className="text-[11px] font-semibold text-success flex items-center gap-1">

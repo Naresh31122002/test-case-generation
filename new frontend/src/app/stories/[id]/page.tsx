@@ -190,6 +190,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             status: "Approved" as const,
             steps: t.steps,
             expectedResult: t.expectedResult,
+            version: t.version,
           })));
           setLoading(false);
         }
@@ -245,6 +246,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           steps: t.steps,
           expectedResult: t.expectedResult,
           group: t.group,
+          version: t.version,
         })));
 
         if (s.testCaseCount > 0) {

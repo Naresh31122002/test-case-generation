@@ -79,6 +79,8 @@ export interface RawTestCase {
   tc_status?: 'todo' | 'in_progress' | 'done';
   /** Whether the test case is ready for automation (Phase 3 filter). */
   automation_ready?: boolean;
+  /** Version number when this TC was introduced (1=original, 2=v2 upload, etc.) */
+  version?: number;
 }
 
 /** Raw impact row from the test_case_impacts table. */
@@ -241,6 +243,8 @@ export interface TestCase {
   tcStatus?: 'todo' | 'in_progress' | 'done';
   /** Whether the test case is ready for automation. */
   automationReady?: boolean;
+  /** Version number when this TC was introduced (1=original, 2=v2 upload, etc.) */
+  version?: number;
 }
 
 /** Response shape for the test cases list endpoint (normalized). */

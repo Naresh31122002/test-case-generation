@@ -3491,6 +3491,306 @@ def get_test_runs(story_id, test_case_id):
         return jsonify({'error': str(e)}), 500
 
 
+def _smart_version_pipeline(story_id, project_id, user_id, workspace_id, old_doc, new_doc, version_number):
+    """
+    Smart versioned test case pipeline for upload-new-version.
+
+    Strategy:
+    1. LLM diff old_doc vs new_doc → find NEW and CHANGED requirements
+    2. For NEW requirements → generate new test cases, append with version tag
+    3. For CHANGED requirements → create impact records so user can Accept/Reject
+    4. Never delete existing test cases (they carry version=prev tag)
+    """
+    import json as _json
+
+    # ── Step 0: Tag all existing test cases with their current version ─────────
+    with Config.get_postgres_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(
+                "SELECT test_case_json FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                (story_id, workspace_id)
+            )
+            row = cur.fetchone()
+            existing_tc_json = row['test_case_json'] if row else {}
+            if isinstance(existing_tc_json, str):
+                existing_tc_json = _json.loads(existing_tc_json)
+
+    existing_cases = existing_tc_json.get('test_cases', [])
+    prev_version = version_number - 1 if version_number > 1 else 1
+
+    # Tag each existing TC with its version if not already tagged
+    modified = False
+    for tc in existing_cases:
+        if 'version' not in tc:
+            tc['version'] = prev_version
+            modified = True
+
+    if modified and existing_cases:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                existing_tc_json['test_cases'] = existing_cases
+                cur.execute(
+                    "UPDATE test_cases SET test_case_json = %s WHERE story_id = %s AND workspace_id = %s",
+                    (_json.dumps(existing_tc_json), story_id, workspace_id)
+                )
+                conn.commit()
+
+    # ── Step 1: LLM diff — find new and changed requirements ──────────────────
+    # If old_doc is empty (first upload had no stored content) fall back to full regen
+    if not old_doc or not old_doc.strip():
+        print(f"[SmartVersion] No old doc available for {story_id}, running full regen")
+        from app.LLM.Test_case_generator import generate_test_case_for_story
+        generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+        return
+
+    existing_titles = [tc.get('title', '') for tc in existing_cases]
+    existing_summary = '\n'.join(f"- {t}" for t in existing_titles[:30]) if existing_titles else "(none yet)"
+
+    diff_prompt = f"""You are a requirements analyst. Compare an OLD and NEW version of a user story document.
+
+OLD DOCUMENT:
+{old_doc[:3000]}
+
+NEW DOCUMENT:
+{new_doc[:3000]}
+
+EXISTING TEST CASES (already generated, do NOT re-generate these):
+{existing_summary}
+
+Identify:
+1. "new_requirements" — requirements that exist only in the NEW doc (not in OLD)
+2. "changed_requirements" — requirements present in both docs but with meaningful scope/behavior change
+
+Return ONLY valid JSON with this exact structure:
+{{
+  "new_requirements": [
+    "Requirement text 1",
+    "Requirement text 2"
+  ],
+  "changed_requirements": [
+    {{
+      "old_text": "old requirement wording",
+      "new_text": "new requirement wording",
+      "change_summary": "brief description of what changed"
+    }}
+  ]
+}}
+
+Return empty arrays if nothing changed. Do not include minor wording changes."""
+
+    try:
+        diff_response = Config.llm.invoke(diff_prompt)
+        raw = diff_response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        diff_result = _json.loads(raw[start:end])
+    except Exception as e:
+        print(f"[SmartVersion] Diff LLM failed: {e}, running full regen")
+        from app.LLM.Test_case_generator import generate_test_case_for_story
+        generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+        return
+
+    new_reqs = diff_result.get('new_requirements', [])
+    changed_reqs = diff_result.get('changed_requirements', [])
+
+    print(f"[SmartVersion] {story_id}: {len(new_reqs)} new reqs, {len(changed_reqs)} changed reqs")
+
+    # ── Step 2: Generate test cases for new requirements only ─────────────────
+    if new_reqs:
+        new_req_text = '\n'.join(f"- {r}" for r in new_reqs)
+        gen_prompt = f"""You are a QA engineer. Generate test cases for ONLY these NEW requirements.
+
+Story context (full document for reference):
+{new_doc[:2000]}
+
+NEW REQUIREMENTS to generate tests for:
+{new_req_text}
+
+Existing test cases (DO NOT duplicate):
+{existing_summary}
+
+Generate comprehensive test cases covering positive, negative, boundary, and security scenarios.
+Return ONLY valid JSON:
+{{
+  "test_cases": [
+    {{
+      "id": "TC-NEW-1",
+      "title": "test case title",
+      "steps": ["step 1", "step 2", "step 3"],
+      "expected_result": "expected outcome",
+      "priority": "High",
+      "type": "Functional"
+    }}
+  ]
+}}"""
+
+        try:
+            gen_response = Config.llm.invoke(gen_prompt)
+            raw = gen_response.content.strip()
+            if '```json' in raw:
+                raw = raw.split('```json')[1].split('```')[0].strip()
+            elif '```' in raw:
+                raw = raw.split('```')[1].strip()
+            start, end = raw.find('{'), raw.rfind('}') + 1
+            new_tc_result = _json.loads(raw[start:end])
+            new_test_cases = new_tc_result.get('test_cases', [])
+        except Exception as e:
+            print(f"[SmartVersion] New TC generation failed: {e}")
+            new_test_cases = []
+
+        if new_test_cases:
+            # Tag each new TC with the current version number and stable IDs
+            for i, tc in enumerate(new_test_cases):
+                tc['version'] = version_number
+                tc['id'] = f"{story_id}-v{version_number}-{i+1}"
+                tc.setdefault('status', 'Pending')
+                tc.setdefault('group', 'General')
+
+            # Append to existing test cases
+            all_cases = existing_cases + new_test_cases
+            updated_json = dict(existing_tc_json)
+            updated_json['test_cases'] = all_cases
+
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE test_cases SET test_case_json = %s WHERE story_id = %s AND workspace_id = %s",
+                        (_json.dumps(updated_json), story_id, workspace_id)
+                    )
+                    conn.commit()
+            print(f"[SmartVersion] Appended {len(new_test_cases)} new TCs for v{version_number}")
+    else:
+        print(f"[SmartVersion] No new requirements for {story_id}")
+
+    # ── Step 3: Create impact records for changed requirements ─────────────────
+    if changed_reqs and existing_cases:
+        for change in changed_reqs:
+            old_text = change.get('old_text', '')
+            new_text = change.get('new_text', '')
+            change_summary = change.get('change_summary', 'Requirement changed in new version')
+
+            # Find the most relevant existing test case for this changed requirement
+            # Use simple keyword matching on TC titles
+            best_tc = None
+            best_score = 0
+            old_words = set(old_text.lower().split())
+            for tc in existing_cases:
+                title_words = set(tc.get('title', '').lower().split())
+                score = len(old_words & title_words)
+                if score > best_score:
+                    best_score = score
+                    best_tc = tc
+
+            if not best_tc or best_score < 2:
+                # No close match — skip impact, the new TC generation covers it
+                continue
+
+            # Generate a modified version of the matched test case
+            impact_prompt = f"""A requirement has changed. Update this test case to reflect the change.
+
+ORIGINAL TEST CASE:
+Title: {best_tc.get('title', '')}
+Steps: {_json.dumps(best_tc.get('steps', []))}
+Expected Result: {best_tc.get('expected_result', '')}
+
+REQUIREMENT CHANGE:
+Old: {old_text}
+New: {new_text}
+Summary: {change_summary}
+
+Return ONLY valid JSON with the updated test case:
+{{
+  "title": "updated title",
+  "steps": ["updated step 1", "updated step 2"],
+  "expected_result": "updated expected result",
+  "priority": "{best_tc.get('priority', 'Medium')}"
+}}"""
+
+            try:
+                impact_response = Config.llm.invoke(impact_prompt)
+                raw = impact_response.content.strip()
+                if '```json' in raw:
+                    raw = raw.split('```json')[1].split('```')[0].strip()
+                elif '```' in raw:
+                    raw = raw.split('```')[1].strip()
+                start, end = raw.find('{'), raw.rfind('}') + 1
+                updated_tc = _json.loads(raw[start:end])
+            except Exception as e:
+                print(f"[SmartVersion] Impact TC generation failed: {e}")
+                continue
+
+            # Insert impact record into test_case_impacts
+            try:
+                impact_analysis = {
+                    "modified_test_case": {
+                        "id": f"{best_tc['id']}-mod-v{version_number}",
+                        "title": updated_tc.get('title', best_tc.get('title', '')),
+                        "steps": updated_tc.get('steps', best_tc.get('steps', [])),
+                        "expected_result": updated_tc.get('expected_result', best_tc.get('expected_result', '')),
+                        "priority": updated_tc.get('priority', best_tc.get('priority', 'Medium')),
+                    },
+                    "modification_reason": change_summary,
+                    "modifiedTestCase": {
+                        "title": updated_tc.get('title', ''),
+                        "steps": updated_tc.get('steps', []),
+                        "expected_result": updated_tc.get('expected_result', ''),
+                    },
+                    "impactingStoryDescription": f"New version v{version_number} uploaded",
+                    "impactingStoryId": story_id,
+                }
+
+                with Config.get_postgres_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT run_id FROM test_cases WHERE story_id = %s AND workspace_id = %s LIMIT 1",
+                            (story_id, workspace_id)
+                        )
+                        run_row = cur.fetchone()
+                        if not run_row:
+                            continue
+
+                        new_impact_id = str(uuid.uuid4())
+                        cur.execute("""
+                            INSERT INTO test_case_impacts (
+                                impact_id, new_story_id, original_story_id,
+                                original_test_case_id, modified_test_case_id,
+                                project_id, user_id, workspace_id,
+                                impact_severity, impact_priority,
+                                impact_details, impact_status, impact_analysis_json,
+                                impacting_story_description
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            new_impact_id,
+                            story_id,       # new_story_id = same story (self-impact from new version)
+                            story_id,       # original_story_id
+                            best_tc['id'],  # original_test_case_id
+                            f"{best_tc['id']}-mod-v{version_number}",
+                            project_id,
+                            user_id,
+                            workspace_id,
+                            'medium',
+                            3,
+                            _json.dumps({'modificationReason': change_summary, 'reviewed_by': None}),
+                            'active',
+                            _json.dumps(impact_analysis),
+                            f"Version {version_number} upload — {change_summary[:100]}",
+                        ))
+                        conn.commit()
+                print(f"[SmartVersion] Created impact for TC {best_tc['id']} → v{version_number} change")
+            except Exception as e:
+                print(f"[SmartVersion] Failed to insert impact record: {e}")
+
+    # Run cross-story impact analysis for the updated story (non-blocking already in thread)
+    try:
+        from app.LLM.impact_analyzer import analyze_test_case_impacts
+        analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
+    except Exception as e:
+        print(f"[SmartVersion] Cross-story impact analysis failed: {e}")
+
+
 @stories_bp.route('/<story_id>/upload-version', methods=['POST'])
 @dev_jwt_required
 def upload_new_version(story_id):
@@ -3618,23 +3918,46 @@ def upload_new_version(story_id):
         except Exception as e:
             return jsonify({'error': f'Vector store update failed: {str(e)}'}), 500
 
-        # Delete old test cases and regenerate
-        with Config.get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s", (story_id, workspace_id))
-                conn.commit()
+        # ── Smart versioned regeneration ─────────────────────────────────────────
+        # Instead of deleting all test cases, we:
+        # 1. LLM-diff old doc vs new doc to find new + changed requirements
+        # 2. Generate test cases ONLY for new requirements (appended, tagged version N)
+        # 3. Create impact records for changed requirements (shows in Impact tab)
+        # 4. Never delete existing approved test cases
+
+        old_content = existing_story.get('document_content', '') or ''
 
         import threading
-        def run_regen_version():
-            from app.LLM.Test_case_generator import generate_test_case_for_story
-            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
-            from app.LLM.impact_analyzer import analyze_test_case_impacts
+        def run_smart_version(old_doc, new_doc, ver_num):
             try:
-                analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
+                _smart_version_pipeline(
+                    story_id=story_id,
+                    project_id=project_id,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    old_doc=old_doc,
+                    new_doc=new_doc,
+                    version_number=ver_num,
+                )
             except Exception as e:
-                print(f"[UploadVersion] Impact analysis failed: {e}")
+                print(f"[UploadVersion] Smart pipeline failed, falling back to full regen: {e}")
+                # Fallback: delete and regenerate everything
+                try:
+                    with Config.get_postgres_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                                        (story_id, workspace_id))
+                            conn.commit()
+                    from app.LLM.Test_case_generator import generate_test_case_for_story
+                    generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+                except Exception as fe:
+                    print(f"[UploadVersion] Fallback regen also failed: {fe}")
 
-        threading.Thread(target=run_regen_version, daemon=True).start()
+        threading.Thread(
+            target=run_smart_version,
+            args=(old_content, story_content, next_version),
+            daemon=True
+        ).start()
 
         return jsonify({
             'message': 'New version uploaded. Test regeneration started.',

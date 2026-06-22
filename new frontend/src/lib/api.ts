@@ -314,6 +314,7 @@ function normalizeTestCase(raw: RawTestCase): TestCase {
         ? (String(raw.severity).toLowerCase() as 'high' | 'medium' | 'low')
         : undefined,
     group: raw.group,
+    version: raw.version !== undefined ? Number(raw.version) : undefined,
     status:
       raw.status === 'Approved' || raw.status === 'Rejected' || raw.status === 'Pending'
         ? raw.status
