@@ -449,40 +449,57 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
 
 /* ─────────────────────────── Export ─────────────────────────── */
 
-const EXPORT_FORMATS: { id: string; label: string; icon: LucideIcon; ext: string }[] = [
-  { id: "pdf",   label: "PDF",   icon: FileType2,        ext: ".pdf" },
-  { id: "excel", label: "Excel", icon: FileSpreadsheet,  ext: ".xlsx" },
-  { id: "csv",   label: "CSV",   icon: FileText,         ext: ".csv" },
-  { id: "json",  label: "JSON",  icon: FileJson,         ext: ".json" },
+const EXPORT_FORMATS: { id: string; label: string; icon: LucideIcon; ext: string; description: string }[] = [
+  { id: "excel",      label: "Excel",         icon: FileSpreadsheet, ext: ".xlsx",    description: "Spreadsheet with all test case data" },
+  { id: "playwright", label: "Playwright",    icon: FileType2,       ext: ".spec.ts", description: "TypeScript E2E tests" },
+  { id: "cypress",    label: "Cypress",       icon: FileType2,       ext: ".spec.js", description: "JavaScript E2E tests" },
+  { id: "pytest",     label: "PyTest",        icon: FileText,        ext: ".py",      description: "Python unit/E2E tests" },
+  { id: "bdd",        label: "BDD / Gherkin", icon: FileText,        ext: ".feature", description: "Given/When/Then feature files" },
+  { id: "selenium",   label: "Selenium",      icon: FileType2,       ext: ".py",      description: "Python WebDriver tests" },
+  { id: "postman",    label: "Postman",       icon: FileJson,        ext: ".json",    description: "API test collection" },
 ];
 
 function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
-  const [format, setFormat] = useState(EXPORT_FORMATS[1]); // default to Excel (the only working format)
+  const [format, setFormat] = useState(EXPORT_FORMATS[0]); // default Excel
+  const [approvedOnly, setApprovedOnly] = useState(false);
 
   async function submit() {
-    // Only Excel is supported via the real backend endpoint
-    if (format.id !== "excel") {
-      setError(`${format.label} export is not yet available. Only Excel (.xlsx) is supported.`);
-      setPhase("error");
-      return;
-    }
     setPhase("loading");
     setError("");
     try {
-      const downloadUrl = (story as any).downloadUrl ?? `/api/stories/testcases/download/${story.id}`;
-      const res = await fetch(BASE_URL + downloadUrl, { credentials: "include" });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `test-cases-${story.id}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      if (format.id === "excel") {
+        // Direct Excel download from backend
+        const downloadUrl = (story as any).downloadUrl ?? `/api/stories/testcases/download/${story.id}`;
+        const res = await fetch(BASE_URL + downloadUrl, { credentials: "include" });
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `test-cases-${story.id}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } else {
+        // LLM-generated framework code from export-code endpoint
+        const params = new URLSearchParams({ format: format.id, approved_only: String(approvedOnly) });
+        const res = await fetch(`${BASE_URL}/api/stories/${story.id}/export-code?${params}`, { credentials: "include" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Server returned ${res.status}`);
+        const code = data.code ?? "";
+        const blob = new Blob([code], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${story.id}-tests${format.ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
       setPhase("success");
     } catch (err) {
       setError((err as Error).message);
@@ -496,7 +513,7 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
         <ResultPanel
           phase={phase}
           successTitle="Export ready"
-          successBody={`${story.id}${format.ext} has been generated and is ready to download.`}
+          successBody={`${story.id}${format.ext} downloaded.`}
           error={error}
           onRetry={submit}
           onClose={onClose}
@@ -527,6 +544,51 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
                   </span>
                   <div>
                     <p className="text-sm font-medium text-navy">{f.label}</p>
+                    <p className="text-[11px] text-muted">{f.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {format.id !== "excel" && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={approvedOnly}
+                onChange={(e) => setApprovedOnly(e.target.checked)}
+                className="w-4 h-4 accent-pink"
+              />
+              <span className="text-sm text-navy">Include only approved tests</span>
+            </label>
+          )}
+
+          {format.id !== "excel" && (
+            <p className="text-xs text-muted flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-cyan/20 text-cyan flex items-center justify-center text-[9px] font-bold">AI</span>
+              Code generated by AI from your test cases.
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <SubmitButton loading={phase === "loading"} onClick={submit}>
+              {phase === "loading" ? "Exporting…" : "Export"}
+            </SubmitButton>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+                  <div>
+                    <p className="text-sm font-medium text-navy">{f.label}</p>
                     <p className="text-[11px] text-muted">{f.ext}</p>
                   </div>
                 </button>
@@ -545,10 +607,6 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
             <SubmitButton loading={phase === "loading"} onClick={submit}>
               {phase === "loading" ? "Exporting…" : "Export"}
             </SubmitButton>
-          </div>
-        </div>
-      )}
-    </Modal>
   );
 }
 
