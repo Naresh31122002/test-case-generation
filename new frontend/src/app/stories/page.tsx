@@ -305,6 +305,7 @@ export default function StoriesPage() {
   }
 
   return (
+    <>
     <PageLayout>
       <PageHeader
         title="Stories"
@@ -522,6 +523,7 @@ export default function StoriesPage() {
       </PageBody>
     </PageLayout>
     <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+    </>
   );
 }
 

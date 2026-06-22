@@ -1302,7 +1302,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
           )}
         </AnimatePresence>
       </div>
-    </div>
-    <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+    <>
+    
+    </>
   );
 }
