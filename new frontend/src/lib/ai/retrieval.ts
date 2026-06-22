@@ -56,7 +56,7 @@ export class ApiRetriever implements Retriever {
           id: `test:${tc.id}`,
           kind: "test",
           title: `${tc.id} — ${tc.title}`,
-          text: `${tc.title}. Priority ${tc.priority}. ${(tc.steps ?? []).join(" ")} Expected: ${tc.expectedResult ?? ""}`,
+          text: `${tc.title}. Priority ${tc.priority}. ${(tc.steps ?? []).join(" ")} Expected: ${(tc as any).expectedResult ?? ""}`,
           score: 0,
           href: `/stories/${pageCtx.storyId}`,
         });
