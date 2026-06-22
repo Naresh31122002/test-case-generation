@@ -100,6 +100,8 @@ export interface RawImpact {
   impact_analysis_json: string | RawImpactAnalysisJson | null;
   /** Joined field — present only on some query responses. */
   original_story_description?: string;
+  /** Joined field — present on story-test-cases endpoint (alias for original_story_description). */
+  impacted_story_description?: string;
   /** Joined field — present only on some query responses. */
   new_story_description?: string;
 }
