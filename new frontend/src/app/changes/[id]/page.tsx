@@ -147,11 +147,6 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
       <PageBody><ErrorBanner message="Could not load impact data." detail="Check your connection and try again." onRetry={() => window.location.reload()} /></PageBody>
     </PageLayout>
   );
-    <PageLayout>
-      <PageHeader title="Change Review" leading={<Link href="/changes" className="text-muted hover:text-navy"><ArrowLeft size={20} /></Link>} actions={<PageActions />} />
-      <PageBody><div className="flex justify-center py-24"><Loader2 size={32} className="animate-spin text-muted" /></div></PageBody>
-    </PageLayout>
-  );
 
   return (
     <PageLayout>
