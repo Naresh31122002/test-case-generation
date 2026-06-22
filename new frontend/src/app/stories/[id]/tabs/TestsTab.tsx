@@ -1002,6 +1002,18 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 </button>
               )}
             </div>
+            {/* AI Group button */}
+            <button
+              onClick={handleRegroup}
+              disabled={regrouping}
+              title="Let AI group test cases by theme"
+              className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-surface-pink hover:border-pink hover:text-pink transition-colors flex items-center gap-1.5 disabled:opacity-60 flex-shrink-0"
+            >
+              {regrouping
+                ? <><Loader2 size={11} className="animate-spin" /> Grouping…</>
+                : <><Sparkles size={11} /> AI Group</>
+              }
+            </button>
           </div>
           {/* Active filter indicator */}
           {(filter !== 'All' || priorityFilter || statusFilter) && (
