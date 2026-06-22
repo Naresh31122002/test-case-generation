@@ -27,6 +27,7 @@ from app.utils.workspace import (
     workspace_required,
     get_current_user_id,
     get_current_workspace_id,
+    require_workspace_role,
 )
 from app.models.story_collaboration_model import StoryAssigneesModel, StoryActivityModel, StoryCommentsModel
 from app.models.test_case_collaboration_model import (
