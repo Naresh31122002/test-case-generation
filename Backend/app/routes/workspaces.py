@@ -282,17 +282,26 @@ def accept_invite():
     user_id = _resolve_user_id()
     if not user_id and not _is_bypass():
         return jsonify({"error": "Unauthorized"}), 401
-    
+
     data = request.get_json(silent=True) or {}
     token = data.get("token")
     if not token:
         return jsonify({"error": "Token is required"}), 400
-        
+
     invite = WorkspaceInvitesModel.get_invite_by_token(token)
     if not invite:
         return jsonify({"error": "Invalid or expired token"}), 400
-        
+
+    # Security: verify the caller's email matches the invite target.
+    # Prevents token-theft attacks where an authenticated user accepts
+    # an invite meant for a different email address.
+    if not _is_bypass():
+        from app.models.user_model import UserModel
+        caller = UserModel.get_user_by_id(user_id)
+        if not caller or caller.get("email", "").lower() != invite["email"].lower():
+            return jsonify({"error": "This invite was sent to a different email address"}), 403
+
     WorkspaceModel.add_member(invite["workspace_id"], user_id, invite["role"])
     WorkspaceInvitesModel.delete_invite(invite["id"], invite["workspace_id"])
-    
+
     return jsonify({"message": "Invite accepted successfully", "workspace_id": invite["workspace_id"]}), 200

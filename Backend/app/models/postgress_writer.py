@@ -138,18 +138,20 @@ def insert_test_case(story_id, story_description, test_case_json, project_id=Non
             # Record a story version snapshot so version history works
             try:
                 story_content = (inputs or {}).get('content') or (inputs or {}).get('file_content') or ''
-                cur.execute("""
-                    SELECT COALESCE(MAX(version_number), 0) + 1
-                    FROM story_versions
-                    WHERE story_id = %s AND workspace_id = %s
-                """, (story_id, workspace_id))
-                next_version = (cur.fetchone() or [1])[0]
-                cur.execute("""
-                    INSERT INTO story_versions
-                        (story_id, workspace_id, user_id, version_number, description, content)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (story_id, user_id, version_number) DO NOTHING
-                """, (story_id, workspace_id, user_id, next_version, story_description[:500], story_content[:10000]))
+                # Only write version snapshot when we have user_id (required by uq_story_version constraint)
+                if user_id and workspace_id:
+                    cur.execute("""
+                        SELECT COALESCE(MAX(version_number), 0) + 1
+                        FROM story_versions
+                        WHERE story_id = %s AND workspace_id = %s
+                    """, (story_id, workspace_id))
+                    next_version = (cur.fetchone() or [1])[0]
+                    cur.execute("""
+                        INSERT INTO story_versions
+                            (story_id, workspace_id, user_id, version_number, description, content)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (story_id, user_id, version_number) DO NOTHING
+                    """, (story_id, workspace_id, user_id, next_version, story_description[:500], story_content[:10000]))
             except Exception as ver_err:
                 print(f"[insert_test_case] story_versions insert failed (non-fatal): {ver_err}")
 

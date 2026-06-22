@@ -43,7 +43,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         }
         setActiveId(resolvedId);
       })
-      .catch(() => setWorkspaces([]));
+      .catch(() => { if (!cancelled) setWorkspaces([]); });
     return () => {
       cancelled = true;
     };

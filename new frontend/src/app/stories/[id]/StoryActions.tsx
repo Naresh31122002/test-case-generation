@@ -21,7 +21,7 @@ import {
 import type { Story } from "@/lib/seed";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { api } from "@/lib/api";
-import { BASE_URL, post } from "@/lib/apiClient";
+import { BASE_URL, post, get } from "@/lib/apiClient";
 
 /* ─────────────────────────── Async lifecycle ─────────────────────────── */
 
@@ -472,9 +472,7 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
       } else {
         // LLM-generated framework code from export-code endpoint
         const params = new URLSearchParams({ format: format.id, approved_only: String(approvedOnly) });
-        const res = await fetch(`${BASE_URL}/api/stories/${story.id}/export-code?${params}`, { credentials: "include" });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? `Server returned ${res.status}`);
+        const data = await get<{ code: string; format: string }>(`/api/stories/${story.id}/export-code?${params}`);
         const code = data.code ?? "";
         const blob = new Blob([code], { type: "text/plain" });
         const url = URL.createObjectURL(blob);

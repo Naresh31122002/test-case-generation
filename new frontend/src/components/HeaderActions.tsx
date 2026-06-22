@@ -649,6 +649,7 @@ function NotificationBell() {
           type: (e.event_type as ActivityType) ?? 'story_uploaded',
           title: e.title,
           body: e.body ?? '',
+          detail: e.detail ?? e.body ?? '',
           timestamp: new Date(e.created_at).getTime(),
           read: e.is_read ?? false,
           storyId: e.story_id ?? undefined,

@@ -204,11 +204,7 @@ export default function StoriesPage() {
       const urlParam = new URLSearchParams(window.location.search).get("project_id");
       if (urlParam) return urlParam;
     }
-    const sampleIds = new Set(["auth-platform", "ecommerce-platform", "banking-platform"]);
-    if (selectedProject?.id && !sampleIds.has(selectedProject.id)) {
-      return selectedProject.id;
-    }
-    return undefined; // show all stories when no real project is selected
+    return selectedProject?.id ?? undefined;
   }, [selectedProject?.id, ready]);
 
   // Real stories from backend — use the global store with background polling

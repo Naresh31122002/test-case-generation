@@ -201,20 +201,10 @@ export function CoverageTab({
             </motion.div>
           ))}
 
-          {gaps.length === 0 ? (
+          {gaps.length === 0 && (
             <div className="p-4 bg-[#ECFEFF] border border-cyan/30 rounded-card text-sm text-navy">
               Coverage gap analysis is not yet available. Ask the AI assistant: <em>&ldquo;What test scenarios are missing?&rdquo;</em>
             </div>
-          ) : (
-            gaps.map((gap) => (
-              <motion.div key={gap.id} variants={fadeInUp} className="flex items-start gap-3 p-4 bg-white border border-border rounded-card">
-                <AlertCircle size={15} className={gap.severity === "missing" ? "text-error flex-shrink-0 mt-0.5" : "text-warning flex-shrink-0 mt-0.5"} />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-navy">{gap.title}</p>
-                  <p className="text-[13px] text-muted">{gap.description}</p>
-                </div>
-              </motion.div>
-            ))
           )}
 
           <button

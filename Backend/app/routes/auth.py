@@ -284,7 +284,7 @@ def create_api_key():
         from app.utils.workspace import get_current_workspace_id
         workspace_id = None
         try: workspace_id = get_current_workspace_id()
-        except: pass
+        except Exception as e: print(f'[auth] workspace_id lookup failed: {e}')
         raw_key = "ts_" + secrets.token_hex(32)
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         key_prefix = raw_key[:10] + "…"

@@ -200,6 +200,10 @@ class WorkspaceModel:
                         "UPDATE workspaces SET name = %s WHERE id = %s AND owner_id = %s",
                         (name, workspace_id, user_id),
                     )
+                    if cursor.rowcount == 0:
+                        # rowcount 0 means either workspace not found or caller is not owner
+                        conn.rollback()
+                        return None
                 else:
                     cursor.execute(
                         "UPDATE workspaces SET name = %s WHERE id = %s",

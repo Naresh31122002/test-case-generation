@@ -61,7 +61,16 @@ export const aiClient = {
       }
 
       const data = await res.json();
-      // rag-chat returns { testCases: [...] } — format into readable answer
+      // rag-chat can return { answer: string } OR { testCases: [...] }
+      // Handle both shapes so neither is silently dropped.
+      if (data.answer) {
+        const words = (data.answer as string).split(" ");
+        for (const word of words) {
+          yield { delta: word + " " };
+          await new Promise(r => setTimeout(r, 15));
+        }
+        return;
+      }
       const testCases: any[] = data.testCases ?? [];
       if (testCases.length > 0) {
         const answer = formatRagAnswer(query, testCases, pageCtx);

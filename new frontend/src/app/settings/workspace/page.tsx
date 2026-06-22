@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { get, patch } from "@/lib/apiClient";
 
@@ -24,21 +24,28 @@ export default function WorkspaceSettings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     get<{ workspace: { name: string; config?: { timezone?: string; analysis_types?: string[] } } }>(
       "/api/workspaces/current"
     )
       .then((data) => {
+        if (cancelled) return;
         setName(data.workspace?.name ?? "");
         setTimezone(data.workspace?.config?.timezone ?? "America/New_York");
         const types = data.workspace?.config?.analysis_types;
         if (types?.length) setAnalysisTypes(new Set(types));
       })
-      .catch(() => {
-        // Fallback — keep empty defaults, user can still save
+      .catch((err: any) => {
+        if (!cancelled) setError(err?.message ?? 'Failed to load workspace settings.');
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => {
+      cancelled = true;
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
   }, []);
 
   async function save() {
@@ -55,7 +62,8 @@ export default function WorkspaceSettings() {
         },
       });
       setSaved(true);
-      const t = setTimeout(() => setSaved(false), 3000);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 3000);
       return () => clearTimeout(t);
     } catch (err: any) {
       setError(err?.message ?? "Failed to save. Please try again.");

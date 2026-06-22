@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 
 const notifGroups = [
@@ -37,6 +37,11 @@ export default function NotificationsSettings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current); };
+  }, []);
 
   useEffect(() => {
     fetch('/api/auth/me/notifications', { credentials: 'include' })
@@ -62,7 +67,8 @@ export default function NotificationsSettings() {
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       setSaved(true);
-      const t = setTimeout(() => setSaved(false), 3000);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 3000);
       return () => clearTimeout(t);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save. Please try again.');

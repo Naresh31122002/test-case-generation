@@ -268,17 +268,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const trimmed = newName.trim();
     if (!trimmed) return;
     const newId = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    // Optimistic UI update
+    // Snapshot old state for rollback
+    const prevProjects = [...allProjects.map(p => ({...p}))];
+    const prevSelectedId = selectedId;
+    // Optimistic update
     setAllProjects((prev) =>
       prev.map((p) => p.id === id ? { ...p, id: newId, name: trimmed, updatedAt: new Date().toISOString().slice(0, 10) } : p)
     );
     if (selectedId === id) { setSelectedId(newId); try { localStorage.setItem(LS_SELECTED, newId); } catch {} }
-    // Persist to backend (fire-and-forget)
-    apiGet(`/api/stories/projects/${id}`).catch(() => {});
+    // Persist to backend — rollback on failure
     import('@/lib/apiClient').then(({ request }) =>
       request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ new_id: newId }) })
-    ).catch(() => {});
-  }, [selectedId]);
+    ).catch(() => {
+      // Rollback
+      setAllProjects(prevProjects);
+      if (prevSelectedId) { setSelectedId(prevSelectedId); try { localStorage.setItem(LS_SELECTED, prevSelectedId); } catch {} }
+    });
+  }, [selectedId, allProjects]);
 
   const archiveProject = useCallback(
     (id: string) => {

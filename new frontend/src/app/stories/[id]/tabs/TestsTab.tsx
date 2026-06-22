@@ -64,6 +64,7 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
   const [latest, setLatest] = useState<any>(null);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -74,13 +75,17 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
 
   async function record(status: 'pass' | 'fail' | 'skip') {
     setSubmitting(status);
+    setRunError(null);
     try {
       const res = await api.recordTestRun(storyId, testCaseId, status, comment || undefined);
       setLatest(res.run);
       setRuns(prev => [res.run, ...prev].slice(0, 20));
       setComment('');
-    } catch { /* silent */ }
-    finally { setSubmitting(null); }
+    } catch {
+      setRunError('Failed to record run. Please try again.');
+    } finally {
+      setSubmitting(null);
+    }
   }
 
   return (
@@ -112,6 +117,10 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
             {RUN_LABELS[s]}
           </button>
         ))}
+      </div>
+      {runError && (
+        <p className="text-[11px] text-error">{runError}</p>
+      )}
       </div>
 
       {/* Run history */}
@@ -192,7 +201,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       setTests(tc.testCases.map((t) => ({
         id: t.id, storyId,
         title: t.title,
-        type: "Functional" as const,
+        type: (t.type as any) ?? "Functional" as const,
         priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
         status: (t.status as any) ?? "Pending",
         steps: t.steps,

@@ -241,10 +241,10 @@ def create_postgres_db():
                     END IF;
                 END;
                 
-                -- Add new constraint
+                -- Add new constraint without 'enterprise'
                 BEGIN
-                    ALTER TABLE workspaces ADD CONSTRAINT workspaces_plan_check 
-                    CHECK (plan IN ('free', 'starter', 'pro', 'team', 'enterprise'));
+                    ALTER TABLE workspaces ADD CONSTRAINT workspaces_plan_check
+                    CHECK (plan IN ('free', 'starter', 'pro', 'team'));
                 EXCEPTION WHEN duplicate_object THEN
                     -- Constraint already exists
                 END;
@@ -356,16 +356,25 @@ def create_postgres_db():
         """)
         print("✅ Table 'workspace_credits' is ready.")
 
-        # Backfill workspace_credits for any workspace that was created before
-        # the auto-provisioning logic existed — idempotent due to ON CONFLICT DO NOTHING.
+        # Backfill workspace_credits for any workspace created before auto-provisioning.
+        # Respects plan tier so pro/team workspaces don't get free-tier credit ceilings.
         cursor.execute("""
             INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used, reset_date)
-            SELECT id, 200, 0, NOW() + INTERVAL '30 days'
+            SELECT
+                id,
+                CASE plan
+                    WHEN 'starter'    THEN 500
+                    WHEN 'pro'        THEN 2000
+                    WHEN 'team'       THEN 10000
+                    ELSE 200
+                END,
+                0,
+                NOW() + INTERVAL '30 days'
             FROM workspaces
-            WHERE id NOT IN (SELECT workspace_id FROM workspace_credits)
+            WHERE id NOT IN (SELECT workspace_id FROM workspace_credits WHERE workspace_id IS NOT NULL)
             ON CONFLICT (workspace_id) DO NOTHING;
         """)
-        print("✅ Backfilled workspace_credits for all existing workspaces.")
+        print("✅ Backfilled workspace_credits for all existing workspaces (plan-tiered limits).")
 
         # Credit Transactions (Auditing)
         cursor.execute("""

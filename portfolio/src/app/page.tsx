@@ -4,6 +4,7 @@ import SocialProof from "@/components/SocialProof";
 import Problem from "@/components/Problem";
 import Features from "@/components/Features";
 import HowItWorks from "@/components/HowItWorks";
+import ProcessRoadmap from "@/components/ProcessRoadmap";
 import Comparison from "@/components/Comparison";
 import Pricing from "@/components/Pricing";
 import ROICalculator from "@/components/ROICalculator";
@@ -23,6 +24,7 @@ export default function Home() {
       <Problem />
       <Features />
       <HowItWorks />
+      <ProcessRoadmap />
       <Comparison />
       <Pricing />
       <ROICalculator />

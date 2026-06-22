@@ -84,15 +84,19 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
   }
 
   async function handleReview(impactId: string, action: 'accept' | 'reject') {
-    try { await api.reviewImpact(impactId, action); } catch {}
-    if (action === 'accept') {
-      setAccepted((p) => new Set(Array.from(p).concat(impactId)));
-      setRejected((p) => { const n = new Set(Array.from(p)); n.delete(impactId); return n; });
-    } else {
-      setRejected((p) => new Set(Array.from(p).concat(impactId)));
-      setAccepted((p) => { const n = new Set(Array.from(p)); n.delete(impactId); return n; });
+    try {
+      await api.reviewImpact(impactId, action);
+      if (action === 'accept') {
+        setAccepted((p) => new Set(Array.from(p).concat(impactId)));
+        setRejected((p) => { const n = new Set(Array.from(p)); n.delete(impactId); return n; });
+      } else {
+        setRejected((p) => new Set(Array.from(p).concat(impactId)));
+        setAccepted((p) => { const n = new Set(Array.from(p)); n.delete(impactId); return n; });
+      }
+      setExpanded(null);
+    } catch {
+      // API failed — show nothing, user can retry
     }
-    setExpanded(null);
   }
 
   async function handleSubmit() {

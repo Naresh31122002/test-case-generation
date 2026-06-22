@@ -22,9 +22,8 @@ export default function KanbanPage() {
 
   const activeProjectId = useMemo(() => {
     if (!ready) return null;
-    const sampleIds = new Set(["auth-platform", "ecommerce-platform", "banking-platform"]);
-    if (selectedProject?.id && !sampleIds.has(selectedProject.id)) return selectedProject.id;
-    return undefined;
+    // Return the selected project ID if one is selected, undefined to load all
+    return selectedProject?.id ?? undefined;
   }, [selectedProject?.id, ready]);
 
   const { stories, loading } = useStoriesStore(

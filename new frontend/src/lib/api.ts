@@ -860,16 +860,11 @@ export const api = {
   async updateTestCase(storyId: string, testCaseId: string, data: {
     title?: string; steps?: string[]; expected_result?: string; priority?: string;
   }): Promise<{ test_case_id: string; updated: boolean }> {
-    const { request } = await import('./apiClient')
-    return request(`/api/stories/${storyId}/testcases/${testCaseId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    })
+    return patch(`/api/stories/${storyId}/testcases/${testCaseId}`, data)
   },
 
   async deleteTestCase(storyId: string, testCaseId: string): Promise<{ deleted: string; remaining: number }> {
-    const { request } = await import('./apiClient')
-    return request(`/api/stories/${storyId}/testcases/${testCaseId}`, { method: 'DELETE' })
+    return del(`/api/stories/${storyId}/testcases/${testCaseId}`)
   },
 
   // ── Test Case Kanban status (Sprint 1 Phase 2) ─────────────────────────────

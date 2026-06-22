@@ -48,6 +48,7 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [aiQuery, setAiQuery] = useState("");
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -189,8 +190,9 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
                               await api.reviewImpact(firstImpact.impactId, 'accept');
                               setAccepted((p) => new Set(Array.from(p).concat(tc.testCaseId)));
                               setExpanded(null);
+                              setReviewError(null);
                             } catch {
-                              // toast would go here — keeping silent for now to avoid import
+                              setReviewError('Failed to accept change. Please try again.');
                             }
                           }} className="h-9 px-4 text-sm font-medium bg-success/10 text-success border border-success/30 rounded-btn hover:bg-success/20 transition-colors flex items-center gap-2">
                             <CheckCircle2 size={14} /> Accept Change
@@ -200,13 +202,17 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
                               await api.reviewImpact(firstImpact.impactId, 'reject');
                               setRejected((p) => new Set(Array.from(p).concat(tc.testCaseId)));
                               setExpanded(null);
+                              setReviewError(null);
                             } catch {
-                              // toast would go here
+                              setReviewError('Failed to reject change. Please try again.');
                             }
                           }} className="h-9 px-4 text-sm font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-2">
                             <XCircle size={14} /> Reject Change
                           </button>
                         </div>
+                      )}
+                      {reviewError && (
+                        <p className="text-xs text-error mt-1">{reviewError}</p>
                       )}
                     </div>
                   </motion.div>

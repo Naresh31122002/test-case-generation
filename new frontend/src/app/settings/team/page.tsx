@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 
 interface Member { user_id: string; email: string; role: string; }
@@ -13,8 +13,13 @@ export default function TeamSettings() {
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+  }
 
   useEffect(() => {
     fetch('/api/workspaces/members', { credentials: 'include' })

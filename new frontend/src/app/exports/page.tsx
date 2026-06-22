@@ -100,11 +100,17 @@ export default function ExportsPage() {
       } else {
         if (outputMode === "combined") {
           const allTcs: { storyId: string; testCases: any[] }[] = [];
+          const combinedFailed: string[] = [];
           for (const storyId of selectedIds) {
             try {
               const res = await api.getTestCases(storyId);
               allTcs.push({ storyId, testCases: res.testCases });
-            } catch { /* skip */ }
+            } catch {
+              combinedFailed.push(storyId);
+            }
+          }
+          if (combinedFailed.length > 0) {
+            setFetchError(`Failed to fetch test cases for: ${combinedFailed.join(', ')}`);
           }
           const combinedText = allTcs.map((r) => {
             const tcs = r.testCases.map((tc: any) =>
