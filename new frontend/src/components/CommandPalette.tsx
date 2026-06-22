@@ -247,7 +247,7 @@ export function CommandPalette() {
               {/* Story fetch error warning */}
               {storyFetchError && (
                 <p className=”px-4 py-2 text-xs text-warning bg-[#FFFBEB] border-b border-[#FCD34D]”>
-                  Could not load stories &mdash; navigation only
+                  Could not load stories — navigation only
                 </p>
               )}
 
