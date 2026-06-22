@@ -182,7 +182,7 @@ export default function GenerateStoriesPage() {
 
     for (let i = 0; i < approved.length; i++) {
       const s = approved[i];
-      const storyId = makeStoryId();
+      const storyId = makeStoryId(projectId);
       const content = `${s.narrative}\n\nAcceptance Criteria:\n${s.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`;
       const formData = new FormData();
       formData.append("story_id", storyId);

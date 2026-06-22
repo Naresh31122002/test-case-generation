@@ -992,7 +992,7 @@ function StepGenerate({
 
       for (let i = 0; i < stories.length; i++) {
         const s = stories[i];
-        const storyId = makeStoryId();
+        const storyId = makeStoryId(projectId);
         lastStoryId = storyId;
         const formData = new FormData();
         formData.append("story_id", storyId);
