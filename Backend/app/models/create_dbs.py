@@ -98,7 +98,11 @@ def create_postgres_db():
         # (Google-only accounts have none) and we track provider + Google's
         # stable subject id ('sub') for account lookup/linking.
         cursor.execute("""
-            ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+            DO $$
+            BEGIN
+                ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'
                 CHECK (auth_provider IN ('password', 'google'));
@@ -522,6 +526,13 @@ def create_postgres_db():
         """)
         print("✅ Ensured index on 'test_cases(workspace_id, story_status)'.")
 
+        # Most-common access pattern: lookup by workspace + story
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_test_cases_workspace_story
+            ON test_cases(workspace_id, story_id);
+        """)
+        print("✅ Ensured composite index on 'test_cases(workspace_id, story_id)'.")
+
         # Create test_case_impacts table with enhanced referential integrity
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_case_impacts (
@@ -572,9 +583,6 @@ def create_postgres_db():
 
             CREATE INDEX IF NOT EXISTS idx_test_case_impacts_status
             ON test_case_impacts(impact_status);
-
-            CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story_user
-            ON test_case_impacts(new_story_id, user_id);
         """)
         print("✅ Table 'test_case_impacts' is ready.")
 
@@ -588,6 +596,8 @@ def create_postgres_db():
                 ) THEN
                     ALTER TABLE test_case_impacts ADD COLUMN user_id UUID REFERENCES users(user_id) ON DELETE CASCADE;
                     CREATE INDEX IF NOT EXISTS idx_test_case_impacts_user_id ON test_case_impacts(user_id);
+                    -- now both columns exist, add the composite index
+                    CREATE INDEX IF NOT EXISTS idx_test_case_impacts_new_story_user ON test_case_impacts(new_story_id, user_id);
                 END IF;
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -614,7 +624,7 @@ def create_postgres_db():
         # Create impact_history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS impact_history (
-                history_id UUID PRIMARY KEY,
+                history_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                 impact_id UUID NOT NULL,
                 change_timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 changed_by TEXT,

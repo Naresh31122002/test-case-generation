@@ -21,21 +21,11 @@ import {
 import type { Story } from "@/lib/seed";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { api } from "@/lib/api";
-import { BASE_URL } from "@/lib/apiClient";
+import { BASE_URL, post } from "@/lib/apiClient";
 
 /* ─────────────────────────── Async lifecycle ─────────────────────────── */
 
 type Phase = "idle" | "loading" | "success" | "error";
-
-/** Simulated async op (~10% failure) so loading/success/error states are real. */
-function runMockAsync(ms = 1400): Promise<void> {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (Math.random() < 0.1) reject(new Error("Something went wrong. Please try again."));
-      else resolve();
-    }, ms);
-  });
-}
 
 /* ─────────────────────────── Modal shell ─────────────────────────── */
 
@@ -357,14 +347,10 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
     setPhase("loading");
     setError("");
     try {
-      const res = await fetch(`/api/stories/${story.id}/compare`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version_a: current === 'Current' ? 'current' : current.replace('v',''), version_b: previous === 'Current' ? 'current' : previous.replace('v','') }),
+      const data = await post<any>(`/api/stories/${story.id}/compare`, {
+        version_a: current === 'Current' ? 'current' : current.replace('v',''),
+        version_b: previous === 'Current' ? 'current' : previous.replace('v',''),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Comparison failed');
       setResult(data);
       setPhase("success");
     } catch (err) {

@@ -58,16 +58,18 @@ class WorkspaceModel:
                 (workspace_id, owner_id),
             )
 
-            # Auto-provision credits row for the new workspace
+            # Auto-provision credits row for the new workspace based on plan
             from datetime import datetime, timedelta
+            from app.models.credits_model import PLAN_LIMITS
             reset_date = datetime.utcnow() + timedelta(days=30)
+            credit_limit = PLAN_LIMITS.get(plan, 200)
             cursor.execute(
                 """
                 INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used, reset_date)
-                VALUES (%s, 200, 0, %s)
+                VALUES (%s, %s, 0, %s)
                 ON CONFLICT (workspace_id) DO NOTHING
                 """,
-                (workspace_id, reset_date),
+                (workspace_id, credit_limit, reset_date),
             )
 
             conn.commit()
@@ -185,18 +187,24 @@ class WorkspaceModel:
             conn.close()
 
     @staticmethod
-    def update(workspace_id: str, name: str | None = None, config: dict | None = None) -> dict | None:
-        """Update workspace name and/or config. Config is stored in workspace_integrations table
-        as a special 'workspace_config' row so no schema change is needed."""
+    def update(workspace_id: str, name: str | None = None, config: dict | None = None, user_id: str | None = None) -> dict | None:
+        """Update workspace name and/or config. Optionally gate on owner_id."""
         import json as _json
         conn = Config.get_postgres_connection()
         try:
             cursor = conn.cursor()
             if name:
-                cursor.execute(
-                    "UPDATE workspaces SET name = %s WHERE id = %s",
-                    (name, workspace_id),
-                )
+                if user_id:
+                    # Only the owner may rename
+                    cursor.execute(
+                        "UPDATE workspaces SET name = %s WHERE id = %s AND owner_id = %s",
+                        (name, workspace_id, user_id),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE workspaces SET name = %s WHERE id = %s",
+                        (name, workspace_id),
+                    )
             if config is not None:
                 cursor.execute("""
                     INSERT INTO workspace_integrations (workspace_id, integration_type, config)

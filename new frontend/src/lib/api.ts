@@ -598,7 +598,7 @@ export const api = {
   async getSingleTestCase(storyId: string, testCaseId: string): Promise<TestCase> {
     // normalizeTestCase handles the test_steps → steps alias from the single-test endpoint.
     const data = await get<RawTestCase>(
-      `/api/stories/${storyId}/test-cases/${testCaseId}`,
+      `/api/stories/${storyId}/testcases/${testCaseId}`,
     )
     return normalizeTestCase(data)
   },
@@ -1055,11 +1055,16 @@ export const api = {
   },
 
   async downloadTestCases(storyId: string): Promise<Blob> {
-    const BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-    const res = await fetch(`${BASE}/api/stories/testcases/download/${storyId}`, {
+    // Use relative path so the Next.js proxy handles it correctly.
+    // Inject X-Workspace-Id manually since fetch() bypasses apiClient.
+    const wsId = typeof window !== 'undefined' ? window.localStorage.getItem('activeWorkspaceId') : null
+    const headers: Record<string, string> = {}
+    if (wsId) headers['X-Workspace-Id'] = wsId
+    const res = await fetch(`/api/stories/testcases/download/${storyId}`, {
       credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-    return res.blob();
+      headers,
+    })
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+    return res.blob()
   },
 }

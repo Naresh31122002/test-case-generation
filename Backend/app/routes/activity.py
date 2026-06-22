@@ -78,6 +78,7 @@ def mark_read():
                         SET read_by = array_append(read_by, %s::uuid)
                         WHERE workspace_id = %s AND NOT (%s = ANY(read_by))
                     """, (user_id, workspace_id, user_id))
+                conn.commit()
         return jsonify({"ok": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -26,7 +26,9 @@ export default function BillingSettings() {
     ]).then(([c, w]) => {
       setCredits(c.credits);
       setWorkspace(w.workspace ?? w);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch((err: any) => {
+      setActionError(err?.message ?? 'Failed to load billing information.');
+    }).finally(() => setLoading(false));
   }, []);
 
   const currentPlan = workspace?.plan ?? 'free';

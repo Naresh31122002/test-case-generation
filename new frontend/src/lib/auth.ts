@@ -130,7 +130,19 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const data = await authRequest<any>('/api/auth/me')
     return normalizeUser(data?.user ?? data, data?.current_workspace)
-  } catch {
+  } catch (err: any) {
+    // On 401, attempt one token refresh before giving up
+    if (err?.status === 401) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        try {
+          const data = await authRequest<any>('/api/auth/me')
+          return normalizeUser(data?.user ?? data, data?.current_workspace)
+        } catch {
+          return null
+        }
+      }
+    }
     return null
   }
 }

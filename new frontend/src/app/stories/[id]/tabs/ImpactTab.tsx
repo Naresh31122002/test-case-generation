@@ -185,16 +185,24 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
                       {!isAccepted && !isRejected && (
                         <div className="flex items-center gap-3">
                           <button onClick={async () => {
-                            try { await api.reviewImpact(firstImpact.impactId, 'accept'); } catch {}
-                            setAccepted((p) => new Set(Array.from(p).concat(tc.testCaseId)));
-                            setExpanded(null);
+                            try {
+                              await api.reviewImpact(firstImpact.impactId, 'accept');
+                              setAccepted((p) => new Set(Array.from(p).concat(tc.testCaseId)));
+                              setExpanded(null);
+                            } catch {
+                              // toast would go here — keeping silent for now to avoid import
+                            }
                           }} className="h-9 px-4 text-sm font-medium bg-success/10 text-success border border-success/30 rounded-btn hover:bg-success/20 transition-colors flex items-center gap-2">
                             <CheckCircle2 size={14} /> Accept Change
                           </button>
                           <button onClick={async () => {
-                            try { await api.reviewImpact(firstImpact.impactId, 'reject'); } catch {}
-                            setRejected((p) => new Set(Array.from(p).concat(tc.testCaseId)));
-                            setExpanded(null);
+                            try {
+                              await api.reviewImpact(firstImpact.impactId, 'reject');
+                              setRejected((p) => new Set(Array.from(p).concat(tc.testCaseId)));
+                              setExpanded(null);
+                            } catch {
+                              // toast would go here
+                            }
                           }} className="h-9 px-4 text-sm font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-2">
                             <XCircle size={14} /> Reject Change
                           </button>

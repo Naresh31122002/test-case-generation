@@ -65,18 +65,22 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
     const ids = impacts.map((i) => i.impactId);
     try {
       await api.batchReviewImpacts('', storyId, ids.map((id) => ({ impact_id: id, action: 'accept' as const })));
-    } catch {}
-    setAccepted(new Set(ids));
-    setRejected(new Set());
+      setAccepted(new Set(ids));
+      setRejected(new Set());
+    } catch {
+      // API failed — don't update UI state; user can retry
+    }
   }
 
   async function handleRejectAll() {
     const ids = impacts.map((i) => i.impactId);
     try {
       await api.batchReviewImpacts('', storyId, ids.map((id) => ({ impact_id: id, action: 'reject' as const })));
-    } catch {}
-    setRejected(new Set(ids));
-    setAccepted(new Set());
+      setRejected(new Set(ids));
+      setAccepted(new Set());
+    } catch {
+      // API failed — don't update UI state; user can retry
+    }
   }
 
   async function handleReview(impactId: string, action: 'accept' | 'reject') {

@@ -116,11 +116,17 @@ export default function ExportsPage() {
           const blob = new Blob([combinedText], { type: "text/plain" });
           triggerDownload(blob, `test-cases-${format}.${ext}`);
         } else {
+          const failed: string[] = [];
           for (const storyId of selectedIds) {
             try {
               const blob = await api.downloadTestCases(storyId);
               triggerDownload(blob, `${storyId}-tests.xlsx`);
-            } catch { /* skip */ }
+            } catch {
+              failed.push(storyId);
+            }
+          }
+          if (failed.length > 0) {
+            setFetchError(`Failed to download: ${failed.join(', ')}`);
           }
         }
       }

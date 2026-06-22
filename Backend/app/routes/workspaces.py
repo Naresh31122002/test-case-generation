@@ -99,7 +99,8 @@ def update_current_workspace():
         return jsonify({"error": "Nothing to update"}), 400
 
     try:
-        updated = WorkspaceModel.update(ws_id, name=name or None, config=config)
+        user_id = get_current_user_id()
+        updated = WorkspaceModel.update(ws_id, name=name or None, config=config, user_id=user_id)
         if not updated:
             return jsonify({"error": "Workspace not found"}), 404
         return jsonify({"workspace": updated}), 200

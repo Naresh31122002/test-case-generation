@@ -285,7 +285,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setAllProjects((prev) =>
         prev.map((p) => (p.id === id ? { ...p, archived: true } : p))
       );
-      // If archiving the selected project, switch to another active one.
       if (selectedId === id) {
         const nextActive = allProjects.find((p) => !p.archived && p.id !== id);
         if (nextActive) {
@@ -295,6 +294,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           setSelectedId(null);
         }
       }
+      // Persist archive flag to backend
+      import('@/lib/apiClient').then(({ request }) =>
+        request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+      ).catch(() => {});
     },
     [selectedId, allProjects, pushRecent]
   );
@@ -303,6 +306,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setAllProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...p, archived: false } : p))
     );
+    // Persist unarchive flag to backend
+    import('@/lib/apiClient').then(({ request }) =>
+      request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: false }) })
+    ).catch(() => {});
   }, []);
 
   const deleteProject = useCallback(

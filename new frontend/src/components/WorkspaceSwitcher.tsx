@@ -35,10 +35,10 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         const resolvedId = (stored && ws.find((w) => w.id === stored))
           ? stored
           : ws[0]?.id ?? null;
-        // Always persist so X-Workspace-Id header is sent on every request
         if (resolvedId && resolvedId !== stored) {
+          // Workspace changed — update localStorage AND the server cookie
           setActiveWorkspaceId(resolvedId);
-          // Reload all data so it is scoped to the reconciled workspace
+          switchWorkspace(resolvedId).catch(() => {});
           router.refresh();
         }
         setActiveId(resolvedId);

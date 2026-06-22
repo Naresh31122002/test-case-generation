@@ -207,13 +207,8 @@ def get_api_usage():
 @admin_bp.route('/errors', methods=['GET'])
 @admin_required()
 def get_errors():
-    # Mock endpoint since there is no error logging table yet
-    mock_errors = [
-        {"id": 1, "message": "Failed to sync Jira project", "timestamp": "2026-06-18T12:00:00Z", "severity": "high"},
-        {"id": 2, "message": "Rate limit exceeded on Groq API", "timestamp": "2026-06-18T14:30:00Z", "severity": "medium"},
-        {"id": 3, "message": "Invalid stripe webhook signature", "timestamp": "2026-06-18T16:45:00Z", "severity": "high"}
-    ]
-    return jsonify({"errors": mock_errors}), 200
+    """Return recent application errors from admin_audit_logs. Error log table not yet implemented — returns empty list."""
+    return jsonify({"errors": [], "not_implemented": True, "message": "Error log table not yet available"}), 200
 
 
 @admin_bp.route('/token-usage', methods=['GET'])

@@ -175,6 +175,7 @@ def update_me():
                     list(allowed.values()) + [user_id]
                 )
                 row = dict(cur.fetchone())
+                conn.commit()
         return jsonify({"user": row}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -243,6 +244,7 @@ def update_notification_prefs():
                     "UPDATE users SET notification_prefs = %s WHERE user_id = %s",
                     (_json.dumps(prefs), user_id)
                 )
+                conn.commit()
         return jsonify({"prefs": prefs}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -293,6 +295,7 @@ def create_api_key():
                     VALUES (%s, %s, %s, %s, %s) RETURNING id
                 """, (user_id, workspace_id, name, key_hash, key_prefix))
                 key_id = cur.fetchone()[0]
+                conn.commit()
         return jsonify({"id": str(key_id), "key": raw_key, "prefix": key_prefix, "name": name}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -312,6 +315,7 @@ def revoke_api_key(key_id):
                 """, (key_id, user_id))
                 if cur.rowcount == 0:
                     return jsonify({"error": "Key not found"}), 404
+                conn.commit()
         return jsonify({"revoked": key_id}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

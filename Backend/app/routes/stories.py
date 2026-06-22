@@ -221,7 +221,7 @@ def get_stories():
                     if isinstance(source, str):
                         try:
                             source = json.loads(source)
-                        except:
+                        except (json.JSONDecodeError, ValueError):
                             source = {'story': source, 'test_cases': source}
                     story_dict['source'] = source
 
@@ -774,9 +774,11 @@ def get_projects():
         stories_table = db_service.lance_db.open_table(Config.TABLE_NAME_LANCE)
         lance_stories = stories_table.to_pandas()
 
-        # Filter by workspace_id if column exists
-        if 'workspace_id' in lance_stories.columns:
-            lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
+        # Always filter by workspace_id — if column missing, startup auto-migration should have added it
+        if 'workspace_id' not in lance_stories.columns:
+            print(f"[get_projects] WARNING: workspace_id column missing from LanceDB table — returning no projects for safety")
+            return jsonify({'projects': []})
+        lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
 
         # Get unique project IDs
         project_ids = lance_stories['project_id'].dropna().unique().tolist()
@@ -790,14 +792,28 @@ def get_projects():
 @stories_bp.route('/projects/<project_id>', methods=['PATCH'])
 @dev_jwt_required
 def rename_project(project_id):
-    """Rename a project — updates project_id on all stories in that project."""
+    """Rename a project or update its archived flag."""
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
         data = request.get_json() or {}
+
+        # Handle archive/unarchive flag (stored in test_cases.inputs JSONB)
+        if 'archived' in data:
+            archived = bool(data['archived'])
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE test_cases
+                        SET inputs = COALESCE(inputs, '{}'::jsonb) || %s::jsonb
+                        WHERE project_id = %s AND workspace_id = %s
+                    """, (json.dumps({'project_archived': archived}), project_id, workspace_id))
+                    conn.commit()
+            return jsonify({'project_id': project_id, 'archived': archived}), 200
+
         new_id = (data.get('new_id') or '').strip().lower().replace(' ', '-')
         if not new_id:
-            return jsonify({'error': 'new_id required'}), 400
+            return jsonify({'error': 'new_id or archived required'}), 400
         if new_id == project_id:
             return jsonify({'project_id': new_id}), 200
 
@@ -816,9 +832,9 @@ def rename_project(project_id):
             db = lancedb.connect(Config.LANCE_DB_PATH)
             t = db.open_table(Config.TABLE_NAME_LANCE)
             df = t.to_pandas()
-            mask = (df['project_id'] == project_id)
-            if workspace_id and 'workspace_id' in df.columns:
-                mask = mask & (df['workspace_id'] == workspace_id)
+            if 'workspace_id' not in df.columns:
+                raise ValueError("workspace_id column missing from LanceDB — cannot safely rename")
+            mask = (df['project_id'] == project_id) & (df['workspace_id'] == workspace_id)
             df.loc[mask, 'project_id'] = new_id
             db.drop_table(Config.TABLE_NAME_LANCE)
             db.create_table(Config.TABLE_NAME_LANCE, df)
@@ -852,6 +868,7 @@ def delete_project(project_id):
                     DELETE FROM test_cases
                     WHERE project_id = %s AND workspace_id = %s
                 """, (project_id, workspace_id))
+                conn.commit()
 
         # Delete from LanceDB
         try:
@@ -859,9 +876,9 @@ def delete_project(project_id):
             db = lancedb.connect(Config.LANCE_DB_PATH)
             t = db.open_table(Config.TABLE_NAME_LANCE)
             df = t.to_pandas()
-            mask = (df['project_id'] == project_id)
-            if workspace_id and 'workspace_id' in df.columns:
-                mask = mask & (df['workspace_id'] == workspace_id)
+            if 'workspace_id' not in df.columns:
+                raise ValueError("workspace_id column missing from LanceDB — cannot safely delete")
+            mask = (df['project_id'] == project_id) & (df['workspace_id'] == workspace_id)
             df = df[~mask]
             db.drop_table(Config.TABLE_NAME_LANCE)
             db.create_table(Config.TABLE_NAME_LANCE, df)
@@ -1118,9 +1135,11 @@ def get_project_impacts(project_id):
                         tci.impact_created_on,
                         tci.similarity_score,
                         tci.impact_analysis_json,
+                        tci.impact_status,
                         tc.story_description as original_story_description
                     FROM test_case_impacts tci
                     JOIN test_cases tc ON tc.story_id = tci.original_story_id
+                        AND tc.workspace_id = tci.workspace_id
                     WHERE tci.project_id = %s AND tci.workspace_id = %s
                     ORDER BY tci.impact_created_on DESC
                 """, (project_id, workspace_id))
@@ -2158,6 +2177,7 @@ def refresh_story_intelligence(story_id):
 
 @stories_bp.route('/<story_id>/status', methods=['PATCH'])
 @dev_jwt_required
+@require_workspace_role(['owner', 'admin', 'editor'])
 def update_story_status(story_id):
     """Update the Kanban column for a story (in_review / in_progress / completed)."""
     try:
@@ -2626,6 +2646,14 @@ def update_test_case_status(story_id, test_case_id):
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
                 conn.commit()
+                # Log activity
+                try:
+                    from app.routes.activity import log_activity
+                    log_activity(workspace_id, user_id, 'tests_generated',
+                                 f'Test case {new_status.lower()}',
+                                 body=f'{test_case_id} status changed to {new_status}',
+                                 story_id=story_id)
+                except Exception: pass
 
         return jsonify({'test_case_id': test_case_id, 'status': new_status}), 200
     except Exception as e:
@@ -3413,6 +3441,15 @@ def record_test_run(story_id, test_case_id):
                 """, (workspace_id, story_id, test_case_id, run_status, comment, user_id))
                 row = dict(cur.fetchone())
                 row['run_at'] = row['run_at'].isoformat() if row.get('run_at') else None
+                conn.commit()
+                # Log activity
+                try:
+                    from app.routes.activity import log_activity
+                    log_activity(workspace_id, user_id, 'tests_generated',
+                                 f'Test run recorded: {run_status}',
+                                 body=comment or f'{run_status} on {test_case_id}',
+                                 story_id=story_id)
+                except Exception: pass
 
         return jsonify({'run': row}), 201
     except Exception as e:
