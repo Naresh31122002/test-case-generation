@@ -254,7 +254,7 @@ export function CommandPalette() {
               {/* Results */}
               {query && results.length === 0 && (
                 <p className=”px-4 py-6 text-center text-sm text-muted”>
-                  No results for &quot;{query}&quot;.
+                  No results for &ldquo;{query}&rdquo;.
                 </p>
               )}
 

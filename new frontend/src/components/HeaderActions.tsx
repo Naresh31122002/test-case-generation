@@ -703,8 +703,6 @@ function NotificationBell() {
       setItems(prev); // rollback on failure
     }
   };
-    setShowClearConfirm(false);
-  };
 
   const grouped = groupBySection(items);
 
