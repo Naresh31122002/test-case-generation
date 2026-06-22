@@ -69,7 +69,6 @@ export default function NotificationsSettings() {
       setSaved(true);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaved(false), 3000);
-      return () => clearTimeout(t);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save. Please try again.');
     } finally {
