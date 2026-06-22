@@ -60,12 +60,14 @@ export function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
   const [storyItems, setStoryItems] = useState<CommandItem[]>([]);
+  const [storyFetchError, setStoryFetchError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Load real stories from API when palette opens
   useEffect(() => {
     if (!open) return;
+    setStoryFetchError(false);
     api.getStories(1, 200).then(res => {
       const items: CommandItem[] = res.data.map(domainStoryToSeed).map(s => ({
         id: `story:${s.id}`,
@@ -76,7 +78,7 @@ export function CommandPalette() {
         keywords: `${s.id} ${s.title} ${s.status}`,
       }));
       setStoryItems(items);
-    }).catch(() => {});
+    }).catch(() => { setStoryFetchError(true); });
   }, [open]);
 
   // Load recent searches.
@@ -242,10 +244,17 @@ export function CommandPalette() {
                 </div>
               )}
 
+              {/* Story fetch error warning */}
+              {storyFetchError && (
+                <p className=”px-4 py-2 text-xs text-warning bg-[#FFFBEB] border-b border-[#FCD34D]”>
+                  ⚠ Could not load stories — navigation only
+                </p>
+              )}
+
               {/* Results */}
               {query && results.length === 0 && (
-                <p className="px-4 py-6 text-center text-sm text-muted">
-                  No results for “{query}”.
+                <p className=”px-4 py-6 text-center text-sm text-muted”>
+                  No results for &quot;{query}&quot;.
                 </p>
               )}
 

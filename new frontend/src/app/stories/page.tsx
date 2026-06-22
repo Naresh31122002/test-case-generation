@@ -31,7 +31,7 @@ import { useProject } from "@/contexts/ProjectContext";
 import { NoProjects } from "@/components/projects/EmptyState";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { useStoriesStore, invalidateStories } from "@/lib/storiesStore";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { NewStoryButton } from "@/components/HeaderActions";
@@ -209,7 +209,7 @@ export default function StoriesPage() {
 
   // Real stories from backend — use the global store with background polling
   // Pass undefined (not null) to skip fetching while project context loads
-  const { stories: projectStories, loading: storiesLoading } = useStoriesStore(
+  const { stories: projectStories, loading: storiesLoading, error: storiesError, refresh: refreshStories } = useStoriesStore(
     activeProjectId === null ? undefined : activeProjectId,
     activeProjectId === null ? false : true, // enabled flag
     serverFilters, // Phase 3: filters applied server-side
@@ -492,6 +492,12 @@ export default function StoriesPage() {
                 <TestCaseKanban stories={filtered} />
               )}
             </motion.div>
+          ) : storiesError ? (
+            <div className="flex items-center gap-3 py-3 px-1 text-sm text-error">
+              <AlertCircle size={16} className="flex-shrink-0" />
+              Could not load stories.
+              <button onClick={refreshStories} className="underline hover:no-underline ml-1">Retry</button>
+            </div>
           ) : filtered.length === 0 ? (
             <EmptyState key="empty" hasSearch={!!search} />
           ) : viewMode === "board" ? (

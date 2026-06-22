@@ -24,7 +24,8 @@ export interface StoryFilters {
 
 export function useStoriesStore(projectId?: string, enabled = true, filters?: StoryFilters) {
   const [stories, setStories] = useState<Story[]>([]);
-  const [loading, setLoading] = useState(enabled); // start as loading only if enabled
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
@@ -33,6 +34,7 @@ export function useStoriesStore(projectId?: string, enabled = true, filters?: St
 
   const fetch = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    setError(false);
     try {
       const parsed: StoryFilters = JSON.parse(filtersKey);
       const hasFilters = Object.keys(parsed).length > 0;
@@ -43,6 +45,7 @@ export function useStoriesStore(projectId?: string, enabled = true, filters?: St
       if (!mountedRef.current) return;
       setStories(res.data.map(domainStoryToSeed));
     } catch {
+      if (!silent) setError(true);
       // keep stale data on error
     } finally {
       if (!silent) setLoading(false);
@@ -100,5 +103,5 @@ export function useStoriesStore(projectId?: string, enabled = true, filters?: St
 
   const refresh = useCallback(() => fetch(true), [fetch]);
 
-  return { stories, loading, refresh };
+  return { stories, loading, error, refresh };
 }

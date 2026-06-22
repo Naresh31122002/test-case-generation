@@ -9,6 +9,7 @@ import { staggerContainer, fadeInUp, duration, easeOut } from "@/lib/motion";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 
 const TYPE_COLORS: Record<string, string> = {
   Functional: "#3B82F6",
@@ -37,16 +38,21 @@ const impactStyles: Record<string, string> = {
 export default function CoveragePage() {
   const [stories, setStories] = useState<ReturnType<typeof domainStoryToSeed>[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   // Per-story test cases for type breakdown (loaded lazily for top stories only)
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>({});
   const [typeLoading, setTypeLoading] = useState(true);
 
-  useEffect(() => {
+  const loadStories = () => {
+    setFetchError(false);
+    setLoading(true);
     api.getStories(1, 200)
       .then(res => setStories(res.data.map(domainStoryToSeed)))
-      .catch(() => setStories([]))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadStories(); }, []);
 
   // Compute per-type breakdown from real test cases (sample top 10 stories by test count)
   useEffect(() => {
@@ -108,6 +114,8 @@ export default function CoveragePage() {
           <div className="flex items-center justify-center py-24">
             <Loader2 size={32} className="animate-spin text-cyan" />
           </div>
+        ) : fetchError ? (
+          <ErrorBanner message="Could not load coverage data." detail="Check your connection and try again." onRetry={loadStories} />
         ) : (
         <div className="space-y-8">
 

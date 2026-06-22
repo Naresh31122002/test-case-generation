@@ -632,6 +632,7 @@ function NotificationBell() {
   const [items, setItems] = useState<Activity[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [bellError, setBellError] = useState(false);
   const ref = useClickOutside(() => {
     setOpen(false);
     setShowClearConfirm(false);
@@ -640,6 +641,7 @@ function NotificationBell() {
   // Load real activity from backend
   useEffect(() => {
     let alive = true;
+    setBellError(false);
     fetch('/api/activity/?limit=20', { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
@@ -658,8 +660,9 @@ function NotificationBell() {
         setUnreadCount(d.unread ?? 0);
       })
       .catch(() => {
-        // Fallback to mock if backend unavailable
-        activityService.list().then((data) => { if (alive) setItems(data); });
+        if (!alive) return;
+        setBellError(true);
+        // Fallback to empty list — don't show fake notifications
       });
     return () => { alive = false; };
   }, []);
@@ -681,12 +684,25 @@ function NotificationBell() {
   };
 
   const removeItem = async (id: string) => {
-    setItems((prev) => prev.filter((n) => n.id !== id));
+    const prev = items;
+    setItems((p) => p.filter((n) => n.id !== id));
+    try {
+      await fetch(`/api/activity/${id}`, { method: 'DELETE', credentials: 'include' });
+    } catch {
+      setItems(prev); // rollback on failure
+    }
   };
 
   const clearAll = async () => {
-    await markAllRead();
+    const prev = items;
     setItems([]);
+    setUnreadCount(0);
+    try {
+      await fetch('/api/activity/mark-read', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    } catch {
+      setItems(prev); // rollback on failure
+    }
+  };
     setShowClearConfirm(false);
   };
 
@@ -789,7 +805,13 @@ function NotificationBell() {
 
             {/* Notification list */}
             <div className="max-h-[360px] overflow-y-auto">
-              {grouped.length === 0 ? (
+              {bellError ? (
+                <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
+                  <p className="text-sm text-error font-medium">Could not load notifications</p>
+                  <button onClick={() => { setBellError(false); setOpen(false); setTimeout(() => setOpen(true), 50); }}
+                    className="text-xs text-cyan underline">Retry</button>
+                </div>
+              ) : grouped.length === 0 ? (
                 /* Empty state */
                 <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
                   <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeftRight, ArrowRightLeft, Loader2 } from "lucide-react";
 import { fadeInUp, staggerContainer, duration, easeOut } from "@/lib/motion";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
 import type { Story } from "@/lib/seed";
@@ -30,13 +31,17 @@ function heuristicCoverage(n: number) { return Math.min(100, Math.round((n / 40)
 export default function ComparePage() {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
+  const [testLoadError, setTestLoadError] = useState(false);
   const [storyA, setStoryA] = useState<string>("");
   const [storyB, setStoryB] = useState<string>("");
   const [testsA, setTestsA] = useState<string[]>([]);
   const [testsB, setTestsB] = useState<string[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
 
-  useEffect(() => {
+  const loadStories = () => {
+    setFetchError(false);
+    setLoading(true);
     api.getStories(1, 200)
       .then((res) => {
         const mapped = res.data.map(domainStoryToSeed);
@@ -44,16 +49,22 @@ export default function ComparePage() {
         if (mapped.length >= 2) { setStoryA(mapped[0].id); setStoryB(mapped[1].id); }
         else if (mapped.length === 1) { setStoryA(mapped[0].id); }
       })
-      .catch(() => setStories([]))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadStories(); }, []);
 
   useEffect(() => {
     if (!storyA || !storyB || storyA === storyB) { setTestsA([]); setTestsB([]); return; }
     setLoadingTests(true);
-    Promise.all([api.getTestCases(storyA), api.getTestCases(storyB)])
-      .then(([a, b]) => { setTestsA(a.testCases.map((tc) => tc.title)); setTestsB(b.testCases.map((tc) => tc.title)); })
-      .catch(() => { setTestsA([]); setTestsB([]); })
+    setTestLoadError(false);
+    Promise.allSettled([api.getTestCases(storyA), api.getTestCases(storyB)])
+      .then(([a, b]) => {
+        setTestsA(a.status === 'fulfilled' ? a.value.testCases.map((tc) => tc.title) : []);
+        setTestsB(b.status === 'fulfilled' ? b.value.testCases.map((tc) => tc.title) : []);
+        if (a.status === 'rejected' || b.status === 'rejected') setTestLoadError(true);
+      })
       .finally(() => setLoadingTests(false));
   }, [storyA, storyB]);
 
@@ -81,6 +92,13 @@ export default function ComparePage() {
     <PageLayout>
       <PageHeader title="Compare" actions={<PageActions fullscreen />} />
       <PageBody><div className="flex items-center justify-center py-24"><Loader2 size={32} className="animate-spin text-muted" /></div></PageBody>
+    </PageLayout>
+  );
+
+  if (fetchError) return (
+    <PageLayout>
+      <PageHeader title="Compare" actions={<PageActions fullscreen />} />
+      <PageBody><ErrorBanner message="Could not load stories." detail="Check your connection and try again." onRetry={loadStories} /></PageBody>
     </PageLayout>
   );
 
@@ -120,6 +138,8 @@ export default function ComparePage() {
             </motion.div>
           ) : loadingTests ? (
             <div className="flex items-center justify-center py-16"><Loader2 size={28} className="animate-spin text-muted" /></div>
+          ) : testLoadError ? (
+            <ErrorBanner message="Could not load test cases for one or both stories." compact onRetry={() => { setStoryA(sa => sa); }} />
           ) : (
             <AnimatePresence mode="wait">
               <motion.div key={`${storyA}-${storyB}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

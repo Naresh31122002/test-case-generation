@@ -8,6 +8,7 @@ type ChangeStatus = "Pending" | "Approved" | "Rejected";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { api } from "@/lib/api";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 
 const STATUS_TABS: (ChangeStatus | "All")[] = ["Pending", "Approved", "Rejected", "All"];
 
@@ -44,11 +45,12 @@ const tabToStatus: Record<ChangeStatus | "All", string> = {
 export default function ChangesPage() {
   const [allChangeRequests, setAllChangeRequests] = useState<ChangeCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [tab, setTab] = useState<ChangeStatus | "All">("Pending");
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
-    // Fetch all statuses at once so tab counts are always accurate
+    setFetchError(false);
     api.getChanges({ status: 'all', page: 1, perPage: 200 })
       .then((res) =>
         setAllChangeRequests(
@@ -75,9 +77,11 @@ export default function ChangesPage() {
           }))
         )
       )
-      .catch(() => setAllChangeRequests([]))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const counts = {
     Pending:  allChangeRequests.filter((c) => c.status === "Pending").length,
@@ -131,6 +135,8 @@ export default function ChangesPage() {
           <div className="flex items-center justify-center py-24">
             <Loader2 size={32} className="animate-spin text-muted" />
           </div>
+        ) : fetchError ? (
+          <ErrorBanner message="Could not load change requests." detail="Check your connection and try again." onRetry={load} />
         ) : filtered.length === 0 ? (
           <EmptyChanges />
         ) : (

@@ -704,6 +704,7 @@ export function StoryKanban({ stories, onStatusChange }: StoryKanbanProps) {
 
   const [items, setItems] = useState<Item[]>(() => stories.map(toItem));
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragError, setDragError] = useState<string | null>(null);
 
   // Sync when stories prop changes (e.g. after API reload)
   const [prevStories, setPrevStories] = useState(stories);
@@ -772,10 +773,13 @@ export function StoryKanban({ stories, onStatusChange }: StoryKanbanProps) {
     try {
       await api.updateStoryStatus(storyId, targetStatus);
       onStatusChange?.(storyId, targetStatus);
+      setDragError(null);
     } catch {
       setItems((prev) =>
         prev.map((s) => (s.id === storyId ? { ...s, _kanban: current._kanban } : s))
       );
+      setDragError('Could not move the story — status update failed. Please try again.');
+      setTimeout(() => setDragError(null), 4000);
     }
   }
 
@@ -830,6 +834,12 @@ export function StoryKanban({ stories, onStatusChange }: StoryKanbanProps) {
   const activeStory = activeId ? storyById(activeId) : null;
 
   return (
+    <>
+      {dragError && (
+        <div className="flex items-center gap-2 text-sm text-error bg-[#FEF2F2] border border-[#FCA5A5] rounded-card px-3 py-2 mb-3">
+          <span className="flex-shrink-0">⚠</span> {dragError}
+        </div>
+      )}
     <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex gap-5 min-h-[60vh] pb-8">
         {COLUMNS.map((col) => {
@@ -903,5 +913,6 @@ export function StoryKanban({ stories, onStatusChange }: StoryKanbanProps) {
         />
       )}
     </DndContext>
+    </>
   );
 }

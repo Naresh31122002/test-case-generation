@@ -14,9 +14,11 @@ export default function TeamSettings() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toastVariant, setToastVariant] = useState<'success' | 'error'>('success');
 
-  function showToast(msg: string) {
+  function showToast(msg: string, variant: 'success' | 'error' = 'success') {
     setToast(msg);
+    setToastVariant(variant);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 3000);
   }
@@ -25,7 +27,7 @@ export default function TeamSettings() {
     fetch('/api/workspaces/members', { credentials: 'include' })
       .then(r => r.json())
       .then(d => setMembers(d.members ?? []))
-      .catch(() => {})
+      .catch(() => setError('Could not load team members. Please refresh to try again.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -60,7 +62,7 @@ export default function TeamSettings() {
     } catch {
       // Rollback on failure
       if (prev) setMembers(p => p.map(m => m.user_id === userId ? { ...m, role: prev } : m));
-      showToast('Failed to update role');
+      showToast('Failed to update role', 'error');
     }
   }
 
@@ -71,13 +73,13 @@ export default function TeamSettings() {
       if (!r.ok) throw new Error(`Server error ${r.status}`);
       setMembers(prev => prev.filter(m => m.user_id !== userId));
       showToast('Member removed');
-    } catch { showToast('Failed to remove member'); }
+    } catch { showToast('Failed to remove member', 'error'); }
   }
 
   return (
     <>
       {toast && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-2.5 bg-success text-white text-sm rounded-xl shadow-lg">{toast}</div>
+        <div className={`fixed top-4 right-4 z-50 px-4 py-2.5 text-white text-sm rounded-xl shadow-lg ${toastVariant === 'error' ? 'bg-error' : 'bg-success'}`}>{toast}</div>
       )}
 
       <div>

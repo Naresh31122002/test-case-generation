@@ -67,23 +67,31 @@ export default function IntegrationsSettings() {
         setConnDetails(details);
       })
       .catch(() => {
-        // Backend integration endpoint may not exist yet — show all as disconnected
+        // Backend endpoint may not exist yet — show all as disconnected (not an error state)
         setConnected(new Set());
       })
       .finally(() => setLoading(false));
   }, []);
 
   async function handleDisconnect(id: string) {
+    // Snapshot before optimistic update
+    const prevConnected = new Set(connected);
+    const prevDetails = { ...connDetails };
     setActionBusy(id);
     setError(null);
+    // Optimistic update
+    setConnected((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    setConnDetails((prev) => { const n = { ...prev }; delete n[id]; return n; });
     try {
-      await fetch(`/api/workspaces/integrations/${id}`, {
+      const r = await fetch(`/api/workspaces/integrations/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
-      setConnected((prev) => { const n = new Set(prev); n.delete(id); return n; });
-      setConnDetails((prev) => { const n = { ...prev }; delete n[id]; return n; });
+      if (!r.ok) throw new Error(`Server returned ${r.status}`);
     } catch {
+      // Rollback on failure
+      setConnected(prevConnected);
+      setConnDetails(prevDetails);
       setError("Failed to disconnect. Please try again.");
     } finally {
       setActionBusy(null);

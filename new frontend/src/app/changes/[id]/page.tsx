@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, CheckCircle2, XCircle, Pencil, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, CheckCircle2, XCircle, Pencil, Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { DiffViewer } from "@/components/ui/DiffViewer";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { staggerContainer, fadeInUp, duration, easeStandard, spring } from "@/lib/motion";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { api } from "@/lib/api";
@@ -35,8 +36,11 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
   const storyId = params.id;
   const [summary, setSummary] = useState<StoryImpactSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
@@ -54,7 +58,7 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
       if (found) setStoryDesc(found.description);
       if (s.receivedImpacts.length > 0) setExpanded(s.receivedImpacts[0].impactId);
     }).catch(() => {
-      if (!cancelled) setSummary({ storyId, totalImpacts: 0, causedImpacts: [], receivedImpacts: [] });
+      if (!cancelled) setFetchError(true);
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [storyId]);
@@ -63,27 +67,30 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
 
   async function handleAcceptAll() {
     const ids = impacts.map((i) => i.impactId);
+    setActionError(null);
     try {
       await api.batchReviewImpacts('', storyId, ids.map((id) => ({ impact_id: id, action: 'accept' as const })));
       setAccepted(new Set(ids));
       setRejected(new Set());
     } catch {
-      // API failed — don't update UI state; user can retry
+      setActionError('Failed to accept all. Please try again or review individually.');
     }
   }
 
   async function handleRejectAll() {
     const ids = impacts.map((i) => i.impactId);
+    setActionError(null);
     try {
       await api.batchReviewImpacts('', storyId, ids.map((id) => ({ impact_id: id, action: 'reject' as const })));
       setRejected(new Set(ids));
       setAccepted(new Set());
     } catch {
-      // API failed — don't update UI state; user can retry
+      setActionError('Failed to reject all. Please try again or review individually.');
     }
   }
 
   async function handleReview(impactId: string, action: 'accept' | 'reject') {
+    setActionError(null);
     try {
       await api.reviewImpact(impactId, action);
       if (action === 'accept') {
@@ -95,13 +102,13 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
       }
       setExpanded(null);
     } catch {
-      // API failed — show nothing, user can retry
+      setActionError(`Failed to ${action} impact. Please try again.`);
     }
   }
 
   async function handleSubmit() {
     setSubmitting(true);
-    // Only submit impacts that were explicitly reviewed — skip unreviewed ones
+    setSubmitError(null);
     const reviews = impacts
       .filter((i) => accepted.has(i.impactId) || rejected.has(i.impactId))
       .map((i) => ({
@@ -109,7 +116,7 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
         action: accepted.has(i.impactId) ? 'accept' as const : 'reject' as const,
       }));
     if (reviews.length === 0) {
-      alert('Please review at least one impact before submitting.');
+      setSubmitError('Please review at least one impact before submitting.');
       setSubmitting(false);
       return;
     }
@@ -117,7 +124,7 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
       await api.batchReviewImpacts('', storyId, reviews);
       setSubmitted(true);
     } catch (e: any) {
-      alert(`Submit failed: ${e?.message ?? 'Unknown error'}`);
+      setSubmitError(e?.message ?? 'Submit failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -128,6 +135,18 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
   const rejectedCount = rejected.size;
 
   if (loading) return (
+    <PageLayout>
+      <PageHeader title="Change Review" leading={<Link href="/changes" className="text-muted hover:text-navy"><ArrowLeft size={20} /></Link>} actions={<PageActions />} />
+      <PageBody><div className="flex justify-center py-24"><Loader2 size={32} className="animate-spin text-muted" /></div></PageBody>
+    </PageLayout>
+  );
+
+  if (fetchError) return (
+    <PageLayout>
+      <PageHeader title="Change Review" leading={<Link href="/changes" className="text-muted hover:text-navy"><ArrowLeft size={20} /></Link>} actions={<PageActions />} />
+      <PageBody><ErrorBanner message="Could not load impact data." detail="Check your connection and try again." onRetry={() => window.location.reload()} /></PageBody>
+    </PageLayout>
+  );
     <PageLayout>
       <PageHeader title="Change Review" leading={<Link href="/changes" className="text-muted hover:text-navy"><ArrowLeft size={20} /></Link>} actions={<PageActions />} />
       <PageBody><div className="flex justify-center py-24"><Loader2 size={32} className="animate-spin text-muted" /></div></PageBody>
@@ -243,19 +262,27 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
           {(acceptedCount > 0 || rejectedCount > 0) && !submitted && (
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 16 }} transition={{ duration: duration.base }}
-              className="sticky bottom-6 bg-white border border-border rounded-card px-5 py-4 shadow-card flex items-center justify-between">
-              <div className="flex items-center gap-4 text-sm">
-                {acceptedCount > 0 && <span className="text-success font-semibold">{acceptedCount} Accepted</span>}
-                {rejectedCount > 0 && <span className="text-error font-semibold">{rejectedCount} Rejected</span>}
-                {impacts.length - acceptedCount - rejectedCount > 0 && (
-                  <span className="text-muted">{impacts.length - acceptedCount - rejectedCount} Pending</span>
-                )}
+              className="sticky bottom-6 bg-white border border-border rounded-card px-5 py-4 shadow-card flex flex-col gap-2">
+              {(actionError || submitError) && (
+                <div className="flex items-center gap-2 text-sm text-error">
+                  <AlertCircle size={14} className="flex-shrink-0" />
+                  {actionError || submitError}
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-sm">
+                  {acceptedCount > 0 && <span className="text-success font-semibold">{acceptedCount} Accepted</span>}
+                  {rejectedCount > 0 && <span className="text-error font-semibold">{rejectedCount} Rejected</span>}
+                  {impacts.length - acceptedCount - rejectedCount > 0 && (
+                    <span className="text-muted">{impacts.length - acceptedCount - rejectedCount} Pending</span>
+                  )}
+                </div>
+                <button onClick={handleSubmit} disabled={submitting}
+                  className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+                  {submitting && <Loader2 size={14} className="animate-spin" />}
+                  {submitting ? "Submitting…" : "Submit Review"}
+                </button>
               </div>
-              <button onClick={handleSubmit} disabled={submitting}
-                className="h-9 px-5 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
-                {submitting && <Loader2 size={14} className="animate-spin" />}
-                {submitting ? "Submitting…" : "Submit Review"}
-              </button>
             </motion.div>
           )}
           {submitted && (

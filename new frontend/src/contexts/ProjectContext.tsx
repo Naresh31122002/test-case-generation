@@ -288,52 +288,58 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const archiveProject = useCallback(
     (id: string) => {
+      const prevProjects = allProjects.map(p => ({...p}));
+      const prevSelectedId = selectedId;
+      // Optimistic update
       setAllProjects((prev) =>
         prev.map((p) => (p.id === id ? { ...p, archived: true } : p))
       );
       if (selectedId === id) {
         const nextActive = allProjects.find((p) => !p.archived && p.id !== id);
-        if (nextActive) {
-          setSelectedId(nextActive.id);
-          pushRecent(nextActive.id);
-        } else {
-          setSelectedId(null);
-        }
+        if (nextActive) { setSelectedId(nextActive.id); pushRecent(nextActive.id); }
+        else setSelectedId(null);
       }
-      // Persist archive flag to backend
+      // Persist to backend — rollback on failure
       import('@/lib/apiClient').then(({ request }) =>
         request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
-      ).catch(() => {});
+      ).catch(() => {
+        setAllProjects(prevProjects);
+        if (prevSelectedId) setSelectedId(prevSelectedId);
+      });
     },
     [selectedId, allProjects, pushRecent]
   );
 
   const unarchiveProject = useCallback((id: string) => {
+    const prevProjects = allProjects.map(p => ({...p}));
     setAllProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...p, archived: false } : p))
     );
-    // Persist unarchive flag to backend
     import('@/lib/apiClient').then(({ request }) =>
       request(`/api/stories/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: false }) })
-    ).catch(() => {});
-  }, []);
+    ).catch(() => { setAllProjects(prevProjects); });
+  }, [allProjects]);
 
   const deleteProject = useCallback(
-    (id: string) => {
-      setAllProjects((prev) => {
-        const remaining = prev.filter((p) => p.id !== id);
-        if (selectedId === id) {
-          const nextActive = remaining.find((p) => !p.archived);
-          setSelectedId(nextActive?.id ?? null);
-          if (nextActive) pushRecent(nextActive.id);
-        }
-        return remaining;
-      });
-      setRecentIds((prev) => prev.filter((x) => x !== id));
-      // Delete all stories in this project on the backend
-      import('@/lib/apiClient').then(({ request }) =>
-        request(`/api/stories/projects/${id}`, { method: 'DELETE' })
-      ).catch(() => {});
+    async (id: string) => {
+      // Non-optimistic: call API first, update state only on success
+      try {
+        await import('@/lib/apiClient').then(({ request }) =>
+          request(`/api/stories/projects/${id}`, { method: 'DELETE' })
+        );
+        setAllProjects((prev) => {
+          const remaining = prev.filter((p) => p.id !== id);
+          if (selectedId === id) {
+            const nextActive = remaining.find((p) => !p.archived);
+            setSelectedId(nextActive?.id ?? null);
+            if (nextActive) pushRecent(nextActive.id);
+          }
+          return remaining;
+        });
+        setRecentIds((prev) => prev.filter((x) => x !== id));
+      } catch {
+        // Project still exists — do nothing, UI stays unchanged
+      }
     },
     [selectedId, pushRecent]
   );

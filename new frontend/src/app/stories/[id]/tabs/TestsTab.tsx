@@ -304,13 +304,21 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
   const handleBulkApprove = useCallback(async () => {
     setBulkLoading(true);
+    const ids = Array.from(checked);
     try {
-      await Promise.all(Array.from(checked).map((id) => api.approveTestCase(storyId, id, 'Approved')));
-      setTests((prev) => prev.map((t) => checked.has(t.id) ? { ...t, status: 'Approved' as any } : t));
+      const results = await Promise.allSettled(ids.map((id) => api.approveTestCase(storyId, id, 'Approved')));
+      const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = ids.filter((_, i) => results[i].status === 'rejected');
+      setTests((prev) => prev.map((t) => succeeded.includes(t.id) ? { ...t, status: 'Approved' as any } : t));
       setChecked(new Set());
-      showToast(`${checked.size} test cases approved ✓`);
+      invalidateStories();
+      if (failed.length > 0) {
+        showToast(`${succeeded.length} approved, ${failed.length} failed`, 'error');
+      } else {
+        showToast(`${succeeded.length} test cases approved ✓`);
+      }
     } catch {
-      showToast('Some approvals failed', 'error');
+      showToast('Bulk approve failed', 'error');
     } finally {
       setBulkLoading(false);
     }
@@ -336,12 +344,20 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const handleBulkDelete = useCallback(async () => {
     if (!confirm(`Delete ${checked.size} test cases? This cannot be undone.`)) return;
     setBulkLoading(true);
+    const ids = Array.from(checked);
     try {
-      await Promise.all(Array.from(checked).map((id) => api.deleteTestCase(storyId, id)));
-      setTests((prev) => prev.filter((t) => !checked.has(t.id)));
-      if (selected && checked.has(selected)) setSelected(null);
+      const results = await Promise.allSettled(ids.map((id) => api.deleteTestCase(storyId, id)));
+      const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = ids.filter((_, i) => results[i].status === 'rejected');
+      setTests((prev) => prev.filter((t) => !succeeded.includes(t.id)));
+      if (selected && succeeded.includes(selected)) setSelected(null);
       setChecked(new Set());
-      showToast(`${checked.size} test cases deleted`);
+      invalidateStories();
+      if (failed.length > 0) {
+        showToast(`${succeeded.length} deleted, ${failed.length} failed`, 'error');
+      } else {
+        showToast(`${succeeded.length} test cases deleted`);
+      }
     } catch {
       showToast('Some deletions failed', 'error');
     } finally {
@@ -506,10 +522,11 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
         showToast('Test case updated ✓');
         invalidateStories();
       }
+      setReviewState(null); // only close on success
     } catch {
       showToast('Failed to save', 'error');
+      // Keep modal open so user can retry — do NOT call setReviewState(null)
     }
-    setReviewState(null);
   }, [storyId, reviewState]);
 
   // ── Edit ──────────────────────────────────────────────────────────────────
@@ -1153,7 +1170,18 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   )}
                   {(selectedTest.status === 'Approved' || selectedTest.status === 'Rejected') && (
                     <button
-                      onClick={() => api.approveTestCase(storyId, selectedTest.id, 'Pending').then(() => setTests(prev => prev.map(t => t.id === selectedTest.id ? {...t, status: 'Pending' as any} : t))).catch(() => {})}
+                      onClick={async () => {
+                        setApprovingIds(p => new Set(p).add(selectedTest.id));
+                        try {
+                          await api.approveTestCase(storyId, selectedTest.id, 'Pending');
+                          setTests(prev => prev.map(t => t.id === selectedTest.id ? {...t, status: 'Pending' as any} : t));
+                          showToast('Status reset to Pending');
+                        } catch {
+                          showToast('Failed to reset status', 'error');
+                        } finally {
+                          setApprovingIds(p => { const n = new Set(p); n.delete(selectedTest.id); return n; });
+                        }
+                      }}
                       className="h-8 px-3 text-xs font-medium rounded-btn border border-border text-muted hover:bg-gray-50 transition-colors"
                     >
                       Reset
