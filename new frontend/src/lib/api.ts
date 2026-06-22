@@ -391,7 +391,7 @@ function normalizeImpact(raw: RawImpact): Impact {
     analysisJson: raw.impact_analysis_json
       ? normalizeImpactAnalysisJson(raw.impact_analysis_json)
       : null,
-    originalStoryDescription: raw.original_story_description,
+    originalStoryDescription: raw.original_story_description ?? raw.impacted_story_description,
     newStoryDescription: raw.new_story_description,
   }
 }

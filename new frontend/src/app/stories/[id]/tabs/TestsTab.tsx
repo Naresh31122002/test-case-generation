@@ -163,19 +163,38 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [regrouping, setRegrouping] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+
+  // Re-fetch server-side when priority or status filter changes
+  useEffect(() => {
+    if (!priorityFilter && !statusFilter) {
+      // No server filters — use the prop data to avoid extra network round-trips
+      setTests(initialTests);
+      return;
+    }
+    let cancelled = false;
+    setFilterLoading(true);
+    api.getTestCases(storyId, {
+      ...(priorityFilter ? { priority: [priorityFilter] } : {}),
+      ...(statusFilter ? { status: [statusFilter] } : {}),
+    }).then((res) => {
+      if (!cancelled) setTests(res.testCases as any[]);
+    }).catch(() => {}).finally(() => { if (!cancelled) setFilterLoading(false); });
+    return () => { cancelled = true; };
+  }, [storyId, priorityFilter, statusFilter, initialTests]);
 
   const handleRegroup = useCallback(async () => {
     setRegrouping(true);
     try {
       await api.regroupTestCases(storyId);
-      // Re-fetch test cases to get updated group fields
+      // Re-fetch to get updated group fields — preserve real status from server
       const tc = await api.getTestCases(storyId);
       setTests(tc.testCases.map((t) => ({
         id: t.id, storyId,
         title: t.title,
         type: "Functional" as const,
         priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
-        status: "Pending" as const,
+        status: (t.status as any) ?? "Pending",
         steps: t.steps,
         expectedResult: t.expectedResult,
         group: t.group,
@@ -224,8 +243,6 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
   const filtered = tests.filter((t) => {
     if (filter !== "All" && t.type !== filter) return false;
-    if (priorityFilter && t.priority !== priorityFilter) return false;
-    if (statusFilter && t.status !== statusFilter) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });

@@ -77,12 +77,12 @@ export function CoverageTab({
     setGenLoading(true);
     setGenResults([]);
     try {
-      const res = await api.ragChat(
-        "What test cases are missing for this story: " + (story.content ?? story.title ?? "")
-      );
-      setGenResults(res.testCases.map((tc) => tc.title));
+      // Trigger real test generation — the LLM uses the story content + RAG context
+      // to generate additional tests covering gaps. This runs in the background.
+      await api.regenerateTests(story.id);
+      setGenResults(["Test generation started. Switch to the Tests tab to see new tests as they arrive."]);
     } catch (err: any) {
-      setGenResults([err?.message?.includes("relevant") ? "No similar stories with test cases found yet. Upload more stories first." : "Could not generate suggestions. Try again."]);
+      setGenResults(["Could not start generation. Please try again."]);
     } finally {
       setGenLoading(false);
     }
@@ -223,14 +223,13 @@ export function CoverageTab({
             className="w-full h-10 bg-pink text-white text-sm font-medium rounded-btn hover:bg-[#e0005f] transition-colors mt-2 flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {genLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {genLoading ? "Generating…" : "Generate Missing Tests"}
+            {genLoading ? "Starting…" : "Regenerate Tests"}
           </button>
 
           {genResults.length > 0 && (
-            <div className="border border-border rounded-card bg-white p-4 space-y-2">
-              <p className="text-[12px] font-semibold text-muted uppercase tracking-wide">Suggested Missing Tests ({genResults.length})</p>
+            <div className="border border-border rounded-card bg-[#ECFEFF] border-cyan/30 p-4">
               {genResults.map((r, i) => (
-                <p key={i} className="text-sm text-navy">• {r}</p>
+                <p key={i} className="text-sm text-navy">{r}</p>
               ))}
             </div>
           )}
