@@ -121,7 +121,6 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
       {runError && (
         <p className="text-[11px] text-error">{runError}</p>
       )}
-      </div>
 
       {/* Run history */}
       {runs.length > 0 && (
