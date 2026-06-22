@@ -63,7 +63,25 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
     }
   }
 
-  if (workspaces.length === 0) return null;
+  // Phase 6: when the user has no workspace yet, surface a Create Workspace
+  // action instead of nothing (the Team menu stays hidden until one exists).
+  if (workspaces.length === 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => router.push("/onboarding/workspace")}
+        title="Create your first workspace"
+        className="w-full flex items-center gap-2 px-2 h-9 rounded-lg border border-dashed border-border bg-white hover:bg-gray-50 transition-colors text-left"
+      >
+        <span className="w-6 h-6 rounded bg-pink/10 text-pink flex items-center justify-center flex-shrink-0">
+          <Building2 size={14} />
+        </span>
+        {!collapsed && (
+          <span className="flex-1 min-w-0 truncate text-sm font-medium text-pink">Create Workspace</span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <div ref={ref} className="relative">

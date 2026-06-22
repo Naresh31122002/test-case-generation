@@ -190,6 +190,15 @@ export default function StoriesPage() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Sprint 1 Phase 3: server-side story filters.
+  const [storyStatus, setStoryStatus] = useState<string>("");   // '' | in_review | in_progress | completed
+  const [storyPriority, setStoryPriority] = useState<string>(""); // '' | High | Medium | Low
+  const [storyImpact, setStoryImpact] = useState<string>("");   // '' | detected | none
+  const serverFilters = useMemo(() => ({
+    ...(storyStatus ? { status: [storyStatus] } : {}),
+    ...(storyPriority ? { priority: [storyPriority] } : {}),
+    ...(storyImpact ? { impact: storyImpact as 'detected' | 'none' } : {}),
+  }), [storyStatus, storyPriority, storyImpact]);
 
   // Derive the active project ID to filter by.
   // Wait until ProjectContext is ready — otherwise first render fetches ALL stories
@@ -211,7 +220,8 @@ export default function StoriesPage() {
   // Pass undefined (not null) to skip fetching while project context loads
   const { stories: projectStories, loading: storiesLoading } = useStoriesStore(
     activeProjectId === null ? undefined : activeProjectId,
-    activeProjectId === null ? false : true // enabled flag
+    activeProjectId === null ? false : true, // enabled flag
+    serverFilters, // Phase 3: filters applied server-side
   );
   const projectStoryIds = useMemo(
     () => new Set(projectStories.map((s) => s.id)),
@@ -348,6 +358,39 @@ export default function StoriesPage() {
             <option>Functional</option>
             <option>OAuth</option>
             <option>Security</option>
+          </select>}
+
+          {/* Phase 3: server-side filters (Status · Priority · Impact). */}
+          {viewMode !== "kanban" && <select
+            value={storyStatus}
+            onChange={(e) => setStoryStatus(e.target.value)}
+            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+          >
+            <option value="">All Status</option>
+            <option value="in_review">In Review</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>}
+
+          {viewMode !== "kanban" && <select
+            value={storyPriority}
+            onChange={(e) => setStoryPriority(e.target.value)}
+            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+          >
+            <option value="">All Priority</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>}
+
+          {viewMode !== "kanban" && <select
+            value={storyImpact}
+            onChange={(e) => setStoryImpact(e.target.value)}
+            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
+          >
+            <option value="">All Impact</option>
+            <option value="detected">Impact Detected</option>
+            <option value="none">No Impact</option>
           </select>}
 
           {viewMode !== "kanban" && <select
@@ -547,10 +590,19 @@ function BulkActionBar({
       name: "Bulk Story Processing",
       credits: AI_ACTION_COSTS.bulkProcessing,
       description: `Generate tests for ${count} selected ${count === 1 ? "story" : "stories"} in one batch.`,
-      run: () =>
-        new Promise<void>((resolve, reject) =>
-          setTimeout(() => (Math.random() < 0.1 ? reject(new Error("Bulk processing failed. Please try again.")) : resolve()), 2000)
-        ),
+      run: async () => {
+        const results = await Promise.allSettled(
+          stories.map((s) =>
+            fetch(`/api/stories/${s.id}/regenerate`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+            })
+          )
+        );
+        const failed = results.filter((r) => r.status === "rejected").length;
+        if (failed === results.length) throw new Error("All regenerations failed. Please try again.");
+      },
     });
   return (
     <motion.div

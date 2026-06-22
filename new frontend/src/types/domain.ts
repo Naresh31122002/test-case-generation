@@ -73,6 +73,12 @@ export interface RawTestCase {
   severity?: string;
   /** AI-generated feature group name e.g. "Login & Authentication" */
   group?: string;
+  /** Approve/reject status stored in the test case JSON. */
+  status?: string;
+  /** Test Case Kanban execution column (Sprint 1 Phase 2). */
+  tc_status?: 'todo' | 'in_progress' | 'done';
+  /** Whether the test case is ready for automation (Phase 3 filter). */
+  automation_ready?: boolean;
 }
 
 /** Raw impact row from the test_case_impacts table. */
@@ -227,6 +233,12 @@ export interface TestCase {
   severity?: 'high' | 'medium' | 'low';
   /** AI-generated feature group e.g. "Login & Authentication" */
   group?: string;
+  /** Approve/reject status: "Approved" | "Pending" | "Rejected". */
+  status?: 'Approved' | 'Pending' | 'Rejected';
+  /** Test Case Kanban execution column (Sprint 1 Phase 2). */
+  tcStatus?: 'todo' | 'in_progress' | 'done';
+  /** Whether the test case is ready for automation. */
+  automationReady?: boolean;
 }
 
 /** Response shape for the test cases list endpoint (normalized). */

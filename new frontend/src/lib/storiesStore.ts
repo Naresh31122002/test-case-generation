@@ -13,16 +13,32 @@ export function invalidateStories() {
   }
 }
 
-export function useStoriesStore(projectId?: string, enabled = true) {
+/** Server-side story filters (Sprint 1 Phase 3). */
+export interface StoryFilters {
+  status?: string[];
+  priority?: string[];
+  impact?: 'detected' | 'none';
+  assignee?: string; // user_id | 'me' | 'unassigned'
+}
+
+export function useStoriesStore(projectId?: string, enabled = true, filters?: StoryFilters) {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(enabled); // start as loading only if enabled
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
+  // Serialize filters so the fetch callback re-creates only on real changes.
+  const filtersKey = JSON.stringify(filters ?? {});
+
   const fetch = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await api.getStories(1, 200, undefined, undefined, projectId);
+      const parsed: StoryFilters = JSON.parse(filtersKey);
+      const hasFilters = Object.keys(parsed).length > 0;
+      const res = await api.getStories(
+        1, 200, undefined, undefined, projectId, 'desc',
+        hasFilters ? parsed : undefined,
+      );
       if (!mountedRef.current) return;
       setStories(res.data.map(domainStoryToSeed));
     } catch {
@@ -30,7 +46,7 @@ export function useStoriesStore(projectId?: string, enabled = true) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, filtersKey]);
 
   // Only fetch when enabled (i.e. project context is ready)
   useEffect(() => {

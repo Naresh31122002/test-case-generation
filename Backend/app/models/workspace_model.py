@@ -87,6 +87,36 @@ class WorkspaceModel:
             conn.close()
 
     @staticmethod
+    def rename(workspace_id: str, user_id: str, name: str) -> dict | None:
+        """Rename a workspace. Only the owner may rename it (Sprint 1 Phase 6).
+        Returns the updated workspace, or None if not found / not owned by user."""
+        name = (name or "").strip()
+        if not name:
+            return None
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE workspaces SET name = %s
+                WHERE id = %s AND owner_id = %s
+                RETURNING id, name, slug, owner_id, plan, created_at
+                """,
+                (name, workspace_id, user_id),
+            )
+            row = cursor.fetchone()
+            conn.commit()
+            if not row:
+                return None
+            return {
+                "id": str(row[0]), "name": row[1], "slug": row[2],
+                "owner_id": str(row[3]), "plan": row[4], "created_at": str(row[5]),
+            }
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
     def ensure_personal_workspace(user_id: str, email: str) -> dict:
         """Idempotently return the user's personal (owned) workspace, creating it
         if none exists. Used at register and as a login safety net so every user

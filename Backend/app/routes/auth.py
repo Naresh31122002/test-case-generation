@@ -149,7 +149,7 @@ def get_me():
     workspaces = WorkspaceModel.get_for_user(user_id)
     current_workspace = WorkspaceModel.get_default_for_user(user_id)
     return jsonify({
-        "user": user,
+        "user": user,  # includes email_verified + full_name + display_name
         "workspaces": workspaces,
         "current_workspace": current_workspace,
     }), 200
@@ -158,10 +158,10 @@ def get_me():
 @auth_bp.route("/me", methods=["PATCH"])
 @jwt_required()
 def update_me():
-    """Update the current user's profile (display_name, avatar_url)."""
+    """Update the current user's profile (display_name, avatar_url, full_name)."""
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
-    allowed = {k: v for k, v in data.items() if k in ('display_name', 'avatar_url')}
+    allowed = {k: v for k, v in data.items() if k in ('display_name', 'avatar_url', 'full_name')}
     if not allowed:
         return jsonify({"error": "No valid fields to update"}), 400
     try:
@@ -171,7 +171,7 @@ def update_me():
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 sets = ', '.join(f"{k} = %s" for k in allowed)
                 cur.execute(
-                    f"UPDATE users SET {sets} WHERE user_id = %s RETURNING user_id, email, display_name, avatar_url, email_verified",
+                    f"UPDATE users SET {sets} WHERE user_id = %s RETURNING user_id, email, display_name, avatar_url, full_name, email_verified",
                     list(allowed.values()) + [user_id]
                 )
                 row = dict(cur.fetchone())
@@ -186,9 +186,22 @@ def update_me():
 @jwt_required()
 def complete_onboarding():
     """Save the (optional, skippable) first-login survey and mark it done so
-    the modal never shows again for this user."""
+    the modal never shows again for this user. Sprint 1 Phase 6 adds full_name
+    (required by the modal) and an optional workspace rename."""
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
+
+    full_name = (data.get("full_name") or "").strip() or None
+    if full_name:
+        UserModel.update_profile(user_id, full_name)
+
+    # Optional workspace rename — applies to the user's current default workspace.
+    workspace_name = (data.get("workspace_name") or "").strip() or None
+    if workspace_name:
+        ws = WorkspaceModel.get_default_for_user(user_id)
+        if ws:
+            WorkspaceModel.rename(ws["id"], user_id, workspace_name)
+
     UserModel.complete_onboarding(
         user_id,
         (data.get("org_name") or "").strip() or None,

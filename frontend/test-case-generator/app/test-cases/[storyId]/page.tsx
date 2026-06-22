@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { api, TestCase } from "@/lib/api";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -9,8 +10,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Download, Brain, FileText, CheckCircle2,
-  Eye, LayoutDashboard, Clock, ChevronRight, Code2,
-  ListChecks, AlertTriangle, Info, Play,
+  Eye, ChevronRight, Code2, ListChecks, AlertTriangle,
+  Info, Play, BookOpen, Zap, X,
 } from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
 import { ExportScriptDialog } from "@/components/export-script-dialog";
@@ -32,11 +33,16 @@ function formatRagTestCases(testCases: any[]) {
   }).join("\n\n");
 }
 
+const priorityStyle = (p?: string) => {
+  if (p === "high")   return { bg: "#FEF2F2", color: "#EF4444", border: "#FCA5A5", dot: "#EF4444", label: "High" };
+  if (p === "medium") return { bg: "#FFFBEB", color: "#F59E0B", border: "#FDE68A", dot: "#F59E0B", label: "Medium" };
+  return                     { bg: "#ECFDF5", color: "#10B981", border: "#A7F3D0", dot: "#10B981", label: "Low" };
+};
+
 export default function StoryTestCasesPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project_id");
   const storyId = typeof params?.storyId === "string" ? params.storyId : Array.isArray(params?.storyId) ? params.storyId[0] : "";
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
@@ -45,31 +51,18 @@ export default function StoryTestCasesPage() {
   const [storyProject, setStoryProject] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState("");
-
-  /* split pane — selected test case (no dialog) */
   const [activeIdx, setActiveIdx] = useState(0);
-
-  /* run mode */
   const [runMode, setRunMode] = useState(false);
-
-  /* sheets / export */
   const [showStorySheet, setShowStorySheet] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
-
-  /* chatbot */
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
     role: "assistant",
     content: "Hello! I can help you analyze the test cases for this story. What would you like to know?",
   }]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"gemini" | "rag">("rag");
-
-  useEffect(() => {
-    const t = setInterval(() => setCurrentTime(new Date().toLocaleTimeString()), 1000);
-    setCurrentTime(new Date().toLocaleTimeString());
-    return () => clearInterval(t);
-  }, []);
+  const [filterPriority, setFilterPriority] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!storyId) return;
@@ -83,7 +76,6 @@ export default function StoryTestCasesPage() {
         setActiveIdx(0);
         setStoryDescription((res as any)?.storyDescription ?? null);
         if ((res as any)?.error) setError(String((res as any).error));
-
         try {
           const sr = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}`);
           if (sr.ok) {
@@ -132,13 +124,13 @@ export default function StoryTestCasesPage() {
     finally { setIsGenerating(false); }
   };
 
-  const priorityStyle = (p?: string) => {
-    if (p === "high")   return { bg: "#fff1f2", color: "#be123c", border: "#fecdd3", dot: "#be123c" };
-    if (p === "medium") return { bg: "#fffbeb", color: "#b45309", border: "#fde68a", dot: "#b45309" };
-    return                     { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0", dot: "#15803d" };
-  };
+  const filteredTCs = testCases.filter(tc => {
+    const matchesPriority = filterPriority === "all" || tc.priority === filterPriority;
+    const matchesSearch = !searchQuery || tc.title?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesPriority && matchesSearch;
+  });
 
-  const activeTC = testCases[activeIdx] ?? null;
+  const activeTC = filteredTCs[activeIdx] ?? null;
 
   return (
     <SidebarProvider>
@@ -146,173 +138,186 @@ export default function StoryTestCasesPage() {
       <SidebarInset>
 
         {/* ── Top bar ──────────────────────────────────────── */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#F0F0F0] bg-white sticky top-0 z-30">
+        <header className="flex items-center justify-between h-14 px-5 border-b border-border bg-card sticky top-0 z-30">
           <div className="flex items-center gap-3">
-            <SidebarTrigger className="text-[#6B7280] hover:text-[#1A1A2E]" />
+            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
             <Separator orientation="vertical" className="h-5" />
-            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-[#6B7280] hover:text-[#1A1A2E] transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Back
+            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-4 h-4" />Back
             </button>
             <Separator orientation="vertical" className="h-5" />
             <div className="flex items-center gap-1.5 text-sm">
-              <LayoutDashboard className="w-4 h-4 text-[#6B7280]" />
-              <span className="text-[#6B7280]">Dashboard</span>
-              <ChevronRight className="w-3.5 h-3.5 text-[#FECDD3]" />
-              <span className="font-semibold text-[#1A1A2E]">Test Cases</span>
+              <BookOpen className="w-4 h-4 text-muted-foreground" />
+              <button onClick={() => router.push("/")} className="text-muted-foreground hover:text-foreground transition-colors">Stories</button>
+              <ChevronRight className="w-3.5 h-3.5 text-border" />
+              <span className="font-semibold text-foreground">{storyId}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#1A1A2E]">
-            <Clock className="w-4 h-4 text-[#FF4D6D]" />
-            {currentTime || "—"}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowStorySheet(true)}
+              className="h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-border hover:bg-muted transition-colors text-muted-foreground">
+              <Eye className="w-3.5 h-3.5" />View Story
+            </button>
+            <button
+              onClick={() => setRunMode(true)} disabled={testCases.length === 0}
+              className="h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40 border border-border bg-white text-foreground">
+              <Play className="w-3.5 h-3.5" />Run Tests
+            </button>
+            <button onClick={() => setShowExportDialog(true)} disabled={testCases.length === 0}
+              className="h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40 border border-border bg-white text-foreground">
+              <Code2 className="w-3.5 h-3.5" />Export Script
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+              onClick={handleDownload}
+              className="h-8 px-3 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+              style={{ background: "#06B6D4" }}>
+              <Download className="w-3.5 h-3.5" />Download
+            </motion.button>
           </div>
         </header>
 
         {/* ── Page body ────────────────────────────────────── */}
-        <div className="flex flex-col" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
+        <div className="flex flex-col" style={{ background: "#F8FAFC", minHeight: "calc(100vh - 56px)" }}>
 
           {/* Story header strip */}
-          <div className="mx-6 mt-6 rounded-2xl overflow-hidden flex-shrink-0" style={{ background: "#1A1A2E" }}>
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mx-6 mt-6 rounded-xl overflow-hidden flex-shrink-0"
+            style={{ background: "#0F172A" }}
+          >
             <div className="px-6 py-4 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                    style={{ background: "rgba(55,122,207,0.25)", color: "#FFB3C1" }}>
+                    style={{ background: "rgba(6,182,212,0.2)", color: "#06B6D4" }}>
                     <CheckCircle2 className="w-3 h-3" />{testCases.length} Test Cases
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                    style={{ background: "rgba(162,210,233,0.12)", color: "#FFB3C1" }}>
+                    style={{ background: "rgba(79,70,229,0.2)", color: "#818CF8" }}>
                     <Brain className="w-3 h-3" />AI Generated
                   </span>
                   {storyProject && (
                     <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
-                      style={{ background: "rgba(162,210,233,0.12)", color: "#FFB3C1" }}>
+                      style={{ background: "rgba(255,255,255,0.08)", color: "#CBD5E1" }}>
                       {storyProject}
                     </span>
                   )}
                 </div>
-                <h1 className="text-base font-bold text-white leading-tight">Story {storyId}</h1>
+                <h1 className="text-base font-bold text-white">Story {storyId}</h1>
                 {storyDescription && (
-                  <p className="text-xs mt-0.5 leading-relaxed line-clamp-1" style={{ color: "#FFB3C1" }}>
-                    {storyDescription}
-                  </p>
+                  <p className="text-xs mt-0.5 leading-relaxed line-clamp-1 text-slate-400">{storyDescription}</p>
                 )}
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button onClick={() => setShowStorySheet(true)}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-80"
-                  style={{ background: "rgba(162,210,233,0.15)", color: "#FFB3C1", border: "1px solid rgba(162,210,233,0.25)" }}>
-                  <Eye className="w-3.5 h-3.5" />View Story
-                </button>
-                <button
-                  onClick={() => setRunMode(true)}
-                  disabled={testCases.length === 0}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-                  style={{ background: "rgba(162,210,233,0.25)", color: "#ffffff", border: "1px solid rgba(162,210,233,0.3)" }}>
-                  <Play className="w-3.5 h-3.5" />Run Tests
-                </button>
-                <button onClick={() => setShowExportDialog(true)} disabled={testCases.length === 0}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-                  style={{ background: "#FFB3C1", color: "#1A1A2E" }}>
-                  <Code2 className="w-3.5 h-3.5" />Export Script
-                </button>
-                <button onClick={handleDownload}
-                  className="h-8 px-3 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 hover:opacity-90 transition-opacity"
-                  style={{ background: "#FF4D6D" }}>
-                  <Download className="w-3.5 h-3.5" />Download
-                </button>
-              </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* ── Split pane ───────────────────────────────────── */}
-          <div className="flex-1 flex gap-0 mx-6 mt-4 mb-6 rounded-2xl overflow-hidden border border-[#F0F0F0] shadow-sm"
-            style={{ background: "#ffffff", minHeight: 0 }}>
+          <div className="flex-1 flex gap-0 mx-6 mt-4 mb-6 rounded-xl overflow-hidden border border-border shadow-sm bg-white min-h-0">
 
             {runMode ? (
               <RunMode storyId={storyId} testCases={testCases} onExit={() => setRunMode(false)} />
             ) : loading ? (
               <div className="flex-1 flex items-center justify-center py-16">
-                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#FF4D6D]">
-                  <div className="w-5 h-5 border-2 border-[#FF4D6D] border-t-transparent rounded-full animate-spin" />
+                <div className="inline-flex items-center gap-3 text-sm font-semibold text-cyan">
+                  <div className="w-5 h-5 border-2 border-cyan border-t-transparent rounded-full animate-spin" />
                   Loading test cases…
                 </div>
               </div>
             ) : error ? (
-              <div className="flex-1 flex items-center justify-center py-16 text-sm font-semibold text-red-500">{error}</div>
+              <div className="flex-1 flex items-center justify-center py-16 text-sm font-semibold text-destructive">{error}</div>
             ) : testCases.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center py-16 text-sm text-[#9ca3af]">No test cases found.</div>
+              <div className="flex-1 flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: "#ECFEFF" }}>
+                  <ListChecks className="w-6 h-6 text-cyan" />
+                </div>
+                <p className="text-sm font-medium text-foreground mb-1">No tests generated.</p>
+                <p className="text-sm text-muted-foreground">Generate tests from this story.</p>
+              </div>
             ) : (
               <>
-                {/* ── LEFT: numbered list ──────────────────── */}
-                <div className="w-72 flex-shrink-0 flex flex-col border-r border-[#EBEBEB] overflow-hidden">
-                  {/* list header */}
-                  <div className="px-4 py-3 border-b border-[#F0F0F0] flex items-center justify-between flex-shrink-0"
-                    style={{ background: "#FAFAFA" }}>
-                    <div className="flex items-center gap-2">
-                      <ListChecks className="w-3.5 h-3.5 text-[#FF4D6D]" />
-                      <span className="text-xs font-bold uppercase tracking-widest text-[#6B7280]">Test Cases</span>
+                {/* ── LEFT: test list ──────────────────────── */}
+                <div className="w-72 flex-shrink-0 flex flex-col border-r border-border overflow-hidden">
+                  {/* search + filters */}
+                  <div className="px-3 py-3 border-b border-border flex-shrink-0 space-y-2" style={{ background: "#F8FAFC" }}>
+                    <div className="flex items-center gap-2 h-8 px-3 rounded-lg bg-white border border-border">
+                      <ListChecks className="w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        className="flex-1 text-xs bg-transparent outline-none placeholder:text-muted-foreground"
+                        placeholder="Search test cases…"
+                        value={searchQuery}
+                        onChange={e => { setSearchQuery(e.target.value); setActiveIdx(0) }}
+                      />
+                      {searchQuery && (
+                        <button onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-                      style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
-                      {testCases.length}
-                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {["all", "high", "medium", "low"].map(p => (
+                        <button key={p} onClick={() => { setFilterPriority(p); setActiveIdx(0) }}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all capitalize"
+                          style={filterPriority === p
+                            ? { background: "#0F172A", color: "#fff" }
+                            : { background: "#F8FAFC", color: "#64748B", border: "1px solid #E2E8F0" }}>
+                          {p === "all" ? "All" : p}
+                        </button>
+                      ))}
+                      <span className="text-[10px] px-2 py-0.5 rounded-full ml-auto font-semibold" style={{ background: "#ECFEFF", color: "#06B6D4" }}>
+                        {filteredTCs.length}
+                      </span>
+                    </div>
                   </div>
 
                   {/* list rows */}
                   <div className="flex-1 overflow-y-auto">
-                    {testCases.map((tc, idx) => {
-                      const ps = priorityStyle(tc.priority);
-                      const isActive = activeIdx === idx;
-                      return (
-                        <button
-                          key={tc.test_case_id || tc.id || idx}
-                          onClick={() => setActiveIdx(idx)}
-                          className="w-full text-left flex items-center gap-3 px-4 py-3 transition-all relative"
-                          style={{
-                            background: isActive ? "#FFF0F3" : "transparent",
-                            borderBottom: "1px solid #FFE4E8",
-                          }}
-                        >
-                          {/* active indicator bar */}
-                          {isActive && (
-                            <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-r"
-                              style={{ background: "#FF4D6D" }} />
-                          )}
-
-                          {/* number badge */}
-                          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors"
-                            style={{
-                              background: isActive ? "#FF4D6D" : "#FFF0F3",
-                              color: isActive ? "#ffffff" : "#FF4D6D",
-                            }}>
-                            {idx + 1}
-                          </div>
-
-                          {/* title + id */}
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold truncate leading-tight"
-                              style={{ color: isActive ? "#1A1A2E" : "#374151" }}>
-                              {tc.title}
+                    <AnimatePresence>
+                      {filteredTCs.map((tc, idx) => {
+                        const ps = priorityStyle(tc.priority);
+                        const isActive = activeIdx === idx;
+                        return (
+                          <motion.button
+                            key={tc.test_case_id || tc.id || idx}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            onClick={() => setActiveIdx(idx)}
+                            className="w-full text-left flex items-center gap-3 px-4 py-3 transition-all relative border-b border-border"
+                            style={{ background: isActive ? "#ECFEFF" : "transparent" }}
+                          >
+                            {isActive && (
+                              <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-r" style={{ background: "#06B6D4" }} />
+                            )}
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors"
+                              style={{
+                                background: isActive ? "#06B6D4" : "#F8FAFC",
+                                color: isActive ? "#fff" : "#64748B",
+                                border: isActive ? "1px solid #06B6D4" : "1px solid #E2E8F0",
+                              }}>
+                              {idx + 1}
                             </div>
-                            <div className="text-[10px] font-mono mt-0.5 truncate" style={{ color: "#9ca3af" }}>
-                              {tc.test_case_id || tc.id || "—"}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-semibold truncate leading-tight" style={{ color: isActive ? "#0F172A" : "#374151" }}>
+                                {tc.title}
+                              </div>
+                              <div className="text-[10px] font-mono mt-0.5 truncate text-muted-foreground">
+                                {tc.test_case_id || tc.id || "—"}
+                              </div>
                             </div>
-                          </div>
-
-                          {/* priority dot */}
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ps.dot }} />
-                        </button>
-                      );
-                    })}
+                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: ps.dot }} />
+                          </motion.button>
+                        );
+                      })}
+                    </AnimatePresence>
                   </div>
 
                   {/* priority legend */}
-                  <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
-                    style={{ borderTop: "1px solid #FFE4E8", background: "#FAFAFA" }}>
-                    {[["high","#be123c"],["medium","#b45309"],["low","#15803d"]].map(([l, c]) => (
+                  <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0 border-t border-border" style={{ background: "#F8FAFC" }}>
+                    {[["high","#EF4444"],["medium","#F59E0B"],["low","#10B981"]].map(([l, c]) => (
                       <div key={l} className="flex items-center gap-1">
                         <div className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />
-                        <span className="text-[10px] capitalize" style={{ color: "#9ca3af" }}>{l}</span>
+                        <span className="text-[10px] capitalize text-muted-foreground">{l}</span>
                       </div>
                     ))}
                   </div>
@@ -320,50 +325,48 @@ export default function StoryTestCasesPage() {
 
                 {/* ── RIGHT: detail panel ──────────────────── */}
                 {activeTC && (
-                  <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-
+                  <motion.div
+                    key={activeIdx}
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex-1 flex flex-col overflow-hidden min-w-0"
+                  >
                     {/* detail header */}
-                    <div className="px-6 py-4 flex-shrink-0 border-b border-[#F0F0F0]"
-                      style={{ background: "#FAFAFA" }}>
+                    <div className="px-6 py-4 flex-shrink-0 border-b border-border" style={{ background: "#F8FAFC" }}>
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <h2 className="text-base font-bold text-[#1A1A2E] leading-tight">
-                            {activeTC.title}
-                          </h2>
+                          <h2 className="text-base font-bold text-foreground leading-tight">{activeTC.title}</h2>
                           <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-[11px] font-mono text-[#9ca3af]">
-                              {activeTC.test_case_id || activeTC.id || "—"}
-                            </span>
+                            <span className="text-[11px] font-mono text-muted-foreground">{activeTC.test_case_id || activeTC.id || "—"}</span>
                             {(() => {
                               const ps = priorityStyle(activeTC.priority);
                               return (
                                 <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
                                   style={{ background: ps.bg, color: ps.color, border: `1px solid ${ps.border}` }}>
-                                  {activeTC.priority || "low"} priority
+                                  {ps.label} priority
                                 </span>
                               );
                             })()}
                             <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                              style={{ background: "rgba(55,122,207,0.08)", color: "#FF4D6D" }}>
+                              style={{ background: "#EEF2FF", color: "#4F46E5" }}>
                               <Brain className="w-2.5 h-2.5" />AI
                             </span>
                           </div>
                         </div>
-                        {/* next / prev */}
+                        {/* prev / next */}
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => setActiveIdx(i => Math.max(0, i - 1))}
                             disabled={activeIdx === 0}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] transition-colors hover:bg-[#FFF8FA] disabled:opacity-30"
-                            style={{ color: "#6B7280" }}>
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-border transition-colors hover:bg-muted disabled:opacity-30 text-muted-foreground">
                             <ChevronRight className="w-3.5 h-3.5 rotate-180" />
                           </button>
-                          <span className="text-xs text-[#9ca3af] px-1">{activeIdx + 1}/{testCases.length}</span>
+                          <span className="text-xs text-muted-foreground px-1">{activeIdx + 1}/{filteredTCs.length}</span>
                           <button
-                            onClick={() => setActiveIdx(i => Math.min(testCases.length - 1, i + 1))}
-                            disabled={activeIdx === testCases.length - 1}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-[#F0F0F0] transition-colors hover:bg-[#FFF8FA] disabled:opacity-30"
-                            style={{ color: "#6B7280" }}>
+                            onClick={() => setActiveIdx(i => Math.min(filteredTCs.length - 1, i + 1))}
+                            disabled={activeIdx === filteredTCs.length - 1}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center border border-border transition-colors hover:bg-muted disabled:opacity-30 text-muted-foreground">
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -377,41 +380,34 @@ export default function StoryTestCasesPage() {
                         {/* Steps */}
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-lg flex items-center justify-center"
-                              style={{ background: "#FFF0F3" }}>
-                              <ListChecks className="w-3 h-3 text-[#FF4D6D]" />
+                            <div className="w-5 h-5 rounded-lg flex items-center justify-center" style={{ background: "#ECFEFF" }}>
+                              <ListChecks className="w-3 h-3 text-cyan" />
                             </div>
-                            <span className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280]">
-                              Test Steps
-                            </span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                              style={{ background: "#FFF0F3", color: "#FF4D6D" }}>
+                            <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Test Steps</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: "#ECFEFF", color: "#06B6D4" }}>
                               {activeTC.steps?.length || 0}
                             </span>
                           </div>
-
                           <div className="space-y-2">
                             {activeTC.steps?.length ? activeTC.steps.map((step, i) => (
                               <div key={i} className="flex gap-3 items-start">
-                                {/* step number with connecting line */}
                                 <div className="flex flex-col items-center flex-shrink-0">
                                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
-                                    style={{ background: "#FF4D6D" }}>
+                                    style={{ background: "#06B6D4" }}>
                                     {i + 1}
                                   </div>
                                   {i < (activeTC.steps?.length ?? 0) - 1 && (
-                                    <div className="w-px flex-1 mt-1" style={{ background: "#FCA5A5", minHeight: 12 }} />
+                                    <div className="w-px flex-1 mt-1" style={{ background: "#A5F3FC", minHeight: 12 }} />
                                   )}
                                 </div>
                                 <div className="flex-1 pb-2">
-                                  <div className="rounded-xl px-3 py-2.5 text-sm text-[#374151] leading-relaxed"
-                                    style={{ background: "#FFF0F3", border: "1px solid #FFE4E8" }}>
+                                  <div className="rounded-lg px-3 py-2.5 text-sm text-foreground leading-relaxed border border-border bg-white">
                                     {step}
                                   </div>
                                 </div>
                               </div>
                             )) : (
-                              <div className="flex items-center gap-2 text-sm text-[#9ca3af] italic px-2">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground italic px-2">
                                 <Info className="w-4 h-4 flex-shrink-0" />No steps defined.
                               </div>
                             )}
@@ -421,15 +417,11 @@ export default function StoryTestCasesPage() {
                         {/* Expected Results */}
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-lg flex items-center justify-center"
-                              style={{ background: "#f0fdf4" }}>
-                              <CheckCircle2 className="w-3 h-3 text-[#15803d]" />
+                            <div className="w-5 h-5 rounded-lg flex items-center justify-center" style={{ background: "#ECFDF5" }}>
+                              <CheckCircle2 className="w-3 h-3 text-success" />
                             </div>
-                            <span className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280]">
-                              Expected Result
-                            </span>
+                            <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Expected Result</span>
                           </div>
-
                           <div className="space-y-2">
                             {(() => {
                               const results = activeTC.expected_results?.length
@@ -438,31 +430,24 @@ export default function StoryTestCasesPage() {
                               return results.length ? results.map((r, i) => (
                                 <div key={i} className="flex gap-3 items-start">
                                   <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-                                    style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0" }}>
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-[#15803d]" />
+                                    style={{ background: "#ECFDF5", border: "1.5px solid #A7F3D0" }}>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-success" />
                                   </div>
-                                  <div className="flex-1 rounded-xl px-3 py-2.5 text-sm text-[#374151] leading-relaxed"
-                                    style={{ background: "#FFF0F3", border: "1px solid #FFE4E8" }}>
+                                  <div className="flex-1 rounded-lg px-3 py-2.5 text-sm text-foreground leading-relaxed border border-border bg-white">
                                     {r}
                                   </div>
                                 </div>
                               )) : (
-                                <div className="flex items-center gap-2 text-sm text-[#9ca3af] italic px-2">
-                                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-[#fde68a]" />
-                                  No expected results defined.
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground italic px-2">
+                                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-warning" />No expected results defined.
                                 </div>
                               );
                             })()}
                           </div>
-
-                          {/* description if exists */}
                           {activeTC.description && (
                             <div className="mt-4">
-                              <div className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280] mb-2">
-                                Description
-                              </div>
-                              <div className="rounded-xl px-4 py-3 text-sm text-[#374151] leading-relaxed"
-                                style={{ background: "#FFF0F3", border: "1px solid #FFE4E8" }}>
+                              <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Description</div>
+                              <div className="rounded-lg px-4 py-3 text-sm text-foreground leading-relaxed border border-border bg-white">
                                 {activeTC.description}
                               </div>
                             </div>
@@ -470,7 +455,7 @@ export default function StoryTestCasesPage() {
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
               </>
             )}
@@ -481,26 +466,26 @@ export default function StoryTestCasesPage() {
       {/* ═══════ STORY CONTENT SHEET ═══════ */}
       <Sheet open={showStorySheet} onOpenChange={setShowStorySheet}>
         <SheetContent side="right" className="w-[440px] p-0 flex flex-col gap-0">
-          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#1A1A2E" }}>
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F172A" }}>
             <SheetHeader>
               <SheetTitle className="text-white text-base font-bold">Story Content</SheetTitle>
-              <SheetDescription style={{ color: "#FFB3C1" }}>ID: {storyId}</SheetDescription>
+              <SheetDescription style={{ color: "#64748B" }}>ID: {storyId}</SheetDescription>
             </SheetHeader>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ background: "#FAFAFA" }}>
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-background">
             {storyDescription && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">AI Description</div>
-                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
-                  <p className="text-sm text-[#374151] leading-relaxed">{storyDescription}</p>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2">AI Description</div>
+                <div className="rounded-xl p-4 bg-white border border-border">
+                  <p className="text-sm text-foreground leading-relaxed">{storyDescription}</p>
                 </div>
               </div>
             )}
             {storyContent && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Full Content</div>
-                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
-                  <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{storyContent}</p>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Full Content</div>
+                <div className="rounded-xl p-4 bg-white border border-border">
+                  <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{storyContent}</p>
                 </div>
               </div>
             )}

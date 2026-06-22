@@ -14,7 +14,9 @@ import {
   ArrowUp,
   ArrowDown,
 } from "lucide-react";
-import { stories, testCases, changeRequests, coverageGaps } from "@/lib/seed";
+import { api } from "@/lib/api";
+import { domainStoryToSeed } from "@/lib/adapters";
+import { useProject } from "@/contexts/ProjectContext";
 
 type ResultKind = "story" | "test" | "change" | "coverage" | "nav";
 
@@ -45,67 +47,37 @@ const NAV_ITEMS: CommandItem[] = [
   { id: "nav-compare", kind: "nav", title: "Compare", href: "/compare", keywords: "compare diff" },
   { id: "nav-exports", kind: "nav", title: "Exports", href: "/exports", keywords: "exports download" },
   { id: "nav-settings", kind: "nav", title: "Settings", href: "/settings", keywords: "settings preferences" },
+  { id: "nav-kanban", kind: "nav", title: "Kanban", href: "/kanban", keywords: "kanban board" },
 ];
-
-/** Flatten all searchable seed data into a single command index. */
-function buildIndex(): CommandItem[] {
-  const items: CommandItem[] = [...NAV_ITEMS];
-
-  for (const s of stories) {
-    items.push({
-      id: `story:${s.id}`,
-      kind: "story",
-      title: s.title,
-      subtitle: `${s.id} · ${s.coverage}% coverage · ${s.testCount} tests`,
-      href: `/stories/${s.id}`,
-      keywords: `${s.id} ${s.title} ${s.type} ${s.status}`,
-    });
-  }
-  for (const t of testCases) {
-    items.push({
-      id: `test:${t.id}`,
-      kind: "test",
-      title: t.title,
-      subtitle: `${t.id} · ${t.type} · ${t.priority}`,
-      href: `/stories/${t.storyId}`,
-      keywords: `${t.id} ${t.title} ${t.type} ${t.priority}`,
-    });
-  }
-  for (const c of changeRequests) {
-    items.push({
-      id: `change:${c.id}`,
-      kind: "change",
-      title: c.title,
-      subtitle: `${c.id} · Impact ${c.impactScore} · ${c.status}`,
-      href: `/changes/${c.id}`,
-      keywords: `${c.id} ${c.title} ${c.impactScore} ${c.status}`,
-    });
-  }
-  for (const g of coverageGaps) {
-    items.push({
-      id: `coverage:${g.id}`,
-      kind: "coverage",
-      title: g.title,
-      subtitle: `${g.type} gap · ${g.severity}`,
-      href: `/coverage`,
-      keywords: `${g.title} ${g.description} ${g.type} ${g.severity}`,
-    });
-  }
-  return items;
-}
 
 const RECENT_KEY = "testsurge:recent-searches";
 
 export function CommandPalette() {
   const router = useRouter();
+  const { selectedProject } = useProject();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
+  const [storyItems, setStoryItems] = useState<CommandItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const index = useMemo(buildIndex, []);
+  // Load real stories from API when palette opens
+  useEffect(() => {
+    if (!open) return;
+    api.getStories(1, 200).then(res => {
+      const items: CommandItem[] = res.data.map(domainStoryToSeed).map(s => ({
+        id: `story:${s.id}`,
+        kind: "story" as ResultKind,
+        title: s.title,
+        subtitle: `${s.id} · ${s.testCount} tests${s.impactCount > 0 ? ` · ${s.impactCount} impacts` : ''}`,
+        href: `/stories/${s.id}`,
+        keywords: `${s.id} ${s.title} ${s.status}`,
+      }));
+      setStoryItems(items);
+    }).catch(() => {});
+  }, [open]);
 
   // Load recent searches.
   useEffect(() => {
@@ -153,18 +125,19 @@ export function CommandPalette() {
     }
   }, [open]);
 
-  // Filtered results (max 8).
+  // Filtered results (max 10).
   const results = useMemo(() => {
+    const allItems = [...NAV_ITEMS, ...storyItems];
     const q = query.trim().toLowerCase();
     if (!q) return [] as CommandItem[];
-    return index
+    return allItems
       .filter((it) =>
         `${it.title} ${it.subtitle ?? ""} ${it.keywords}`
           .toLowerCase()
           .includes(q)
       )
-      .slice(0, 8);
-  }, [query, index]);
+      .slice(0, 10);
+  }, [query, storyItems]);
 
   // Keep active index in range.
   useEffect(() => {

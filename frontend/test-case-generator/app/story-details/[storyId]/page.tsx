@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -9,7 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Brain, FileText, Eye, AlertCircle,
-  LayoutDashboard, Clock, ChevronRight, ShieldCheck, Code2, Download,
+  ChevronRight, ShieldCheck, Code2, Download, BookOpen,
 } from "lucide-react";
 import { Chatbot } from "@/components/chatbot";
 import { Btn } from "@/components/ui/btn";
@@ -20,12 +21,11 @@ import { api, TestCase } from "@/lib/api";
 function EmptyImpactState({ highOnly }: { highOnly: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-16 px-6">
-      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
-        style={{ background: "#E1F5F8" }}>
-        <ShieldCheck className="w-7 h-7" style={{ color: "#FF4D6D" }} />
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4" style={{ background: "#ECFDF5" }}>
+        <ShieldCheck className="w-7 h-7 text-success" />
       </div>
-      <h3 className="text-sm" style={{ color: "#1A1A2E", fontWeight: 500 }}>No impacted test cases</h3>
-      <p className="text-sm mt-1 max-w-xs" style={{ color: "#6B7280" }}>
+      <h3 className="text-sm font-medium text-foreground">No impacted test cases</h3>
+      <p className="text-sm mt-1 max-w-xs text-muted-foreground">
         {highOnly
           ? "No high-severity modifications were found for this story."
           : "This story did not modify any existing test cases."}
@@ -64,6 +64,17 @@ function formatRagTestCases(tc: any[]) {
   }).join("\n\n");
 }
 
+const sevStyle = (s?: string) => {
+  if (s === "high")   return { bg: "#FEF2F2", color: "#EF4444", border: "#FCA5A5", bar: "#EF4444" };
+  if (s === "medium") return { bg: "#FFFBEB", color: "#F59E0B", border: "#FDE68A", bar: "#F59E0B" };
+  return                     { bg: "#ECFDF5", color: "#10B981", border: "#A7F3D0", bar: "#10B981" };
+};
+const priStyle = (p?: string) => {
+  if (p === "high")   return { bg: "#FEF2F2", color: "#EF4444", border: "#FCA5A5" };
+  if (p === "medium") return { bg: "#FFFBEB", color: "#F59E0B", border: "#FDE68A" };
+  return                     { bg: "#F0FDF4", color: "#10B981", border: "#A7F3D0" };
+};
+
 export default function StoryImpactAnalysisPage() {
   const params = useParams();
   const router = useRouter();
@@ -78,18 +89,21 @@ export default function StoryImpactAnalysisPage() {
   const [loading, setLoading] = useState(false);
   const [loadingOriginal, setLoadingOriginal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState("");
   const [selectedTC, setSelectedTC] = useState<ImpactedTestCase | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [showStorySheet, setShowStorySheet] = useState(false);
   const [summary, setSummary] = useState({ total: 0, impacted: 0, pct: 0, high: 0, medium: 0, low: 0 });
   const [highOnly, setHighOnly] = useState(false);
-
-  /* export script — lazy-loaded story test cases */
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportTestCases, setExportTestCases] = useState<TestCase[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
+    role: "assistant",
+    content: "Hello! I can help you understand this impact analysis. What would you like to know?",
+  }]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<"gemini" | "rag">("rag");
 
   const openExport = async () => {
     setExportLoading(true);
@@ -118,19 +132,6 @@ export default function StoryImpactAnalysisPage() {
     ? impacted.filter(tc => (tc.impacts[0]?.impact_severity || tc.severity) === "high")
     : impacted;
 
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([{
-    role: "assistant",
-    content: "Hello! I can help you understand this impact analysis. What would you like to know?",
-  }]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<"gemini" | "rag">("rag");
-
-  useEffect(() => {
-    const t = setInterval(() => setCurrentTime(new Date().toLocaleTimeString()), 1000);
-    setCurrentTime(new Date().toLocaleTimeString());
-    return () => clearInterval(t);
-  }, []);
-
   useEffect(() => {
     if (!storyId || !projectId) return;
     (async () => {
@@ -139,10 +140,9 @@ export default function StoryImpactAnalysisPage() {
         let data: any;
         try {
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/impacts/story-test-cases/${storyId}?project_id=${projectId}`);
-          if (!res.ok) throw new Error("Failed to fetch impact analysis");
+          if (!res.ok) throw new Error("Failed");
           data = await res.json();
         } catch {
-          // backend unreachable — use mock
           const { MOCK_IMPACT_MAP, MOCK_STORY_MAP } = await import("@/lib/mock-stories");
           data = MOCK_IMPACT_MAP[storyId] || { total_test_cases: "0", impacted_test_cases_count: "0", impact_percentage: "0", severity_summary: { high: "0", medium: "0", low: "0" }, impacted_test_cases: [] };
           const ms = MOCK_STORY_MAP[storyId];
@@ -179,7 +179,6 @@ export default function StoryImpactAnalysisPage() {
           low: parseInt(data.severity_summary.low),
         });
 
-        // Only fetch story from backend if not already set by mock above
         if (!storyDescription) {
           try {
             const sr = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}`);
@@ -201,8 +200,7 @@ export default function StoryImpactAnalysisPage() {
     (async () => {
       try {
         setLoadingOriginal(true);
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}/test-cases/${selectedTC.id}`)
-          .catch(() => null);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"}/api/stories/${storyId}/test-cases/${selectedTC.id}`).catch(() => null);
         if (!res || !res.ok) throw new Error();
         const d = await res.json();
         setSelectedTC(p => p ? { ...p, original_steps: d.test_steps || d.steps || [], original_expected_result: d.expected_result || "", original_title: d.title || d.test_title || p.original_title } : null);
@@ -229,17 +227,6 @@ export default function StoryImpactAnalysisPage() {
     finally { setIsGenerating(false); }
   };
 
-  const sevStyle = (s?: string) => {
-    if (s === "high") return { bg: "#fff1f2", color: "#be123c", border: "#fecdd3", bar: "#be123c" };
-    if (s === "medium") return { bg: "#fffbeb", color: "#b45309", border: "#fde68a", bar: "#b45309" };
-    return { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0", bar: "#15803d" };
-  };
-  const priStyle = (p?: string) => {
-    if (p === "high") return { bg: "#fdf4ff", color: "#7e22ce", border: "#e9d5ff" };
-    if (p === "medium") return { bg: "#eff6ff", color: "#1d4ed8", border: "#FDA4AF" };
-    return { bg: "#f9fafb", color: "#374151", border: "#e5e7eb" };
-  };
-
   const parsedModified = (tc: ImpactedTestCase | null) => {
     if (!tc?.impacts[0]?.impact_analysis_json) return null;
     try { return JSON.parse(tc.impacts[0].impact_analysis_json); } catch { return null; }
@@ -250,106 +237,120 @@ export default function StoryImpactAnalysisPage() {
       <AppSidebar />
       <SidebarInset>
         {/* Top bar */}
-        <header className="flex items-center justify-between h-14 px-5 border-b border-[#F0F0F0] sticky top-0 z-50" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(8px)" }}>
+        <header
+          className="flex items-center justify-between h-14 px-5 border-b border-border sticky top-0 z-50 bg-card"
+        >
           <div className="flex items-center gap-3">
-            <SidebarTrigger className="text-[#6B7280] hover:text-[#1A1A2E]" />
+            <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
             <Separator orientation="vertical" className="h-5" />
-            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-[#6B7280] hover:text-[#1A1A2E] transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Back
+            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-4 h-4" />Back
             </button>
             <Separator orientation="vertical" className="h-5" />
             <div className="flex items-center gap-1.5 text-sm">
-              <button onClick={() => router.push("/")} className="flex items-center gap-1.5 text-[#FF4D6D] hover:text-[#E11D48] cursor-pointer hover:underline transition-colors">
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Dashboard</span>
-              </button>
-              <ChevronRight className="w-3.5 h-3.5 text-[#FECDD3]" />
-              <span className="font-semibold text-[#1A1A2E]">Impact Analysis</span>
+              <BookOpen className="w-4 h-4 text-muted-foreground" />
+              <button onClick={() => router.push("/")} className="text-muted-foreground hover:text-foreground transition-colors">Stories</button>
+              <ChevronRight className="w-3.5 h-3.5 text-border" />
+              <span className="font-semibold text-foreground">Impact Analysis</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 font-mono text-sm font-bold text-[#1A1A2E]">
-            <Clock className="w-4 h-4 text-[#FF4D6D]" />
-            {currentTime || "—"}
+          <div className="flex items-center gap-2">
+            <button onClick={() => router.push(`/test-cases/${storyId}`)}
+              className="h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-border hover:bg-muted transition-colors text-muted-foreground">
+              <FileText className="w-3.5 h-3.5" />View Test Cases
+            </button>
+            <button onClick={() => setShowStorySheet(true)}
+              className="h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-border hover:bg-muted transition-colors text-muted-foreground">
+              <Eye className="w-3.5 h-3.5" />View Story
+            </button>
+            <button onClick={openExport}
+              className="h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-border hover:bg-muted transition-colors text-muted-foreground">
+              <Code2 className="w-3.5 h-3.5" />Export Script
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+              onClick={handleDownload}
+              className="h-8 px-3 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+              style={{ background: "#06B6D4" }}>
+              <Download className="w-3.5 h-3.5" />Download
+            </motion.button>
           </div>
         </header>
 
-        <div className="p-6 space-y-5" style={{ background: "#FAFAFA", minHeight: "calc(100vh - 56px)" }}>
+        <div className="p-6 space-y-5" style={{ background: "#F8FAFC", minHeight: "calc(100vh - 56px)" }}>
 
-          {/* Story header card */}
-          <div className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm overflow-hidden">
-            <div className="px-6 py-5" style={{ background: "#1A1A2E" }}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
+          {/* Story header */}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl overflow-hidden"
+            style={{ background: "#0F172A" }}
+          >
+            <div className="px-6 py-5">
+              <div className="flex items-start gap-4">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2.5 mb-2 flex-wrap">
-                    <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(162,210,233,0.15)", color: "#FFB3C1" }}>
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(6,182,212,0.2)", color: "#06B6D4" }}>
                       <Brain className="w-3.5 h-3.5" />{impacted.length} Modified Test Cases
                     </span>
                     {storyProject && (
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5" style={{ background: "rgba(162,210,233,0.15)", color: "#FFB3C1" }}>
-                        <FileText className="w-3.5 h-3.5" />{storyProject}
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(255,255,255,0.08)", color: "#CBD5E1" }}>
+                        {storyProject}
                       </span>
                     )}
                   </div>
                   <h1 className="text-lg font-bold text-white">Impact Analysis — Story {storyId}</h1>
                   {storyDescription && (
-                    <p className="text-sm mt-1 leading-relaxed" style={{ color: "#FFB3C1" }}>{storyDescription}</p>
+                    <p className="text-sm mt-1 leading-relaxed text-slate-400">{storyDescription}</p>
                   )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Btn variant="dark-ghost" onClick={() => router.push(`/test-cases/${storyId}`)}>
-                    <FileText className="w-3.5 h-3.5" />View Test Cases
-                  </Btn>
-                  <Btn variant="dark-ghost" onClick={() => setShowStorySheet(true)}>
-                    <Eye className="w-3.5 h-3.5" />View Story
-                  </Btn>
-                  <Btn variant="dark-ghost" onClick={openExport}>
-                    <Code2 className="w-3.5 h-3.5" />Export Script
-                  </Btn>
-                  <Btn variant="dark-ghost" onClick={handleDownload}>
-                    <Download className="w-3.5 h-3.5" />Download
-                  </Btn>
                 </div>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Stat cards */}
           {!loading && !error && (
-            <div className="grid grid-cols-4 gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="grid grid-cols-4 gap-4"
+            >
               {[
-                { label: "Total Test Cases", value: summary.total, color: "#1A1A2E" },
-                { label: "Modified", value: summary.impacted, color: "#E11D48" },
-                { label: "Modification %", value: `${summary.pct}%`, color: "#FF4D6D" },
+                { label: "Total Test Cases",   value: summary.total,    color: "#0F172A", bg: "#F8FAFC", border: "#E2E8F0" },
+                { label: "Modified",           value: summary.impacted, color: "#EF4444", bg: "#FEF2F2", border: "#FCA5A5" },
+                { label: "Modification %",     value: `${summary.pct}%`, color: "#06B6D4", bg: "#ECFEFF", border: "#A5F3FC" },
                 {
                   label: "Severity Breakdown",
+                  value: null,
                   custom: (
                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                       {[["H", summary.high, "high"], ["M", summary.medium, "medium"], ["L", summary.low, "low"]].map(([l, v, s]) => {
-                        // H stays red (danger), L stays green (safe); M becomes neutral teal (not amber)
-                        const st = s === "medium"
-                          ? { bg: "#E1F5F8", color: "#E11D48", border: "#FF4D6D" }
-                          : sevStyle(s as string);
-                        return <span key={l as string} className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{l}: {v}</span>;
+                        const st = sevStyle(s as string);
+                        return <span key={l as string} className="px-2 py-0.5 rounded-full text-xs font-bold"
+                          style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{l}: {v}</span>;
                       })}
                     </div>
                   ),
+                  color: "#0F172A", bg: "#FFFFFF", border: "#E2E8F0",
                 },
               ].map((s, i) => (
-                <div key={i} className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm px-5 py-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] mb-1">{s.label}</div>
+                <div key={i} className="bg-white rounded-xl border px-5 py-4" style={{ borderColor: s.border, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{s.label}</div>
                   {s.custom ? s.custom : <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>}
                 </div>
               ))}
-            </div>
+            </motion.div>
           )}
 
-          {/* Impact cards list */}
-          <div className="bg-white rounded-2xl border border-[#F0F0F0] shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[#F0F0F0] flex items-center gap-2">
-              <Brain className="w-4 h-4 text-[#FF4D6D]" />
-              <span className="font-semibold text-sm text-[#1A1A2E]">Modified Test Cases</span>
-              {!loading && <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#E1F5F8] text-[#FF4D6D]">{visibleImpacted.length}</span>}
-              {/* High-severity-only unified toggle */}
+          {/* Impact list */}
+          <div className="bg-white rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(15,23,42,0.06)" }}>
+            <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
+              <Brain className="w-4 h-4 text-cyan" />
+              <span className="font-semibold text-sm text-foreground">Modified Test Cases</span>
+              {!loading && (
+                <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ECFEFF] text-cyan">{visibleImpacted.length}</span>
+              )}
               <span className="ml-auto">
                 <Toggle
                   checked={highOnly}
@@ -362,24 +363,28 @@ export default function StoryImpactAnalysisPage() {
 
             {loading ? (
               <div className="py-16 text-center">
-                <div className="inline-flex items-center gap-3 text-sm font-semibold text-[#FF4D6D]">
-                  <div className="w-5 h-5 border-2 border-[#FF4D6D] border-t-transparent rounded-full animate-spin" />Loading…
+                <div className="inline-flex items-center gap-3 text-sm font-semibold text-cyan">
+                  <div className="w-5 h-5 border-2 border-cyan border-t-transparent rounded-full animate-spin" />Loading…
                 </div>
               </div>
             ) : error ? (
-              <div className="py-12 text-center text-sm font-semibold text-red-600">{error}</div>
+              <div className="py-12 text-center text-sm font-semibold text-destructive">{error}</div>
             ) : visibleImpacted.length === 0 ? (
               <EmptyImpactState highOnly={highOnly} />
             ) : (
-              <div className="divide-y divide-[#FFE4E8]">
+              <div className="divide-y divide-border">
                 {visibleImpacted.map((tc, idx) => {
                   const sev = sevStyle(tc.impacts[0]?.impact_severity);
                   const pri = priStyle(tc.impacts[0]?.impact_priority);
                   return (
-                    <div key={tc.id || idx}
+                    <motion.div
+                      key={tc.id || idx}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: idx * 0.03 }}
                       onClick={() => { setSelectedTC(tc); setShowOriginal(false); setShowDetail(true); }}
-                      className="flex items-center gap-4 px-5 py-4 cursor-pointer group hover:bg-[#E1F5F8] transition-colors">
-                      {/* severity bar + number */}
+                      className="flex items-center gap-4 px-5 py-4 cursor-pointer group hover:bg-[#ECFEFF] transition-colors"
+                    >
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <div className="w-1 h-10 rounded-full flex-shrink-0" style={{ background: sev.bar }} />
                         <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
@@ -387,22 +392,22 @@ export default function StoryImpactAnalysisPage() {
                           {idx + 1}
                         </div>
                       </div>
-                      {/* title + id */}
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-[#1A1A2E] truncate">{tc.modified_title}</div>
-                        <div className="text-xs text-[#9ca3af] font-mono mt-0.5">{`${tc.id}-MOD-${tc.impacts.length}`}</div>
+                        <div className="text-sm font-semibold text-foreground truncate">{tc.modified_title}</div>
+                        <div className="text-xs text-muted-foreground font-mono mt-0.5">{`${tc.id}-MOD-${tc.impacts.length}`}</div>
                       </div>
-                      {/* badges */}
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: sev.bg, color: sev.color, border: `1px solid ${sev.border}` }}>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold capitalize"
+                          style={{ background: sev.bg, color: sev.color, border: `1px solid ${sev.border}` }}>
                           {tc.impacts[0]?.impact_severity || "low"}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: pri.bg, color: pri.color, border: `1px solid ${pri.border}` }}>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold capitalize"
+                          style={{ background: pri.bg, color: pri.color, border: `1px solid ${pri.border}` }}>
                           {tc.impacts[0]?.impact_priority || "low"}
                         </span>
                       </div>
-                      <Eye className="w-4 h-4 text-[#FCA5A5] group-hover:text-[#FF4D6D] transition-colors flex-shrink-0" />
-                    </div>
+                      <Eye className="w-4 h-4 text-border group-hover:text-cyan transition-colors flex-shrink-0" />
+                    </motion.div>
                   );
                 })}
               </div>
@@ -413,16 +418,16 @@ export default function StoryImpactAnalysisPage() {
 
       {/* ═══════ IMPACT DETAIL DIALOG ═══════ */}
       <Dialog open={showDetail} onOpenChange={v => { setShowDetail(v); if (!v) setShowOriginal(false); }}>
-        <DialogContent className="max-w-3xl rounded-2xl border-0 p-0 overflow-hidden max-h-[90vh] flex flex-col" style={{ boxShadow: "0 24px 64px rgba(15,22,43,0.22)" }}>
-          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#1A1A2E" }}>
+        <DialogContent className="max-w-3xl rounded-xl border-0 p-0 overflow-hidden max-h-[90vh] flex flex-col" style={{ boxShadow: "0 24px 64px rgba(15,23,42,0.2)" }}>
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F172A" }}>
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-white flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(162,210,233,0.18)" }}>
-                  <FileText className="w-3.5 h-3.5" style={{ color: "#FFB3C1" }} />
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(6,182,212,0.2)" }}>
+                  <FileText className="w-3.5 h-3.5 text-cyan" />
                 </div>
                 Test Case Details
               </DialogTitle>
-              <DialogDescription className="text-sm font-mono mt-0.5" style={{ color: "#FFB3C1" }}>
+              <DialogDescription className="text-sm font-mono mt-0.5 text-slate-500">
                 Original: {selectedTC?.id} · Modified: {selectedTC ? `${selectedTC.id}-MOD-${selectedTC.impacts.length}` : "—"}
               </DialogDescription>
             </DialogHeader>
@@ -433,75 +438,74 @@ export default function StoryImpactAnalysisPage() {
             const sev = sevStyle(selectedTC.impacts[0]?.impact_severity);
             const pri = priStyle(selectedTC.impacts[0]?.impact_priority);
             return (
-              <div className="overflow-y-auto flex-1 p-6 space-y-5" style={{ background: "#FAFAFA" }}>
+              <div className="overflow-y-auto flex-1 p-6 space-y-5 bg-background">
                 {/* Modified title */}
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#FF4D6D] mb-2">Modified Title</div>
-                  <div className="rounded-xl p-4 bg-[#eff6ff] border border-[#FDA4AF]">
-                    <p className="text-sm text-[#1e40af] font-medium">{selectedTC.modified_title}</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-cyan mb-2">Modified Title</div>
+                  <div className="rounded-xl p-4 bg-[#EFF6FF] border border-[#BFDBFE]">
+                    <p className="text-sm text-[#1E40AF] font-medium">{selectedTC.modified_title}</p>
                   </div>
                 </div>
 
                 {/* Impact reason */}
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#b45309] mb-2">Impact Reason</div>
-                  <div className="rounded-xl p-4 bg-[#fffbeb] border border-[#fde68a]">
-                    <p className="text-sm text-[#78350f]">{mod?.modification_reason || "No reason provided."}</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-warning mb-2">Impact Reason</div>
+                  <div className="rounded-xl p-4 bg-[#FFFBEB] border border-[#FDE68A]">
+                    <p className="text-sm text-[#78350F]">{mod?.modification_reason || "No reason provided."}</p>
                   </div>
                 </div>
 
                 {/* Modified steps + expected */}
-                <div className="rounded-xl p-4 border border-[#bbf7d0] space-y-4" style={{ background: "#f0fdf4" }}>
+                <div className="rounded-xl p-4 border border-[#A7F3D0] space-y-4" style={{ background: "#ECFDF5" }}>
                   <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-[#15803d]" />
-                    <span className="text-sm font-bold text-[#15803d]">Modified Test Case</span>
+                    <FileText className="w-4 h-4 text-success" />
+                    <span className="text-sm font-bold text-success">Modified Test Case</span>
                   </div>
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d] mb-2">Steps</div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-success mb-2">Steps</div>
                     <div className="space-y-2">
                       {mod?.modified_test_case?.steps?.map((s: string, i: number) => (
-                        <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#d1fae5]">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#16a34a" }}>{i + 1}</div>
-                          <p className="text-sm text-[#374151]">{s}</p>
+                        <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#D1FAE5]">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 bg-success">{i + 1}</div>
+                          <p className="text-sm text-foreground">{s}</p>
                         </div>
-                      )) || <p className="text-sm text-[#9ca3af] italic">No steps.</p>}
+                      )) || <p className="text-sm text-muted-foreground italic">No steps.</p>}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d] mb-2">Expected Result</div>
-                    <div className="rounded-xl p-4 bg-white border border-[#d1fae5]">
-                      <p className="text-sm text-[#374151]">{mod?.modified_test_case?.expected_result || "—"}</p>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-success mb-2">Expected Result</div>
+                    <div className="rounded-xl p-4 bg-white border border-[#D1FAE5]">
+                      <p className="text-sm text-foreground">{mod?.modified_test_case?.expected_result || "—"}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* References + priority grid */}
-                <div className="rounded-xl p-4 border border-[#F0F0F0] space-y-4" style={{ background: "#fafafa" }}>
+                {/* References */}
+                <div className="rounded-xl p-4 border border-border space-y-4 bg-card">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-[#6B7280]" />
-                    <span className="text-sm font-bold text-[#6B7280]">References</span>
+                    <FileText className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-bold text-muted-foreground">References</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-3">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#7e22ce] mb-1">Original Story</div>
-                        <div className="rounded-xl px-3 py-2 font-mono text-sm bg-[#fdf4ff] border border-[#e9d5ff] text-[#7e22ce]">{storyId}</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Original Story</div>
+                        <div className="rounded-lg px-3 py-2 font-mono text-sm bg-muted border border-border text-foreground">{storyId}</div>
                       </div>
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#7e22ce] mb-1">Original TC ID</div>
-                        <div className="rounded-xl px-3 py-2 font-mono text-sm bg-[#fdf4ff] border border-[#e9d5ff] text-[#7e22ce]">{selectedTC.id}</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Original TC ID</div>
+                        <div className="rounded-lg px-3 py-2 font-mono text-sm bg-muted border border-border text-foreground">{selectedTC.id}</div>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d] mb-1">New Story ID</div>
-                        <div className="rounded-xl px-3 py-2 font-mono text-sm bg-[#f0fdf4] border border-[#bbf7d0] text-[#15803d]">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">New Story ID</div>
+                        <div className="rounded-lg px-3 py-2 font-mono text-sm bg-muted border border-border text-foreground">
                           {selectedTC.impacts[0]?.impacting_story_id || "—"}
                         </div>
                       </div>
                       <button onClick={() => setShowOriginal(p => !p)}
-                        className="w-full h-9 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all hover:opacity-80"
-                        style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #FDA4AF" }}>
+                        className="w-full h-9 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all hover:opacity-80 border border-border bg-white text-foreground">
                         <Eye className="w-3.5 h-3.5" />{showOriginal ? "Hide Original" : "View Original"}
                       </button>
                     </div>
@@ -510,56 +514,56 @@ export default function StoryImpactAnalysisPage() {
                   {/* Priority comparison */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#7e22ce] mb-1">Original Priority</div>
-                      <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-[#fdf4ff] border border-[#e9d5ff]">
-                        <AlertCircle className="w-4 h-4 text-[#7e22ce]" />
-                        <span className="text-sm font-medium text-[#7e22ce]">{selectedTC.original_priority}</span>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Original Priority</div>
+                      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-muted border border-border">
+                        <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">{selectedTC.original_priority}</span>
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d] mb-1">Modified Priority</div>
-                      <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-[#f0fdf4] border border-[#bbf7d0]">
-                        <AlertCircle className="w-4 h-4 text-[#15803d]" />
-                        <span className="text-sm font-medium text-[#15803d]">{mod?.modified_test_case?.priority || "Medium"}</span>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Modified Priority</div>
+                      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-muted border border-border">
+                        <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">{mod?.modified_test_case?.priority || "Medium"}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Original TC (expandable) */}
+                {/* Original TC */}
                 {showOriginal && (
-                  <div className="rounded-xl p-4 border border-[#FDA4AF] space-y-4" style={{ background: "#eff6ff" }}>
+                  <div className="rounded-xl p-4 border border-[#BFDBFE] space-y-4 bg-[#EFF6FF]">
                     <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-[#1d4ed8]" />
-                      <span className="text-sm font-bold text-[#1d4ed8]">Original Test Case</span>
+                      <FileText className="w-4 h-4 text-[#1D4ED8]" />
+                      <span className="text-sm font-bold text-[#1D4ED8]">Original Test Case</span>
                     </div>
                     {loadingOriginal ? (
-                      <div className="text-sm text-center py-4 text-[#1d4ed8]">Loading…</div>
+                      <div className="text-sm text-center py-4 text-[#1D4ED8]">Loading…</div>
                     ) : (
                       <>
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1d4ed8] mb-2">Title</div>
-                          <div className="rounded-xl p-4 bg-white border border-[#FDA4AF]">
-                            <p className="text-sm text-[#374151]">{selectedTC.original_title || "—"}</p>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1D4ED8] mb-2">Title</div>
+                          <div className="rounded-xl p-4 bg-white border border-[#BFDBFE]">
+                            <p className="text-sm text-foreground">{selectedTC.original_title || "—"}</p>
                           </div>
                         </div>
                         {selectedTC.original_steps?.length ? (
                           <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1d4ed8] mb-2">Steps</div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1D4ED8] mb-2">Steps</div>
                             <div className="space-y-2">
                               {selectedTC.original_steps.map((s, i) => (
-                                <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#FDA4AF]">
-                                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: "#1d4ed8" }}>{i + 1}</div>
-                                  <p className="text-sm text-[#374151]">{s}</p>
+                                <div key={i} className="flex gap-3 px-3 py-2.5 rounded-xl bg-white border border-[#BFDBFE]">
+                                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 bg-[#1D4ED8]">{i + 1}</div>
+                                  <p className="text-sm text-foreground">{s}</p>
                                 </div>
                               ))}
                             </div>
                           </div>
                         ) : null}
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1d4ed8] mb-2">Expected Result</div>
-                          <div className="rounded-xl p-4 bg-white border border-[#FDA4AF]">
-                            <p className="text-sm text-[#374151]">{selectedTC.original_expected_result || "—"}</p>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1D4ED8] mb-2">Expected Result</div>
+                          <div className="rounded-xl p-4 bg-white border border-[#BFDBFE]">
+                            <p className="text-sm text-foreground">{selectedTC.original_expected_result || "—"}</p>
                           </div>
                         </div>
                       </>
@@ -567,21 +571,21 @@ export default function StoryImpactAnalysisPage() {
                   </div>
                 )}
 
-                {/* Severity / Priority / Date bar */}
-                <div className="flex items-center flex-wrap gap-4 px-4 py-3 rounded-xl bg-white border border-[#F0F0F0] text-sm">
+                {/* Severity / Priority bar */}
+                <div className="flex items-center flex-wrap gap-4 px-4 py-3 rounded-xl bg-white border border-border text-sm">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-[#6B7280]">Severity:</span>
-                    <span className="font-bold" style={{ color: sev.color }}>{selectedTC.impacts[0]?.impact_severity?.toUpperCase() || "LOW"}</span>
+                    <span className="font-medium text-muted-foreground">Severity:</span>
+                    <span className="font-bold capitalize" style={{ color: sev.color }}>{selectedTC.impacts[0]?.impact_severity || "low"}</span>
                   </div>
-                  <div className="w-px h-4 bg-[#FECDD3]" />
+                  <div className="w-px h-4 bg-border" />
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-[#6B7280]">Priority:</span>
-                    <span className="font-bold" style={{ color: pri.color }}>{selectedTC.impacts[0]?.impact_priority?.toUpperCase() || "LOW"}</span>
+                    <span className="font-medium text-muted-foreground">Priority:</span>
+                    <span className="font-bold capitalize" style={{ color: pri.color }}>{selectedTC.impacts[0]?.impact_priority || "low"}</span>
                   </div>
-                  <div className="w-px h-4 bg-[#FECDD3]" />
+                  <div className="w-px h-4 bg-border" />
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-[#6B7280]">Modified:</span>
-                    <span className="text-[#7e22ce]">
+                    <span className="font-medium text-muted-foreground">Modified:</span>
+                    <span className="text-foreground">
                       {selectedTC.impacts[0]?.impact_created_on ? new Date(selectedTC.impacts[0].impact_created_on).toLocaleString() : "—"}
                     </span>
                   </div>
@@ -595,26 +599,26 @@ export default function StoryImpactAnalysisPage() {
       {/* ═══════ STORY CONTENT SHEET ═══════ */}
       <Sheet open={showStorySheet} onOpenChange={setShowStorySheet}>
         <SheetContent side="right" className="w-[440px] p-0 flex flex-col gap-0">
-          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#1A1A2E" }}>
+          <div className="px-6 py-5 flex-shrink-0" style={{ background: "#0F172A" }}>
             <SheetHeader>
               <SheetTitle className="text-white text-base font-bold">Story Content</SheetTitle>
-              <SheetDescription style={{ color: "#FFB3C1" }}>ID: {storyId}</SheetDescription>
+              <SheetDescription style={{ color: "#64748B" }}>ID: {storyId}</SheetDescription>
             </SheetHeader>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ background: "#FAFAFA" }}>
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-background">
             {storyDescription && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">AI Description</div>
-                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
-                  <p className="text-sm text-[#374151] leading-relaxed">{storyDescription}</p>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2">AI Description</div>
+                <div className="rounded-xl p-4 bg-white border border-border">
+                  <p className="text-sm text-foreground leading-relaxed">{storyDescription}</p>
                 </div>
               </div>
             )}
             {storyContent && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Full Content</div>
-                <div className="rounded-xl p-4 bg-white border border-[#F0F0F0]">
-                  <p className="text-sm text-[#374151] whitespace-pre-wrap leading-relaxed">{storyContent}</p>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Full Content</div>
+                <div className="rounded-xl p-4 bg-white border border-border">
+                  <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{storyContent}</p>
                 </div>
               </div>
             )}

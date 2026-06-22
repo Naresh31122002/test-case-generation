@@ -41,14 +41,14 @@ import { get as apiGet } from "@/lib/apiClient";
 // default and refreshes after every AI action so the indicator never shows
 // another tenant's numbers or a stale hardcoded constant.
 
-const FALLBACK_CREDITS_TOTAL = 50;
+const FALLBACK_CREDITS_TOTAL = 200;
 
 /** Canonical cost catalog — single source of truth for AI action pricing. */
 export const AI_ACTION_COSTS = {
-  generateTests: 25,
-  impactAnalysis: 15,
-  coverageAnalysis: 10,
-  bulkProcessing: 80,
+  generateTests: 1,
+  impactAnalysis: 1,
+  coverageAnalysis: 1,
+  bulkProcessing: 5,
 } as const;
 
 /* ───────────────────────── Public API types ───────────────────────── */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Check, Clock, RefreshCw, Sparkles, TestTube2,
@@ -49,9 +49,105 @@ interface EditState {
   priority: string;
 }
 
+// ── Execution Panel (Pass/Fail/Skip) ─────────────────────────────────────────
+
+const RUN_COLORS = {
+  pass: 'bg-success/10 text-success border-success/30 hover:bg-success/20',
+  fail: 'bg-error/10 text-error border-error/30 hover:bg-error/20',
+  skip: 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100',
+} as const;
+
+const RUN_LABELS = { pass: '✓ Pass', fail: '✗ Fail', skip: '⟳ Skip' } as const;
+
+function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: string }) {
+  const [runs, setRuns] = useState<any[]>([]);
+  const [latest, setLatest] = useState<any>(null);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    api.getTestRuns(storyId, testCaseId)
+      .then(d => { setRuns(d.runs ?? []); setLatest(d.latest ?? null); })
+      .catch(() => {});
+  }, [storyId, testCaseId]);
+
+  async function record(status: 'pass' | 'fail' | 'skip') {
+    setSubmitting(status);
+    try {
+      const res = await api.recordTestRun(storyId, testCaseId, status, comment || undefined);
+      setLatest(res.run);
+      setRuns(prev => [res.run, ...prev].slice(0, 20));
+      setComment('');
+    } catch { /* silent */ }
+    finally { setSubmitting(null); }
+  }
+
+  return (
+    <div className="border border-border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] font-semibold text-navy">Execution</p>
+        {latest && (
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${RUN_COLORS[latest.run_status as keyof typeof RUN_COLORS]}`}>
+            Last: {latest.run_status.toUpperCase()} · {latest.run_by_name ?? latest.run_by_email ?? 'Unknown'}
+          </span>
+        )}
+      </div>
+
+      {/* Comment box */}
+      <textarea
+        value={comment}
+        onChange={e => setComment(e.target.value)}
+        placeholder="Add a comment (optional)…"
+        rows={2}
+        className="w-full px-3 py-2 text-xs border border-border rounded-lg focus:outline-none focus:border-pink resize-none placeholder:text-muted/60"
+      />
+
+      {/* Pass / Fail / Skip buttons */}
+      <div className="flex gap-2">
+        {(['pass', 'fail', 'skip'] as const).map(s => (
+          <button key={s} onClick={() => record(s)} disabled={!!submitting}
+            className={`flex-1 h-8 text-xs font-semibold rounded-btn border transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60 ${RUN_COLORS[s]}`}>
+            {submitting === s ? <Loader2 size={11} className="animate-spin" /> : null}
+            {RUN_LABELS[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* Run history */}
+      {runs.length > 0 && (
+        <div>
+          <button onClick={() => setExpanded(v => !v)} className="text-[11px] text-muted hover:text-navy flex items-center gap-1">
+            <ChevronDown size={11} className={expanded ? '' : '-rotate-90'} />
+            History ({runs.length})
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+              {runs.map((r, i) => (
+                <div key={r.id ?? i} className="text-[11px] flex items-start gap-2 py-1 border-b border-border/50 last:border-0">
+                  <span className={`font-bold uppercase flex-shrink-0 ${r.run_status === 'pass' ? 'text-success' : r.run_status === 'fail' ? 'text-error' : 'text-yellow-600'}`}>
+                    {r.run_status}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-navy font-medium">{r.run_by_name ?? r.run_by_email ?? 'Unknown'}</span>
+                    {r.comment && <p className="text-muted truncate">{r.comment}</p>}
+                  </div>
+                  <span className="text-muted flex-shrink-0">{r.run_at ? new Date(r.run_at).toLocaleDateString() : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; storyId: string }) {
   const [tests, setTests] = useState<TestCase[]>(initialTests);
   const [filter, setFilter] = useState<TestType | "All">("All");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(initialTests[0]?.id ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -100,6 +196,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   // Regenerate modal (single + bulk share the same modal)
   const [regenModalId, setRegenModalId] = useState<string | null>(null);  // null = bulk mode when regenBulkMode=true
   const [regenBulkMode, setRegenBulkMode] = useState(false);
+  const [regenSubmitting, setRegenSubmitting] = useState(false);
   const [regenInstructions, setRegenInstructions] = useState("");
   const [regenFile, setRegenFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +224,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
   const filtered = tests.filter((t) => {
     if (filter !== "All" && t.type !== filter) return false;
+    if (priorityFilter && t.priority !== priorityFilter) return false;
+    if (statusFilter && t.status !== statusFilter) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -154,18 +253,29 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const handleApprove = useCallback(async (testId: string) => {
     setApprovingIds((p) => new Set(p).add(testId));
     try {
-      const tc = tests.find((t) => t.id === testId);
-      const newStatus = tc?.status === 'Approved' ? 'Pending' : 'Approved';
-      await api.approveTestCase(storyId, testId, newStatus as any);
-      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: newStatus as any } : t));
-      showToast(newStatus === 'Approved' ? 'Test case approved ✓' : 'Approval removed');
+      await api.approveTestCase(storyId, testId, 'Approved');
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Approved' as any } : t));
+      showToast('Test case approved ✓');
       invalidateStories();
     } catch {
       showToast('Failed to update status', 'error');
     } finally {
       setApprovingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
     }
-  }, [storyId, tests]);
+  }, [storyId]);
+
+  const handleReject = useCallback(async (testId: string) => {
+    setApprovingIds((p) => new Set(p).add(testId));
+    try {
+      await api.approveTestCase(storyId, testId, 'Rejected');
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Rejected' as any } : t));
+      showToast('Test case rejected');
+    } catch {
+      showToast('Failed to update status', 'error');
+    } finally {
+      setApprovingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+    }
+  }, [storyId]);
 
   const handleBulkApprove = useCallback(async () => {
     setBulkLoading(true);
@@ -223,63 +333,56 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }, []);
 
   const handleRegenSubmit = useCallback(async () => {
+    setRegenSubmitting(true);
     if (regenBulkMode) {
-      // Bulk regen
-      setRegenModalId(null);
-      setBulkLoading(true);
       const ids = Array.from(checked);
-      // Mark all as regenerating
       setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Regenerating' as any } : t));
       try {
         const res = await api.bulkRegenerateTestCases(storyId, ids, regenInstructions || undefined, regenFile || undefined);
-        // Go to Phase 2 review for bulk
         const bulkResults = (res.test_cases || []).map((tc: any) => ({
-          id: tc.id,
-          title: tc.title,
-          steps: tc.steps,
-          expectedResult: tc.expected_result,
-          priority: tc.priority,
+          id: tc.id, title: tc.title, steps: tc.steps,
+          expectedResult: tc.expected_result, priority: tc.priority,
         }));
+        setRegenModalId(null); setRegenBulkMode(false);
         setReviewState({ testCaseId: null, original: null, result: bulkResults[0] ?? {} as any, isBulk: true, bulkResults });
         setRefineInstructions("");
       } catch {
         setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Pending' as any } : t));
         showToast('Bulk regeneration failed', 'error');
+        setRegenModalId(null); setRegenBulkMode(false);
       } finally {
-        setBulkLoading(false);
+        setRegenSubmitting(false); setBulkLoading(false);
         setRegenInstructions(""); setRegenFile(null);
       }
       return;
     }
 
-    if (!regenModalId) return;
+    if (!regenModalId) { setRegenSubmitting(false); return; }
     const tcId = regenModalId;
     const original = tests.find((t) => t.id === tcId) ?? null;
-    setRegenModalId(null);
-    setRegenIds((p) => new Set(p).add(tcId));
     setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Regenerating' as any } : t));
     try {
       const res = await api.regenerateSingleTestCase(storyId, tcId, regenInstructions || undefined, regenFile || undefined);
       const updated = res.test_case;
-      // Go to Phase 2 review
+      setRegenModalId(null);
       setReviewState({
-        testCaseId: tcId,
-        original,
+        testCaseId: tcId, original,
         result: {
           title: updated.title ?? original?.title ?? '',
           steps: updated.steps ?? original?.steps ?? [],
           expectedResult: updated.expected_result ?? original?.expectedResult ?? '',
           priority: updated.priority ?? original?.priority ?? 'Medium',
         },
-        isBulk: false,
-        bulkResults: [],
+        isBulk: false, bulkResults: [],
       });
       setRefineInstructions("");
       setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
     } catch {
       setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
       showToast('Regeneration failed', 'error');
+      setRegenModalId(null);
     } finally {
+      setRegenSubmitting(false);
       setRegenIds((p) => { const n = new Set(p); n.delete(tcId); return n; });
       setRegenInstructions(""); setRegenFile(null);
     }
@@ -659,14 +762,18 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
               </div>
 
               <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
-                <button onClick={() => { setRegenModalId(null); setRegenBulkMode(false); }} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50">
+                <button onClick={() => { if (!regenSubmitting) { setRegenModalId(null); setRegenBulkMode(false); } }} disabled={regenSubmitting} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50 disabled:opacity-40">
                   Cancel
                 </button>
                 <button
                   onClick={handleRegenSubmit}
-                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] flex items-center gap-2"
+                  disabled={regenSubmitting}
+                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] flex items-center gap-2 disabled:opacity-80"
                 >
-                  <RefreshCw size={13} /> Regenerate
+                  {regenSubmitting
+                    ? <><Loader2 size={13} className="animate-spin" /> Regenerating…</>
+                    : <><RefreshCw size={13} /> Regenerate</>
+                  }
                 </button>
               </div>
             </motion.div>
@@ -785,33 +892,98 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
       {/* Left panel */}
       <div className="w-[320px] flex-shrink-0 border-r border-border flex flex-col">
-        {/* Filter chips + Regroup button */}
-        <div className="px-3 pt-3 pb-2 flex flex-wrap gap-1.5 items-center">
-          {TYPE_FILTERS.map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                filter === f ? "bg-pink text-white border-pink" : "bg-white text-muted border-border hover:border-navy hover:text-navy"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-          <button
-            onClick={handleRegroup}
-            disabled={regrouping}
-            title="Re-assign AI groups"
-            className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-border rounded-full text-muted hover:border-pink hover:text-pink transition-colors disabled:opacity-50"
-          >
-            {regrouping && <Loader2 size={10} className="animate-spin" />}
-            {regrouping ? 'Grouping…' : 'AI Group'}
-          </button>
-        </div>
-        {/* Search */}
-        <div className="px-3 pb-2">
-          <input type="text" placeholder="Search tests…" value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-8 px-3 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
-          />
+        {/* Toolbar */}
+        <div className="px-3 pt-3 pb-2 space-y-2">
+          {/* Row 1: Filter dropdown + AI Group button */}
+          <div className="flex items-center gap-2">
+            {/* Filter dropdown */}
+            <div className="relative flex-1">
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as typeof filter)}
+                className="w-full h-8 pl-3 pr-8 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="All">All Types</option>
+                <option value="Functional">Functional</option>
+                <option value="Negative">Negative</option>
+                <option value="Boundary">Boundary</option>
+                <option value="Security">Security</option>
+                <option value="Accessibility">Accessibility</option>
+              </select>
+              <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+            {/* Priority filter */}
+            <div className="relative">
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="h-8 pl-3 pr-7 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="">All Priority</option>
+                <option value="P1">P1</option>
+                <option value="P2">P2</option>
+                <option value="P3">P3</option>
+              </select>
+              <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+            {/* Status filter */}
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-8 pl-3 pr-7 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Approved</option>
+              </select>
+              <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+          </div>
+          {/* Row 2: Search + AI Group button */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text" placeholder="Search tests…" value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-8 pl-3 pr-8 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-navy">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+          {/* Active filter indicator */}
+          {(filter !== 'All' || priorityFilter || statusFilter) && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {filter !== 'All' && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
+                  {filter} <button onClick={() => setFilter('All')}><X size={9} /></button>
+                </span>
+              )}
+              {priorityFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20">
+                  {priorityFilter} <button onClick={() => setPriorityFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              {statusFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20">
+                  {statusFilter} <button onClick={() => setStatusFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              <button onClick={() => { setFilter('All'); setPriorityFilter(''); setStatusFilter(''); }} className="text-[10px] text-muted hover:text-error ml-auto">
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
         {/* Bulk action bar */}
         <AnimatePresence>
@@ -879,6 +1051,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
                     ) : test.status === "Approved" ? (
                       <CheckCircle2 size={13} className="text-success flex-shrink-0" />
+                    ) : test.status === "Rejected" ? (
+                      <X size={13} className="text-error flex-shrink-0" />
                     ) : (
                       <Clock size={13} className="text-muted flex-shrink-0" />
                     )}
@@ -915,6 +1089,10 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       <span className="text-[11px] font-semibold text-success flex items-center gap-1">
                         <Check size={12} /> Approved
                       </span>
+                    ) : selectedTest.status === 'Rejected' ? (
+                      <span className="text-[11px] font-semibold text-error flex items-center gap-1">
+                        <X size={12} /> Rejected
+                      </span>
                     ) : regenIds.has(selectedTest.id) ? (
                       <span className="text-[11px] font-semibold text-pink flex items-center gap-1">
                         <Loader2 size={12} className="animate-spin" /> Regenerating…
@@ -927,19 +1105,35 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   </div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-                  {/* Approve */}
-                  <button
-                    onClick={() => handleApprove(selectedTest.id)}
-                    disabled={approvingIds.has(selectedTest.id)}
-                    className={`h-8 px-3 text-xs font-medium rounded-btn border transition-colors flex items-center gap-1.5 disabled:opacity-60 ${
-                      selectedTest.status === 'Approved'
-                        ? 'bg-success/10 text-success border-success/30 hover:bg-gray-50 hover:text-muted hover:border-border'
-                        : 'bg-success/10 text-success border-success/30 hover:bg-success/20'
-                    }`}
-                  >
-                    {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                    {selectedTest.status === 'Approved' ? 'Approved' : 'Approve'}
-                  </button>
+                  {/* Approve / Reject — only show if not already in that state */}
+                  {selectedTest.status !== 'Approved' && (
+                    <button
+                      onClick={() => handleApprove(selectedTest.id)}
+                      disabled={approvingIds.has(selectedTest.id)}
+                      className="h-8 px-3 text-xs font-medium rounded-btn border bg-success/10 text-success border-success/30 hover:bg-success/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                      Approve
+                    </button>
+                  )}
+                  {selectedTest.status !== 'Rejected' && (
+                    <button
+                      onClick={() => handleReject(selectedTest.id)}
+                      disabled={approvingIds.has(selectedTest.id)}
+                      className="h-8 px-3 text-xs font-medium rounded-btn border bg-error/10 text-error border-error/30 hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                      Reject
+                    </button>
+                  )}
+                  {(selectedTest.status === 'Approved' || selectedTest.status === 'Rejected') && (
+                    <button
+                      onClick={() => api.approveTestCase(storyId, selectedTest.id, 'Pending').then(() => setTests(prev => prev.map(t => t.id === selectedTest.id ? {...t, status: 'Pending' as any} : t))).catch(() => {})}
+                      className="h-8 px-3 text-xs font-medium rounded-btn border border-border text-muted hover:bg-gray-50 transition-colors"
+                    >
+                      Reset
+                    </button>
+                  )}
                   {/* Regenerate */}
                   <button
                     onClick={() => handleRegenerate(selectedTest.id)}
@@ -997,6 +1191,9 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   <p className="text-[13px] text-muted leading-relaxed">{selectedTest.aiReview}</p>
                 </div>
               )}
+
+              {/* ── Execution: Pass / Fail / Skip ── */}
+              <ExecutionPanel storyId={storyId} testCaseId={selectedTest.id} />
             </motion.div>
           ) : (
             <motion.div key="empty" {...fadeInUp} className="flex items-center justify-center h-full py-24">

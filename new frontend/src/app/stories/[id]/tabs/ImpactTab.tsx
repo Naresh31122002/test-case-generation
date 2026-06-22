@@ -209,23 +209,10 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
         })}
       </motion.div>
 
-      {/* AI assistant */}
-      <div className="space-y-2 pt-2">
-        <div className="flex gap-2">
-          <input type="text" value={aiQuery} onChange={(e) => setAiQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAiQuery()}
-            placeholder="Why did this test change?"
-            className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink focus:ring-1 focus:ring-pink/20 transition-colors" />
-          <button onClick={handleAiQuery} disabled={aiLoading}
-            className="h-9 w-9 flex items-center justify-center bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors disabled:opacity-50">
-            {aiLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-          </button>
-        </div>
-        {aiResponse && (
-          <div className="bg-surface-cyan border border-cyan/30 rounded-lg p-3">
-            <p className="text-[13px] text-navy whitespace-pre-wrap">{aiResponse}</p>
-          </div>
-        )}
+      {/* Use Copilot to ask about impacts */}
+      <div className="flex items-center gap-2 pt-2 text-xs text-muted">
+        <Sparkles size={12} className="text-pink flex-shrink-0" />
+        Ask the <span className="font-semibold text-pink mx-1">✦ Copilot</span> why tests were impacted or what changed.
       </div>
     </div>
   );

@@ -149,29 +149,11 @@ export function CoverageTab({
           <p className="text-[10px] text-muted">Coverage is estimated from test count and type classification.</p>
         </div>
 
-        {/* AI assistant — wired to ragChat */}
-        <div className="flex gap-2 pt-2">
-          <input
-            type="text"
-            value={aiQuery}
-            onChange={(e) => setAiQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAiSend()}
-            placeholder="What coverage is missing?"
-            className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/20 transition-colors"
-          />
-          <button
-            onClick={handleAiSend}
-            disabled={aiLoading || !aiQuery.trim()}
-            className="h-9 w-9 flex items-center justify-center rounded-btn bg-cyan text-white hover:bg-cyan/80 disabled:opacity-40 transition-colors"
-          >
-            {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          </button>
+        {/* Use the ✦ Copilot (bottom-right) to ask about coverage */}
+        <div className="flex items-center gap-2 pt-2 text-xs text-muted">
+          <Sparkles size={12} className="text-pink flex-shrink-0" />
+          Ask the <span className="font-semibold text-pink mx-1">✦ Copilot</span> what coverage is missing or which areas need more tests.
         </div>
-        {aiResults.length > 0 && (
-          <div className="bg-[#ECFEFF] rounded-lg p-3 space-y-1">
-            {aiResults.map((r, i) => <p key={i} className="text-sm text-navy">• {r}</p>)}
-          </div>
-        )}
       </div>
 
       {/* Right: gaps / generate missing */}

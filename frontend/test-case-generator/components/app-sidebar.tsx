@@ -3,10 +3,12 @@
 import { usePathname, useRouter } from "next/navigation"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
-  SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
-  SidebarMenuItem, SidebarSeparator,
+  SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarSeparator,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Upload, Clock, RefreshCw, Search } from "lucide-react"
+import {
+  BookOpen, GitCompareArrows, BarChart3, Download,
+  Settings, Upload, Clock, RefreshCw, Search,
+} from "lucide-react"
 import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { api, Story } from "@/lib/api"
@@ -20,13 +22,20 @@ interface AppSidebarProps {
   onCreateProject?: () => void
 }
 
-export function AppSidebar({ projects = [], selectedProject = '', onProjectChange, onUploadClick, onCreateProject }: AppSidebarProps) {
+const NAV = [
+  { id: "stories",  label: "Stories",  icon: BookOpen,          href: "/" },
+  { id: "changes",  label: "Changes",  icon: GitCompareArrows,  href: "/changes" },
+  { id: "coverage", label: "Coverage", icon: BarChart3,          href: "/coverage" },
+  { id: "exports",  label: "Exports",  icon: Download,           href: "/exports" },
+  { id: "settings", label: "Settings", icon: Settings,           href: "/settings" },
+]
+
+export function AppSidebar({ projects = [], selectedProject = "", onProjectChange, onUploadClick }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [nextReload, setNextReload] = useState<Date | null>(null)
   const [timeLeft, setTimeLeft] = useState<string>("")
   const [isTriggering, setIsTriggering] = useState(false)
-
   const [showPalette, setShowPalette] = useState(false)
   const [allStories, setAllStories] = useState<Story[]>([])
 
@@ -97,13 +106,25 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
     return () => clearInterval(id)
   }, [nextReload])
 
-  const isDashboard = pathname === "/"
+  const activeId = pathname === "/" || pathname.startsWith("/stories") ? "stories"
+    : pathname.startsWith("/changes") ? "changes"
+    : pathname.startsWith("/coverage") ? "coverage"
+    : pathname.startsWith("/exports") ? "exports"
+    : pathname.startsWith("/settings") ? "settings"
+    : "stories"
 
   return (
     <>
-      <Sidebar collapsible="icon" className="border-r border-[#EBEBEB] bg-white">
-        {/* Brand */}
-        <SidebarHeader className="px-4 py-4 bg-white" style={{ borderBottom: "1px solid #EBEBEB" }}>
+      <Sidebar
+        collapsible="icon"
+        className="border-r"
+        style={{ background: "#0F172A", borderColor: "#1E293B" }}
+      >
+        {/* ── Brand ── */}
+        <SidebarHeader
+          className="px-4 py-5"
+          style={{ borderBottom: "1px solid #1E293B" }}
+        >
           <div className="flex items-center gap-3 overflow-hidden">
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -115,61 +136,88 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
               </svg>
             </div>
             <div className="group-data-[collapsible=icon]:hidden min-w-0">
-              <div className="font-bold text-sm leading-tight truncate" style={{ color: "#1A1A2E" }}>Test Forge AI</div>
-              <div className="text-[11px] leading-tight truncate" style={{ color: "#9CA3AF" }}>Powered by Gen AI</div>
+              <div className="font-bold text-sm leading-tight truncate text-white">TestSurge AI</div>
+              <div className="text-[11px] leading-tight truncate" style={{ color: "#64748B" }}>Requirement Intelligence</div>
             </div>
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="py-2 bg-white">
+        <SidebarContent className="py-3" style={{ background: "#0F172A" }}>
+          {/* ── Main nav ── */}
           <SidebarGroup>
-            <SidebarGroupLabel
-              className="text-[10px] uppercase tracking-widest px-3 mb-1"
-              style={{ color: "#9CA3AF" }}
-            >
-              Navigation
-            </SidebarGroupLabel>
             <SidebarMenu>
-              {/* Dashboard — custom active style without shadcn ring */}
-              <SidebarMenuItem>
-                <button
-                  onClick={() => router.push("/")}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors relative"
-                  style={isDashboard
-                    ? { background: "#FFF8FA", color: "#FF4D6D" }
-                    : { color: "#1A1A2E" }
-                  }
-                >
-                  {isDashboard && (
-                    <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full" style={{ background: "#FF4D6D" }} />
-                  )}
-                  <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden">Dashboard</span>
-                </button>
-              </SidebarMenuItem>
+              {NAV.map(item => {
+                const Icon = item.icon
+                const isActive = activeId === item.id
+                return (
+                  <SidebarMenuItem key={item.id}>
+                    <button
+                      onClick={() => router.push(item.href)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mx-1 text-sm font-medium transition-all relative"
+                      style={isActive
+                        ? {
+                            background: "rgba(6,182,212,0.12)",
+                            color: "#06B6D4",
+                          }
+                        : {
+                            color: "#CBD5E1",
+                          }
+                      }
+                      onMouseEnter={e => {
+                        if (!isActive) e.currentTarget.style.background = "#1E293B"
+                      }}
+                      onMouseLeave={e => {
+                        if (!isActive) e.currentTarget.style.background = "transparent"
+                      }}
+                    >
+                      {isActive && (
+                        <div
+                          className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r"
+                          style={{ background: "#06B6D4" }}
+                        />
+                      )}
+                      <Icon className="w-4 h-4 flex-shrink-0" />
+                      <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                    </button>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
 
+          <SidebarSeparator style={{ background: "#1E293B" }} />
+
+          {/* ── Quick actions ── */}
+          <SidebarGroup className="mt-1">
+            <SidebarMenu>
+              {/* New Story */}
               <SidebarMenuItem>
                 <button
-                  onClick={onUploadClick}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors hover:bg-[#FFF8FA]"
-                  style={{ color: "#1A1A2E" }}
+                  onClick={onUploadClick || (() => router.push("/stories/new"))}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mx-1 text-sm font-medium transition-all"
+                  style={{ color: "#CBD5E1" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "#1E293B")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 >
                   <Upload className="w-4 h-4 flex-shrink-0" />
-                  <span className="group-data-[collapsible=icon]:hidden">Upload Story</span>
+                  <span className="group-data-[collapsible=icon]:hidden">New Story</span>
                 </button>
               </SidebarMenuItem>
 
+              {/* Search (Ctrl+K) */}
               <SidebarMenuItem>
                 <button
                   onClick={() => setShowPalette(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg mx-1 text-sm font-medium transition-colors hover:bg-[#FFF8FA]"
-                  style={{ color: "#1A1A2E" }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mx-1 text-sm font-medium transition-all"
+                  style={{ color: "#CBD5E1" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "#1E293B")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 >
                   <Search className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1 text-left group-data-[collapsible=icon]:hidden">Search Stories</span>
+                  <span className="flex-1 text-left group-data-[collapsible=icon]:hidden">Search</span>
                   <kbd
                     className="text-[10px] px-1.5 py-0.5 rounded font-mono group-data-[collapsible=icon]:hidden"
-                    style={{ background: "#F5F5F5", color: "#9CA3AF", border: "1px solid #E5E7EB" }}
+                    style={{ background: "#1E293B", color: "#64748B", border: "1px solid #334155" }}
                   >
                     ⌘K
                   </kbd>
@@ -178,48 +226,51 @@ export function AppSidebar({ projects = [], selectedProject = '', onProjectChang
             </SidebarMenu>
           </SidebarGroup>
 
-          <SidebarSeparator style={{ background: "#EBEBEB" }} />
+          <SidebarSeparator style={{ background: "#1E293B" }} />
 
-          {/* Project filter */}
-          <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel
-              className="text-[10px] uppercase tracking-widest px-3 mb-2"
-              style={{ color: "#9CA3AF" }}
-            >
-              Project
-            </SidebarGroupLabel>
-            <div className="px-3">
+          {/* ── Project filter ── */}
+          {projects.length > 0 && (
+            <SidebarGroup className="group-data-[collapsible=icon]:hidden mt-1 px-3">
+              <p className="text-[10px] uppercase tracking-widest mb-2" style={{ color: "#475569" }}>
+                Project
+              </p>
               <select
                 value={selectedProject}
                 onChange={e => onProjectChange?.(e.target.value)}
-                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#FF4D6D]/20 border"
-                style={{ background: "#FAFAFA", color: "#1A1A2E", border: "1px solid #F3E8ED" }}
+                className="w-full h-8 rounded-lg px-2.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#06B6D4]"
+                style={{
+                  background: "#1E293B",
+                  color: "#CBD5E1",
+                  border: "1px solid #334155",
+                }}
               >
                 <option value="">All Projects</option>
                 {projects.map(p => (
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-            </div>
-          </SidebarGroup>
+            </SidebarGroup>
+          )}
         </SidebarContent>
 
-        {/* Scheduler footer */}
+        {/* ── Scheduler footer ── */}
         <SidebarFooter
-          className="group-data-[collapsible=icon]:hidden p-4 bg-white"
-          style={{ borderTop: "1px solid #F3E8ED" }}
+          className="group-data-[collapsible=icon]:hidden p-4"
+          style={{ borderTop: "1px solid #1E293B", background: "#0F172A" }}
         >
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#FF4D6D" }} />
-              <span className="text-[11px]" style={{ color: "#9CA3AF" }}>Next scheduler run</span>
+              <Clock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#06B6D4" }} />
+              <span className="text-[11px]" style={{ color: "#64748B" }}>Next sync</span>
             </div>
-            <div className="font-mono text-sm font-bold" style={{ color: "#1A1A2E" }}>{timeLeft || "—"}</div>
+            <div className="font-mono text-sm font-bold" style={{ color: "#CBD5E1" }}>
+              {timeLeft || "—"}
+            </div>
             <button
               onClick={triggerReload}
               disabled={isTriggering}
               className="w-full h-8 rounded-lg text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-all hover:opacity-90 disabled:opacity-40"
-              style={{ background: "#FF4D6D" }}
+              style={{ background: "#06B6D4" }}
             >
               {isTriggering
                 ? <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Triggering…</>

@@ -8,6 +8,7 @@ import { aiClient, buildRequest } from "@/lib/ai/client";
 import type { AIMessage, CopilotContext, CopilotIntent } from "@/lib/ai/types";
 import { quickActions } from "./quickActions";
 import { useProject } from "@/contexts/ProjectContext";
+import { getCopilotPageContext, onCopilotContextChange } from "@/lib/copilotContext";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -36,15 +37,30 @@ export function CopilotPanel({
   initialAction?: { prompt: string; intent: CopilotIntent };
 }) {
   const context = useCopilotContext();
+
+  // Dynamic greeting based on current page
+  function getGreeting(): string {
+    const ctx = getCopilotPageContext();
+    if (ctx.pageType === "story_detail" && ctx.storyTitle) {
+      return `Hi! I know this story — **${ctx.storyTitle}**${ctx.testCount ? ` with ${ctx.testCount} test cases` : ""}${ctx.impactCount ? `, ${ctx.impactCount} impacts` : ""}. Ask me anything about it.`;
+    }
+    return "Hi! I'm your TestSurge Copilot. Open a story and ask me about its test cases, quality, impacts, or coverage.";
+  }
+
   const [messages, setMessages] = useState<AIMessage[]>([
     {
       id: uid(),
       role: "assistant",
-      content:
-        "Hi! I'm your TestSurge Copilot. Ask me about a story, its tests, coverage, or impact analysis — or pick a quick action below.",
+      content: getGreeting(),
       createdAt: Date.now(),
     },
   ]);
+
+  // Update greeting when page context changes
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    return onCopilotContextChange(() => forceUpdate(n => n + 1));
+  }, []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -160,23 +176,27 @@ export function CopilotPanel({
         ))}
       </div>
 
-      {/* Quick actions */}
+      {/* Quick actions — context-aware */}
       <div className="px-3 py-2 border-t border-border flex flex-wrap gap-1.5">
-        {quickActions.map((qa) => {
-          const Icon = qa.icon;
-          return (
-            <button
-              key={qa.intent}
-              type="button"
-              disabled={busy}
-              onClick={() => send(qa.prompt, qa.intent)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn border border-border text-[12px] font-medium text-muted hover:text-navy hover:border-pink hover:bg-surface-pink/40 transition-colors disabled:opacity-50"
-            >
-              <Icon size={13} className="text-pink" />
-              {qa.label}
+        {(() => {
+          const ctx = getCopilotPageContext();
+          const actions = ctx.pageType === "story_detail" ? [
+            { label: "Summarise story", prompt: "Summarise this story and its key requirements in 2-3 sentences." },
+            { label: "Quality issues", prompt: "What quality issues does this story have? What's missing?" },
+            { label: "Gaps in tests", prompt: "What test scenarios are missing or undercovered for this story?" },
+            { label: "Explain impacts", prompt: "Explain why this story caused impacts on other test cases." },
+          ] : [
+            { label: "What can I ask?", prompt: "What can you help me with on this page?" },
+            { label: "Story overview", prompt: "Give me a summary of the stories in this project." },
+          ];
+          return actions.map((a) => (
+            <button key={a.label} type="button" disabled={busy}
+              onClick={() => send(a.prompt, "freeform")}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-btn border border-border text-[11px] font-medium text-muted hover:text-navy hover:border-pink hover:bg-surface-pink/40 transition-colors disabled:opacity-50">
+              {a.label}
             </button>
-          );
-        })}
+          ));
+        })()}
       </div>
 
       {/* Composer */}

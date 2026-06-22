@@ -18,6 +18,7 @@ import {
   PanelLeftOpen,
   PlayCircle,
   ChevronUp,
+  Kanban,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -25,6 +26,7 @@ import { useProductTour } from "@/contexts/ProductTourContext";
 
 const navItems = [
   { label: "Stories", icon: BookOpen, href: "/stories", tourId: "nav-stories" },
+  { label: "Kanban", icon: Kanban, href: "/kanban", tourId: "nav-kanban" },
   { label: "Changes", icon: GitPullRequest, href: "/changes", tourId: "nav-changes" },
   { label: "Coverage", icon: PieChart, href: "/coverage", tourId: "nav-coverage" },
   { label: "Compare", icon: GitCompare, href: "/compare", tourId: "nav-compare" },
@@ -68,6 +70,15 @@ export function Sidebar() {
 
   // Expanded when pinned open, or temporarily on hover (auto-collapse mode).
   const expanded = pinned || hovered;
+
+  // Phase 6: show the user's display name, falling back to nothing (not the email
+  // prefix) so the name line never duplicates the email line below it.
+  const displayName = user?.fullName?.trim() || null;
+  const avatarInitials = displayName
+    ? displayName.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase()
+    : user?.email
+    ? user.email.slice(0, 2).toUpperCase()
+    : "?";
 
   // Settings lives in the footer (near the profile), not the main nav.
   const settingsActive =
@@ -193,15 +204,21 @@ export function Sidebar() {
           className="w-full flex items-center gap-3 text-left"
         >
           <div className="w-8 h-8 rounded-full bg-pink flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {user?.email ? user.email.slice(0, 2).toUpperCase() : "?"}
+            {avatarInitials}
           </div>
           <motion.div
             animate={{ opacity: expanded ? 1 : 0 }}
             transition={{ duration: 0.15 }}
             className="flex-1 min-w-0 overflow-hidden"
           >
-            <p className="text-sm font-medium text-navy truncate">{user?.email?.split("@")[0] ?? "User"}</p>
-            <p className="text-[11px] text-muted truncate">{user?.email ?? ""}</p>
+            {/* Phase 6: prefer the real display name; never repeat the email as
+                the "name" line — if no full name is set, show only the email. */}
+            {displayName && (
+              <p className="text-sm font-medium text-navy truncate">{displayName}</p>
+            )}
+            <p className={`${displayName ? "text-[11px] text-muted" : "text-sm font-medium text-navy"} truncate`}>
+              {user?.email ?? ""}
+            </p>
           </motion.div>
           <ChevronUp
             size={14}

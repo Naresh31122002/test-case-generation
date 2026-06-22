@@ -182,6 +182,9 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
   const [error, setError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [jiraKey, setJiraKey] = useState("");
+  const [inputMode, setInputMode] = useState<"file" | "paste" | "jira">("file");
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -197,13 +200,16 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
     setError("");
     try {
       const formData = new FormData();
-      if (file) {
+      if (inputMode === "file" && file) {
         formData.append("file", file);
-      } else if (notes.trim()) {
-        formData.append("content", notes.trim());
+      } else if (inputMode === "paste" && pasteText.trim()) {
+        formData.append("content", pasteText.trim());
+      } else if (inputMode === "jira" && jiraKey.trim()) {
+        formData.append("jira_issue_key", jiraKey.trim());
       } else {
-        throw new Error("Please provide a file or notes for the new version.");
+        throw new Error("Please provide content for the new version.");
       }
+      if (notes.trim()) formData.append("version_notes", notes.trim());
       await api.uploadNewVersion(story.id, formData);
       setPhase("success");
     } catch (err) {
@@ -212,80 +218,114 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
     }
   }
 
+  const TAB_CLASSES = (active: boolean) =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+      active ? "border-pink text-pink" : "border-transparent text-muted hover:text-navy"
+    }`;
+
   return (
     <Modal title="Upload New Version" icon={Upload} onClose={onClose}>
       {phase === "success" || phase === "error" ? (
         <ResultPanel
           phase={phase}
           successTitle="New version uploaded"
-          successBody={`${file?.name ?? "Your document"} is now the latest version of ${story.id}.`}
+          successBody={`New version of ${story.id} is now processing.`}
           error={error}
           onRetry={submit}
           onClose={onClose}
         />
       ) : (
         <div className="p-5 space-y-4">
-          {/* Drag & drop / browse */}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            onClick={() => inputRef.current?.click()}
-            className={`flex flex-col items-center justify-center gap-2 py-8 px-4 rounded-card border-2 border-dashed cursor-pointer transition-colors ${
-              dragging ? "border-pink bg-surface-pink/40" : "border-border hover:border-pink hover:bg-gray-50"
-            }`}
-          >
-            <span className="w-10 h-10 rounded-full bg-surface-pink text-pink flex items-center justify-center">
-              <UploadCloud size={20} />
-            </span>
-            {file ? (
-              <div className="flex items-center gap-2 text-sm text-navy">
-                <FileText size={15} className="text-pink" />
-                <span className="font-medium">{file.name}</span>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-navy">Drag and drop your file here</p>
-                <p className="text-xs text-muted">or</p>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
-              className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors"
-            >
-              Browse Files
-            </button>
-            <input
-              ref={inputRef}
-              type="file"
-              className="hidden"
-              accept=".pdf,.doc,.docx,.txt,.md"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
+          {/* Input mode tabs */}
+          <div className="flex border-b border-border -mt-1">
+            <button className={TAB_CLASSES(inputMode === "file")} onClick={() => setInputMode("file")}>Upload File</button>
+            <button className={TAB_CLASSES(inputMode === "paste")} onClick={() => setInputMode("paste")}>Paste Text</button>
+            <button className={TAB_CLASSES(inputMode === "jira")} onClick={() => setInputMode("jira")}>Import from Jira</button>
           </div>
+
+          {/* File upload */}
+          {inputMode === "file" && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+              className={`flex flex-col items-center justify-center gap-2 py-8 px-4 rounded-card border-2 border-dashed cursor-pointer transition-colors ${
+                dragging ? "border-pink bg-surface-pink/40" : "border-border hover:border-pink hover:bg-gray-50"
+              }`}
+            >
+              <span className="w-10 h-10 rounded-full bg-surface-pink text-pink flex items-center justify-center">
+                <UploadCloud size={20} />
+              </span>
+              {file ? (
+                <div className="flex items-center gap-2 text-sm text-navy">
+                  <FileText size={15} className="text-pink" />
+                  <span className="font-medium">{file.name}</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-navy">Drag and drop your file here</p>
+                  <p className="text-xs text-muted">PDF, DOCX, TXT, MD supported</p>
+                </>
+              )}
+              <button type="button" onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+                className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors">
+                Browse Files
+              </button>
+              <input ref={inputRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.txt,.md"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            </div>
+          )}
+
+          {/* Paste text */}
+          {inputMode === "paste" && (
+            <div>
+              <label className="block text-sm font-medium text-navy mb-1.5">Story content</label>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                rows={8}
+                placeholder="Paste your updated user story, requirements or acceptance criteria here…"
+                className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-y"
+                autoFocus
+              />
+              <p className="text-xs text-muted mt-1">{pasteText.length} characters</p>
+            </div>
+          )}
+
+          {/* Jira import */}
+          {inputMode === "jira" && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-navy mb-1.5">Jira Issue Key</label>
+                <input type="text" value={jiraKey} onChange={(e) => setJiraKey(e.target.value)}
+                  placeholder="e.g. PROJ-123"
+                  className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors"
+                  autoFocus />
+              </div>
+              <p className="text-xs text-muted">
+                The issue description and acceptance criteria will be imported as the new version.
+                Make sure your Jira integration is configured in Settings.
+              </p>
+            </div>
+          )}
 
           {/* Version notes */}
           <div>
-            <label className="block text-sm font-medium text-navy mb-1.5">Version notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
+            <label className="block text-sm font-medium text-navy mb-1.5">Version notes <span className="text-muted font-normal">(optional)</span></label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
               placeholder="What changed in this version?"
-              className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-y"
-            />
+              className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-y" />
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors"
-            >
+            <button type="button" onClick={onClose}
+              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">
               Cancel
             </button>
-            <SubmitButton loading={phase === "loading"} disabled={!file} onClick={submit}>
+            <SubmitButton loading={phase === "loading"}
+              disabled={inputMode === "file" ? !file : inputMode === "paste" ? !pasteText.trim() : !jiraKey.trim()}
+              onClick={submit}>
               Upload
             </SubmitButton>
           </div>

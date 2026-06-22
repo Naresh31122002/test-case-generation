@@ -4,54 +4,62 @@
 
 @layer base {
   :root {
-    /* Barely-perceptible pink-to-white palette matching landing page */
-    --background: 351 100% 99%;        /* near-white with faint pink */
-    --foreground: 240 47% 14%;         /* #1A1A2E dark navy */
+    /* ── Core palette ── */
+    --background: 210 20% 98%;          /* #F8FAFC */
+    --foreground: 222 47% 11%;          /* #0F172A */
 
-    --card: 0 0% 100%;
-    --card-foreground: 240 47% 14%;
+    --card: 0 0% 100%;                  /* #FFFFFF */
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 47% 14%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 345 100% 64%;           /* #FF4D6D coral */
+    /* Application primary = Cyan */
+    --primary: 189 94% 43%;             /* #06B6D4 */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 351 60% 96%;
-    --secondary-foreground: 240 47% 14%;
+    --secondary: 210 40% 96%;           /* #EFF6FF-ish */
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 0 0% 97%;
-    --muted-foreground: 220 9% 46%;    /* #6B7280 */
+    --muted: 210 20% 97%;
+    --muted-foreground: 215 16% 47%;    /* #64748B */
 
-    --accent: 351 60% 96%;
-    --accent-foreground: 345 100% 45%;
+    --accent: 189 94% 43%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 84% 60%;           /* #EF4444 */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 351 30% 92%;
-    --input: 351 30% 92%;
-    --ring: 345 100% 64%;
+    --border: 214 32% 91%;              /* #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 189 94% 43%;
 
     --radius: 0.75rem;
 
-    /* Sidebar — light white (not dark navy) */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 240 47% 14%;
-    --sidebar-primary: 345 100% 64%;
+    /* ── Sidebar — dark navy ── */
+    --sidebar-background: 222 47% 11%;  /* #0F172A */
+    --sidebar-foreground: 215 28% 77%;  /* #CBD5E1 */
+    --sidebar-primary: 189 94% 43%;     /* #06B6D4 */
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 351 60% 96%;
-    --sidebar-accent-foreground: 240 47% 14%;
-    --sidebar-border: 351 30% 92%;
-    --sidebar-ring: 345 100% 64%;
+    --sidebar-accent: 222 39% 16%;      /* #1E293B hover */
+    --sidebar-accent-foreground: 215 28% 77%;
+    --sidebar-border: 222 39% 16%;      /* #1E293B */
+    --sidebar-ring: 189 94% 43%;
+
+    /* ── Chart colors ── */
+    --chart-1: 189 94% 43%;             /* cyan */
+    --chart-2: 160 84% 39%;             /* green */
+    --chart-3: 43 96% 56%;              /* amber */
+    --chart-4: 0 84% 60%;              /* red */
+    --chart-5: 221 83% 53%;             /* blue */
   }
 }
 
 @layer base {
   * { @apply border-border; }
   body {
-    @apply text-foreground;
-    background: linear-gradient(160deg, #FFF8FA 0%, #FFFFFF 45%, #F8FFFE 100%);
+    @apply bg-background text-foreground;
+    background-color: #F8FAFC;
     min-height: 100vh;
     font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   }
@@ -64,8 +72,8 @@
   .text-balance { text-wrap: balance; }
 }
 
-/* Thin scrollbar */
+/* ── Thin scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #F5D0D8; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #FF4D6D; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #06B6D4; }

@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
 import { invalidateStories } from "@/lib/storiesStore";
+import { useCopilotPageContext } from "@/lib/copilotContext";
 import type { TestCase as DomainTestCase } from "@/types/domain";
 
 // Tabs — lazy-loaded so only the active tab's bundle is fetched.
@@ -125,6 +126,21 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   const [storyTests, setStoryTests] = useState<SeedTestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const storyGaps: CoverageGap[] = [];
+
+  // Inject page context into the Copilot so it knows what's on screen
+  useCopilotPageContext({
+    pageType: "story_detail",
+    storyId,
+    storyTitle: story?.title,
+    storyContent: story?.content,
+    testCount: story?.testCount,
+    impactCount: story?.impactCount,
+    qualityScore: story?.qualityScore,
+    projectName: selectedProject?.name,
+    testCases: storyTests.slice(0, 20).map(t => ({
+      id: t.id, title: t.title, priority: t.priority, status: t.status, steps: t.steps,
+    })),
+  });
 
   // Derive project ID: URL param > ProjectContext > "default"
   const projectId =

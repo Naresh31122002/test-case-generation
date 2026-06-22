@@ -3,11 +3,11 @@ import './globals.css'
 import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
-  title: 'CoverLoop',
-  description: 'AI-powered test case generation',
+  title: 'TestSurge AI — Requirement Intelligence',
+  description: 'Generate tests. Detect impact. Prevent escaped defects.',
   openGraph: {
-    title: 'CoverLoop',
-    description: 'AI-powered test case generation',
+    title: 'TestSurge AI — Requirement Intelligence',
+    description: 'Generate tests. Detect impact. Prevent escaped defects.',
   },
 }
 

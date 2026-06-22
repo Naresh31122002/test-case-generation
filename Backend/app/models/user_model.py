@@ -36,7 +36,7 @@ class UserModel:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT user_id, email, password_hash, email_verified, auth_provider, onboarding_completed_at FROM users WHERE email = %s",
+                "SELECT user_id, email, password_hash, email_verified, auth_provider, onboarding_completed_at, full_name FROM users WHERE email = %s",
                 (email.lower().strip(),),
             )
             row = cursor.fetchone()
@@ -46,6 +46,7 @@ class UserModel:
                 "user_id": str(row[0]), "email": row[1], "password_hash": row[2],
                 "email_verified": bool(row[3]), "auth_provider": row[4],
                 "onboarding_completed": row[5] is not None,
+                "full_name": row[6],
             }
         finally:
             cursor.close()
@@ -57,7 +58,7 @@ class UserModel:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT user_id, email, email_verified, auth_provider, onboarding_completed_at FROM users WHERE user_id = %s",
+                "SELECT user_id, email, email_verified, auth_provider, onboarding_completed_at, full_name FROM users WHERE user_id = %s",
                 (user_id,),
             )
             row = cursor.fetchone()
@@ -67,6 +68,7 @@ class UserModel:
                 "user_id": str(row[0]), "email": row[1],
                 "email_verified": bool(row[2]), "auth_provider": row[3],
                 "onboarding_completed": row[4] is not None,
+                "full_name": row[5],
             }
         finally:
             cursor.close()
@@ -112,6 +114,25 @@ class UserModel:
                 (org_name, job_title, referral_source, user_id),
             )
             conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    @staticmethod
+    def update_profile(user_id: str, full_name: str | None) -> dict | None:
+        """Set the user's display name (Sprint 1 Phase 6). Returns the updated user."""
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET full_name = COALESCE(%s, full_name) WHERE user_id = %s RETURNING user_id",
+                (full_name, user_id),
+            )
+            row = cursor.fetchone()
+            conn.commit()
+            if not row:
+                return None
+            return UserModel.get_user_by_id(user_id)
         finally:
             cursor.close()
             conn.close()

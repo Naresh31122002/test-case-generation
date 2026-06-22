@@ -112,6 +112,9 @@ def create_postgres_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS org_name TEXT;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title TEXT;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_source TEXT;
+            -- Sprint 1 Phase 6: human-friendly display name set in the first-login
+            -- modal, shown in the sidebar instead of the email prefix.
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
         """)
         print("✅ Migrated 'users' onboarding survey columns.")
 
@@ -127,6 +130,23 @@ def create_postgres_db():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_prefs JSONB NOT NULL DEFAULT '{}';
         """)
         print("✅ Migrated 'users' notification_prefs column.")
+
+        # Test case execution runs — Pass/Fail/Skip with comments
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_case_runs (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                story_id TEXT NOT NULL,
+                test_case_id TEXT NOT NULL,
+                run_status TEXT NOT NULL CHECK (run_status IN ('pass', 'fail', 'skip')),
+                comment TEXT,
+                run_by UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                run_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_tc_runs_tc ON test_case_runs(workspace_id, story_id, test_case_id);
+            CREATE INDEX IF NOT EXISTS idx_tc_runs_user ON test_case_runs(run_by);
+        """)
+        print("✅ Table 'test_case_runs' is ready.")
 
         # API keys for programmatic access
         cursor.execute("""
@@ -804,6 +824,65 @@ def create_postgres_db():
             ON story_comments(workspace_id, story_id, created_at ASC);
         """)
         print("✅ Table 'story_comments' is ready.")
+
+        # ── Test Case collaboration (additive, Sprint 1 Phase 1) ──────────────
+        # Individual test cases live inside test_cases.test_case_json (one row per
+        # story). Per-test-case collaboration therefore lives in dedicated tables
+        # keyed by the test case's JSON id (test_case_id, e.g. "TC-101-01"). All
+        # tables are workspace-scoped so no cross-tenant visibility is possible.
+
+        # Per-test-case assignees
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_case_assignees (
+                id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                test_case_id  TEXT NOT NULL,
+                story_id      TEXT NOT NULL,
+                workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id       UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                assigned_by   UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                assigned_at   TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uq_test_case_assignee UNIQUE (workspace_id, test_case_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_case_assignees_tc
+            ON test_case_assignees(workspace_id, test_case_id);
+            CREATE INDEX IF NOT EXISTS idx_test_case_assignees_user
+            ON test_case_assignees(workspace_id, user_id);
+        """)
+        print("✅ Table 'test_case_assignees' is ready.")
+
+        # Per-test-case activity timeline
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_case_activity (
+                id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                test_case_id  TEXT NOT NULL,
+                story_id      TEXT NOT NULL,
+                workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                actor_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+                event_type    TEXT NOT NULL,
+                details       JSONB,
+                created_at    TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_case_activity_tc
+            ON test_case_activity(workspace_id, test_case_id, created_at DESC);
+        """)
+        print("✅ Table 'test_case_activity' is ready.")
+
+        # Per-test-case comments
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS test_case_comments (
+                id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                test_case_id  TEXT NOT NULL,
+                story_id      TEXT NOT NULL,
+                workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                user_id       UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                body          TEXT NOT NULL,
+                created_at    TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at    TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_case_comments_tc
+            ON test_case_comments(workspace_id, test_case_id, created_at ASC);
+        """)
+        print("✅ Table 'test_case_comments' is ready.")
 
         conn.commit()
         print("\n✅ All database structures have been created/updated successfully!")
