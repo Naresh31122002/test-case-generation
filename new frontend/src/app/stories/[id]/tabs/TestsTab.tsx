@@ -596,6 +596,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }
 
   return (
+    <>
     <div className="flex h-full relative" style={{ minHeight: "calc(100vh - 220px)" }}>
 
       {/* Hidden file input for refine */}
@@ -1302,8 +1303,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
           )}
         </AnimatePresence>
       </div>
-    <>
-    
+    </div>
+    <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
     </>
   );
 }
