@@ -155,7 +155,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   const isAnalyzing = isGenerating || (story !== null && story.testCount === 0);
 
   // Version history state
-  const [versions, setVersions] = useState<Array<{ version_number: number; description: string; created_on: string }>>([]);
+  const [versions, setVersions] = useState<Array<{ version_number: number; description: string | null; created_on: string }>>([]);
   const [versionRegenerating, setVersionRegenerating] = useState(false);
   const [newVersionLabel, setNewVersionLabel] = useState<string | null>(null);
   const [regenProgress, setRegenProgress] = useState(0); // 0-100 for progress bar
