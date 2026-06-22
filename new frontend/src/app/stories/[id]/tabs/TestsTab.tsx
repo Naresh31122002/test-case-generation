@@ -200,7 +200,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       setTests(tc.testCases.map((t) => ({
         id: t.id, storyId,
         title: t.title,
-        type: ((t as any).type ?? "Functional") as const,
+        type: (((t as any).type as string) ?? "Functional") as TestType,
         priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
         status: (t.status as any) ?? "Pending",
         steps: t.steps,
