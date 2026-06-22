@@ -179,7 +179,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   // Re-fetch server-side when priority or status filter changes
   useEffect(() => {
     if (!priorityFilter && !statusFilter) {
-      // No server filters — use the prop data to avoid extra network round-trips
+      // No server filters -- use the prop data to avoid extra network round-trips
       setTests(initialTests);
       return;
     }
@@ -198,7 +198,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
     setRegrouping(true);
     try {
       await api.regroupTestCases(storyId);
-      // Re-fetch to get updated group fields — preserve real status from server
+      // Re-fetch to get updated group fields -- preserve real status from server
       const tc = await api.getTestCases(storyId);
       setTests(tc.testCases.map((t) => ({
         id: t.id, storyId,
@@ -542,7 +542,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       setReviewState(null); // only close on success
     } catch {
       showToast('Failed to save', 'error');
-      // Keep modal open so user can retry — do NOT call setReviewState(null)
+      // Keep modal open so user can retry -- do NOT call setReviewState(null)
     }
   }, [storyId, reviewState]);
 
@@ -602,7 +602,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
       <input ref={refineFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden"
         onChange={(e) => setRefineFile(e.target.files?.[0] ?? null)} />
 
-      {/* Phase 2 — Review & Refine Modal */}
+      {/* Phase 2 -- Review & Refine Modal */}
       <AnimatePresence>
         {reviewState && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1004,7 +1004,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 <ChevronDown size={12} className="text-muted" />
               </div>
             </div>
-            {/* Version filter — only shown if any test case has version > 1 */}
+            {/* Version filter -- only shown if any test case has version > 1 */}
             {tests.some(t => t.version && t.version > 1) && (
               <div className="relative">
                 <select
@@ -1102,7 +1102,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Test list — grouped by AI feature group */}
+        {/* Test list -- grouped by AI feature group */}
         <div className="flex-1 overflow-y-auto">
           {Object.entries(groupedTests).map(([groupName, groupTests]) => {
             const isCollapsed = collapsedGroups.has(groupName);
@@ -1213,7 +1213,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   </div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-                  {/* Approve / Reject — only show if not already in that state */}
+                  {/* Approve / Reject -- only show if not already in that state */}
                   {selectedTest.status !== 'Approved' && (
                     <button
                       onClick={() => handleApprove(selectedTest.id)}

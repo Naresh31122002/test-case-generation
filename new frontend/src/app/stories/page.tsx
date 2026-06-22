@@ -55,9 +55,9 @@ interface HealthResult {
   };
 }
 
-/** Weighted health score (0–100) from Coverage, Test Count, Acceptance Criteria, Risk. */
+/** Weighted health score (0-100) from Coverage, Test Count, Acceptance Criteria, Risk. */
 function computeHealth(story: Story): HealthResult {
-  // Coverage (0–100) → 40%
+  // Coverage (0-100) → 40%
   const coverage = story.coverage;
   // Test count → 20% (12+ tests considered healthy)
   const testCount = Math.min(100, (story.testCount / 12) * 100);
@@ -198,7 +198,7 @@ export default function StoriesPage() {
   }), [storyStatus, storyPriority, storyImpact, debouncedSearch]);
 
   // Derive the active project ID to filter by.
-  // Wait until ProjectContext is ready — otherwise first render fetches ALL stories
+  // Wait until ProjectContext is ready -- otherwise first render fetches ALL stories
   // before the selected project is known, causing a flash of unfiltered results.
   const activeProjectId = useMemo(() => {
     if (!ready) return null; // null = don't fetch yet
@@ -209,7 +209,7 @@ export default function StoriesPage() {
     return selectedProject?.id ?? undefined;
   }, [selectedProject?.id, ready]);
 
-  // Real stories from backend — use the global store with background polling
+  // Real stories from backend -- use the global store with background polling
   // Pass undefined (not null) to skip fetching while project context loads
   const { stories: projectStories, loading: storiesLoading, error: storiesError, refresh: refreshStories } = useStoriesStore(
     activeProjectId === null ? undefined : activeProjectId,
@@ -223,7 +223,7 @@ export default function StoriesPage() {
 
   const filtered = useMemo(() => {
     let result = [...projectStories];
-    // Search is now server-side (via debouncedSearch in serverFilters) — no client-side filter needed.
+    // Search is now server-side (via debouncedSearch in serverFilters) -- no client-side filter needed.
     if (filterType !== "All Types") {
       result = result.filter((s) => s.type === filterType);
     }
@@ -379,10 +379,10 @@ export default function StoriesPage() {
             className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
           >
             <option value="lastUpdated">Last Updated</option>
-            <option value="name">Name A–Z</option>
-            <option value="coverageDesc">Coverage ↑</option>
-            <option value="coverageAsc">Coverage ↓</option>
-            <option value="impactDesc">Impact ↑</option>
+            <option value="name">Name A-Z</option>
+            <option value="coverageDesc">Coverage (High-Low)</option>
+            <option value="coverageAsc">Coverage (Low-High)</option>
+            <option value="impactDesc">Impact (High)</option>
           </select>}
 
           {viewMode !== "kanban" && (
@@ -663,7 +663,7 @@ function BoardView({
 function HealthBar({ health }: { health: HealthResult }) {
   const color = healthColor(health.score);
   const { factors } = health;
-  // Smart floating panel — flips up when there's no room below, never overflows.
+  // Smart floating panel -- flips up when there's no room below, never overflows.
   const { triggerRef, panelRef, position, open, setOpen, Portal } =
     useFloatingPanel<HTMLDivElement, HTMLDivElement>({ preferred: "bottom", gap: 6 });
 
@@ -765,7 +765,7 @@ function StoryCard({
         boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.06)" : "none",
       }}
     >
-      {/* Selection checkbox — selects only, never opens the story */}
+      {/* Selection checkbox -- selects only, never opens the story */}
       <label
         className="absolute top-3 left-3 z-10"
         style={{ opacity: hovered || isSelected ? 1 : 0, transition: "opacity 0.15s" }}
@@ -949,7 +949,7 @@ function ListView({
                 {story.impactCount}
               </span>
             ) : (
-              <span className="text-sm text-muted">—</span>
+              <span className="text-sm text-muted">--</span>
             )}
           </div>
           <span className="text-xs text-muted">{story.lastUpdated}</span>
