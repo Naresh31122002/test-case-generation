@@ -64,7 +64,6 @@ export default function WorkspaceSettings() {
       setSaved(true);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaved(false), 3000);
-      return () => clearTimeout(t);
     } catch (err: any) {
       setError(err?.message ?? "Failed to save. Please try again.");
     } finally {
