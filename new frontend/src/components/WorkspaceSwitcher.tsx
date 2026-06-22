@@ -7,6 +7,7 @@ import {
   listWorkspaces,
   switchWorkspace,
   getActiveWorkspaceId,
+  setActiveWorkspaceId,
   type Workspace,
 } from "@/lib/workspaces";
 
@@ -30,7 +31,13 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
       .then((ws) => {
         if (cancelled) return;
         setWorkspaces(ws);
-        setActiveId(getActiveWorkspaceId() ?? ws[0]?.id ?? null);
+        const stored = getActiveWorkspaceId();
+        const resolvedId = (stored && ws.find((w) => w.id === stored))
+          ? stored
+          : ws[0]?.id ?? null;
+        // Always persist so X-Workspace-Id header is sent on every request
+        if (resolvedId && resolvedId !== stored) setActiveWorkspaceId(resolvedId);
+        setActiveId(resolvedId);
       })
       .catch(() => setWorkspaces([]));
     return () => {
