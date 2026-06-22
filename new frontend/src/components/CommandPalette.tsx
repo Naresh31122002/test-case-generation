@@ -246,14 +246,14 @@ export function CommandPalette() {
 
               {/* Story fetch error warning */}
               {storyFetchError && (
-                <p className=”px-4 py-2 text-xs text-warning bg-[#FFFBEB] border-b border-[#FCD34D]”>
-                  Could not load stories {“—“} navigation only
+                <p className="px-4 py-2 text-xs text-warning bg-[#FFFBEB] border-b border-[#FCD34D]">
+                  Could not load stories {"--"} navigation only
                 </p>
               )}
 
               {/* Results */}
               {query && results.length === 0 && (
-                <p className=”px-4 py-6 text-center text-sm text-muted”>
+                <p className="px-4 py-6 text-center text-sm text-muted">
                   No results for &ldquo;{query}&rdquo;.
                 </p>
               )}
