@@ -587,29 +587,8 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
     </Modal>
   );
 }
-                  <div>
-                    <p className="text-sm font-medium text-navy">{f.label}</p>
-                    <p className="text-[11px] text-muted">{f.ext}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <SubmitButton loading={phase === "loading"} onClick={submit}>
-              {phase === "loading" ? "Exporting…" : "Export"}
-            </SubmitButton>
-  );
-}
-
+/* ─────────────────────────── Action bar ─────────────────────────── */
 /* ─────────────────────────── Action bar ─────────────────────────── */
 
 type ActiveModal = "upload" | "compare" | "export" | null;
