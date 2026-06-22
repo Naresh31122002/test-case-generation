@@ -67,6 +67,7 @@ def get_stories():
         f_impact = request.args.get('impact')  # 'detected' | 'none'
         f_assignee = request.args.get('assignee')  # user_id | 'me' | 'unassigned'
         f_priority = [p for p in request.args.getlist('priority') if p in ('High', 'Medium', 'Low')]
+        f_search = (request.args.get('q') or '').strip()[:200]  # full-text search on story_description
 
         print("DEBUG:get_stories: Request received", {
             'page': page,
@@ -135,6 +136,13 @@ def get_stories():
                     AND sa.user_id = %s
                 )"""
                 filter_params.append(target)
+        if f_search:
+            filter_sql += """ AND (
+                story_description ILIKE %s
+                OR story_id ILIKE %s
+            )"""
+            like = f"%{f_search}%"
+            filter_params.extend([like, like])
 
         query += filter_sql
         params.extend(filter_params)
@@ -800,6 +808,7 @@ def rename_project(project_id):
                     UPDATE test_cases SET project_id = %s
                     WHERE project_id = %s AND workspace_id = %s
                 """, (new_id, project_id, workspace_id))
+                conn.commit()
 
         # Update LanceDB
         try:
@@ -2507,6 +2516,7 @@ Generate complete, runnable {fmt} test code. Return ONLY the code, no explanatio
         return jsonify({'error': str(e)}), 500
 
 
+@stories_bp.route('/<story_id>/regenerate', methods=['POST'])
 @dev_jwt_required
 def regenerate_tests(story_id):
     """Re-run test case generation for an existing story using its stored content."""
@@ -2615,6 +2625,7 @@ def update_test_case_status(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'test_case_id': test_case_id, 'status': new_status}), 200
     except Exception as e:
@@ -2891,6 +2902,7 @@ def update_test_case(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'test_case_id': test_case_id, 'updated': True}), 200
     except Exception as e:
@@ -2930,6 +2942,7 @@ def delete_test_case(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'deleted': test_case_id, 'remaining': len(cases)}), 200
     except Exception as e:
@@ -3076,6 +3089,7 @@ Return ONLY valid JSON, no other text:
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         updated_tc = next((tc for tc in cases if tc.get('id') == test_case_id), {})
         return jsonify({'test_case_id': test_case_id, 'test_case': updated_tc}), 200
@@ -3218,6 +3232,7 @@ Return ONLY valid JSON, no other text:
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'updated': [tc.get('id') for tc in updated], 'test_cases': updated}), 200
 
@@ -3365,6 +3380,7 @@ def regroup_test_cases(story_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'story_id': story_id, 'groups': list({tc.get('group','General') for tc in cases})}), 200
     except Exception as e:
@@ -3749,7 +3765,7 @@ def batch_review_impacts():
         accepted = rejected = edited = 0
 
         with Config.get_postgres_connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 for review in reviews:
                     iid = review.get('impact_id')
                     action = review.get('action')
@@ -3758,6 +3774,19 @@ def batch_review_impacts():
 
                     new_status = 'accepted' if action in ('accept', 'edit') else 'rejected'
                     edited_tc = review.get('edited_test_case')
+
+                    # Fetch impact + original test_case_json in one query
+                    cur.execute("""
+                        SELECT tci.impact_id, tci.original_story_id, tci.original_test_case_id,
+                               tci.impact_analysis_json,
+                               tc.test_case_json
+                        FROM test_case_impacts tci
+                        LEFT JOIN test_cases tc ON tc.story_id = tci.original_story_id AND tc.workspace_id = tci.workspace_id
+                        WHERE tci.impact_id = %s AND tci.workspace_id = %s
+                    """, (iid, workspace_id))
+                    impact = cur.fetchone()
+                    if not impact:
+                        continue
 
                     cur.execute("""
                         UPDATE test_case_impacts
@@ -3780,6 +3809,49 @@ def batch_review_impacts():
                             (history_id, impact_id, user_id, workspace_id, changed_by, previous_status, new_status, change_reason)
                         VALUES (%s, %s, %s, %s, %s, 'active', %s, 'batch_review')
                     """, (str(uuid.uuid4()), iid, user_id, workspace_id, user_id, new_status))
+
+                    # If accepted: apply the modified test case to test_case_json
+                    if new_status == 'accepted':
+                        original_tc_id = impact['original_test_case_id']
+                        original_story_id = impact['original_story_id']
+                        tc_json = impact['test_case_json']
+
+                        if edited_tc:
+                            replacement = edited_tc
+                        else:
+                            analysis = impact['impact_analysis_json']
+                            if isinstance(analysis, str):
+                                try:
+                                    analysis = json.loads(analysis)
+                                except Exception:
+                                    analysis = {}
+                            replacement = (analysis or {}).get('modified_test_case') or (analysis or {}).get('modifiedTestCase')
+
+                        if replacement and tc_json:
+                            if isinstance(tc_json, str):
+                                try:
+                                    tc_json = json.loads(tc_json)
+                                except Exception:
+                                    tc_json = {}
+                            test_cases = tc_json.get('test_cases', [])
+                            new_cases = []
+                            for tc in test_cases:
+                                tc_id = tc.get('id') or tc.get('test_case_id', '')
+                                if tc_id == original_tc_id:
+                                    new_cases.append({**tc, **{
+                                        'title': replacement.get('title', tc.get('title', '')),
+                                        'steps': replacement.get('steps', tc.get('steps', [])),
+                                        'expected_result': replacement.get('expected_result', tc.get('expected_result', '')),
+                                        'priority': replacement.get('priority', tc.get('priority', 'Medium')),
+                                        'id': tc_id,
+                                    }})
+                                else:
+                                    new_cases.append(tc)
+                            tc_json['test_cases'] = new_cases
+                            cur.execute("""
+                                UPDATE test_cases SET test_case_json = %s
+                                WHERE story_id = %s AND workspace_id = %s
+                            """, (json.dumps(tc_json), original_story_id, workspace_id))
 
                     if action == 'accept': accepted += 1
                     elif action == 'reject': rejected += 1

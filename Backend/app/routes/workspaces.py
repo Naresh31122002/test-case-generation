@@ -62,11 +62,95 @@ def create_workspace():
 @workspaces_bp.route("/current", methods=["GET"])
 @workspace_required
 def current_workspace():
+    from app.config import Config
+    import psycopg2.extras, json as _json
     ws_id = get_current_workspace_id()
     ws = WorkspaceModel.get_by_id(ws_id) if ws_id else None
     if not ws:
         return jsonify({"error": "No active workspace"}), 404
+    # Attach workspace config (timezone, analysis_types) if stored
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT config FROM workspace_integrations
+                    WHERE workspace_id = %s AND integration_type = 'workspace_config'
+                """, (ws_id,))
+                row = cur.fetchone()
+                if row:
+                    cfg = row['config']
+                    ws['config'] = cfg if isinstance(cfg, dict) else _json.loads(cfg)
+    except Exception:
+        pass
     return jsonify({"workspace": ws}), 200
+
+
+@workspaces_bp.route("/current", methods=["PATCH"])
+@workspace_required
+@require_workspace_role(["owner", "admin"])
+def update_current_workspace():
+    """Update workspace name and/or config (timezone, analysis_types)."""
+    ws_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    config = data.get("config")  # optional dict
+
+    if not name and config is None:
+        return jsonify({"error": "Nothing to update"}), 400
+
+    try:
+        updated = WorkspaceModel.update(ws_id, name=name or None, config=config)
+        if not updated:
+            return jsonify({"error": "Workspace not found"}), 404
+        return jsonify({"workspace": updated}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@workspaces_bp.route("/integrations", methods=["GET"])
+@workspace_required
+def list_integrations():
+    """Return all workspace_integrations rows for this workspace."""
+    from app.config import Config
+    import psycopg2.extras
+    ws_id = get_current_workspace_id()
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT integration_type, config, created_at
+                    FROM workspace_integrations
+                    WHERE workspace_id = %s
+                """, (ws_id,))
+                rows = [dict(r) for r in cur.fetchall()]
+                for r in rows:
+                    if r.get('created_at'):
+                        r['created_at'] = r['created_at'].isoformat()
+                    # Never expose secrets — they're in a separate column (secret_enc)
+        return jsonify({"integrations": rows}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@workspaces_bp.route("/integrations/<integration_type>", methods=["DELETE"])
+@workspace_required
+@require_workspace_role(["owner", "admin"])
+def delete_integration(integration_type):
+    """Disconnect an integration."""
+    from app.config import Config
+    ws_id = get_current_workspace_id()
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM workspace_integrations
+                    WHERE workspace_id = %s AND integration_type = %s
+                """, (ws_id, integration_type))
+                conn.commit()
+        return jsonify({"deleted": integration_type}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @workspaces_bp.route("/current/credits", methods=["GET"])
 @workspace_required

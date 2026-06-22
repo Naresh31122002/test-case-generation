@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { GitPullRequest, Loader2 } from "lucide-react";
-import { type ChangeStatus } from "@/lib/seed";
+type ChangeStatus = "Pending" | "Approved" | "Rejected";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { api } from "@/lib/api";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
@@ -42,15 +42,16 @@ const tabToStatus: Record<ChangeStatus | "All", string> = {
 };
 
 export default function ChangesPage() {
-  const [changeRequests, setChangeRequests] = useState<ChangeCard[]>([]);
+  const [allChangeRequests, setAllChangeRequests] = useState<ChangeCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<ChangeStatus | "All">("Pending");
 
   useEffect(() => {
     setLoading(true);
-    api.getChanges({ status: tabToStatus[tab] as any, page: 1, perPage: 50 })
+    // Fetch all statuses at once so tab counts are always accurate
+    api.getChanges({ status: 'all', page: 1, perPage: 200 })
       .then((res) =>
-        setChangeRequests(
+        setAllChangeRequests(
           res.changes.map((c) => ({
             id: c.change_id,
             storyId: c.new_story_id,
@@ -74,21 +75,22 @@ export default function ChangesPage() {
           }))
         )
       )
-      .catch(() => setChangeRequests([]))
+      .catch(() => setAllChangeRequests([]))
       .finally(() => setLoading(false));
-  }, [tab]);
+  }, []);
 
   const counts = {
-    Pending:  changeRequests.filter((c) => c.status === "Pending").length,
-    Approved: changeRequests.filter((c) => c.status === "Approved").length,
-    Rejected: changeRequests.filter((c) => c.status === "Rejected").length,
-    All:      changeRequests.length,
+    Pending:  allChangeRequests.filter((c) => c.status === "Pending").length,
+    Approved: allChangeRequests.filter((c) => c.status === "Approved").length,
+    Rejected: allChangeRequests.filter((c) => c.status === "Rejected").length,
+    All:      allChangeRequests.length,
   };
 
-  const filtered =
-    tab === "All"
-      ? changeRequests
-      : changeRequests.filter((c) => c.status === tab);
+  const changeRequests = tab === "All"
+    ? allChangeRequests
+    : allChangeRequests.filter((c) => c.status === tab);
+
+  const filtered = changeRequests;
 
   return (
     <PageLayout>

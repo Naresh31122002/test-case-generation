@@ -352,6 +352,17 @@ def create_postgres_db():
         """)
         print("✅ Table 'workspace_credits' is ready.")
 
+        # Backfill workspace_credits for any workspace that was created before
+        # the auto-provisioning logic existed — idempotent due to ON CONFLICT DO NOTHING.
+        cursor.execute("""
+            INSERT INTO workspace_credits (workspace_id, monthly_limit, credits_used, reset_date)
+            SELECT id, 200, 0, NOW() + INTERVAL '30 days'
+            FROM workspaces
+            WHERE id NOT IN (SELECT workspace_id FROM workspace_credits)
+            ON CONFLICT (workspace_id) DO NOTHING;
+        """)
+        print("✅ Backfilled workspace_credits for all existing workspaces.")
+
         # Credit Transactions (Auditing)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS credit_transactions (

@@ -42,21 +42,28 @@ export default function TeamSettings() {
   }
 
   async function changeRole(userId: string, role: string) {
+    const prev = members.find(m => m.user_id === userId)?.role;
+    setMembers(p => p.map(m => m.user_id === userId ? { ...m, role } : m));
     try {
-      await fetch(`/api/workspaces/members/${userId}`, {
+      const r = await fetch(`/api/workspaces/members/${userId}`, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),
       });
-      setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role } : m));
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
       showToast('Role updated ✓');
-    } catch { showToast('Failed to update role'); }
+    } catch {
+      // Rollback on failure
+      if (prev) setMembers(p => p.map(m => m.user_id === userId ? { ...m, role: prev } : m));
+      showToast('Failed to update role');
+    }
   }
 
   async function removeMember(userId: string) {
-    if (!confirm('Remove this member?')) return;
+    if (!confirm('Remove this member from the workspace?')) return;
     try {
-      await fetch(`/api/workspaces/members/${userId}`, { method: 'DELETE', credentials: 'include' });
+      const r = await fetch(`/api/workspaces/members/${userId}`, { method: 'DELETE', credentials: 'include' });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
       setMembers(prev => prev.filter(m => m.user_id !== userId));
       showToast('Member removed');
     } catch { showToast('Failed to remove member'); }

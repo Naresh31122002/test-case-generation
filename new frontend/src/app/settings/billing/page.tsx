@@ -17,6 +17,7 @@ export default function BillingSettings() {
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -24,7 +25,7 @@ export default function BillingSettings() {
       fetch('/api/workspaces/current', { credentials: 'include' }).then(r => r.json()),
     ]).then(([c, w]) => {
       setCredits(c.credits);
-      setWorkspace(w);
+      setWorkspace(w.workspace ?? w);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -32,7 +33,7 @@ export default function BillingSettings() {
   const usedPct = credits ? Math.round((credits.used / credits.limit) * 100) : 0;
 
   async function handleUpgrade(planId: string) {
-    setCheckoutLoading(planId);
+    setCheckoutLoading(planId); setActionError(null);
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST', credentials: 'include',
@@ -40,13 +41,17 @@ export default function BillingSettings() {
         body: JSON.stringify({ plan: planId, success_url: window.location.href, cancel_url: window.location.href }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
       if (data.url) window.location.href = data.url;
-    } catch { /* show nothing — Stripe not configured in dev */ }
-    finally { setCheckoutLoading(null); }
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to start checkout. Please try again.');
+    } finally {
+      setCheckoutLoading(null);
+    }
   }
 
   async function handleManageBilling() {
-    setPortalLoading(true);
+    setPortalLoading(true); setActionError(null);
     try {
       const res = await fetch('/api/stripe/portal', {
         method: 'POST', credentials: 'include',
@@ -54,9 +59,13 @@ export default function BillingSettings() {
         body: JSON.stringify({ return_url: window.location.href }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
       if (data.url) window.location.href = data.url;
-    } catch { }
-    finally { setPortalLoading(false); }
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to open billing portal.');
+    } finally {
+      setPortalLoading(false);
+    }
   }
 
   return (
@@ -65,6 +74,10 @@ export default function BillingSettings() {
         <h2 className="text-[18px] font-semibold text-navy mb-1">Billing</h2>
         <p className="text-sm text-muted">Manage your plan and billing details.</p>
       </div>
+
+      {actionError && (
+        <p className="text-sm text-error bg-[#FEF2F2] border border-[#FCA5A5] rounded-card px-3 py-2">{actionError}</p>
+      )}
 
       {/* Credits usage */}
       <div className="bg-white border border-border rounded-card p-5 space-y-3">

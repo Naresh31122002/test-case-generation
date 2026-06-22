@@ -18,7 +18,8 @@ export interface StoryFilters {
   status?: string[];
   priority?: string[];
   impact?: 'detected' | 'none';
-  assignee?: string; // user_id | 'me' | 'unassigned'
+  assignee?: string;
+  search?: string;
 }
 
 export function useStoriesStore(projectId?: string, enabled = true, filters?: StoryFilters) {
@@ -59,15 +60,29 @@ export function useStoriesStore(projectId?: string, enabled = true, filters?: St
     return () => { mountedRef.current = false; };
   }, [fetch, enabled]);
 
-  // Background polling when any story is still generating
+  // Background polling — only while at least one story is actively generating.
+  // Caps at 15 poll cycles (~2 minutes) to prevent infinite loops for stories
+  // that fail silently without updating their status.
+  const pollCountRef = useRef(0);
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     if (!enabled) return;
 
-    const hasGenerating = stories.some((s) => s.testCount === 0);
-    if (!hasGenerating) return;
+    const hasGenerating = stories.some(
+      (s) => s.status === "Analyzing" || (s.testCount === 0 && s.status !== "Draft")
+    );
+    if (!hasGenerating) {
+      pollCountRef.current = 0;
+      return;
+    }
 
     pollingRef.current = setInterval(() => {
+      pollCountRef.current++;
+      if (pollCountRef.current > 15) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollCountRef.current = 0;
+        return;
+      }
       fetch(true);
     }, 8000);
 

@@ -474,7 +474,8 @@ export const api = {
       status?: string[];
       priority?: string[];
       impact?: 'detected' | 'none';
-      assignee?: string; // user_id | 'me' | 'unassigned'
+      assignee?: string;
+      search?: string;
     },
   ): Promise<PaginatedResponse<Story>> {
     try {
@@ -486,6 +487,7 @@ export const api = {
       filters?.priority?.forEach((p) => { url += `&priority=${encodeURIComponent(p)}` })
       if (filters?.impact) url += `&impact=${encodeURIComponent(filters.impact)}`
       if (filters?.assignee) url += `&assignee=${encodeURIComponent(filters.assignee)}`
+      if (filters?.search) url += `&q=${encodeURIComponent(filters.search)}`
       const data = await get<{ stories: RawStory[]; pagination: Record<string, unknown> }>(url)
       return normalizePaginatedStories(data)
     } catch (error: any) {

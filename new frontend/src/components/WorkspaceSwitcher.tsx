@@ -36,14 +36,18 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
           ? stored
           : ws[0]?.id ?? null;
         // Always persist so X-Workspace-Id header is sent on every request
-        if (resolvedId && resolvedId !== stored) setActiveWorkspaceId(resolvedId);
+        if (resolvedId && resolvedId !== stored) {
+          setActiveWorkspaceId(resolvedId);
+          // Reload all data so it is scoped to the reconciled workspace
+          router.refresh();
+        }
         setActiveId(resolvedId);
       })
       .catch(() => setWorkspaces([]));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {

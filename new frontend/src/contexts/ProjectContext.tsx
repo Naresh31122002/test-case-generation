@@ -44,6 +44,9 @@ const ProjectContext = createContext<ProjectContextValue | null>(null);
 const LS_PROJECTS = "testsurge:projects";
 const LS_SELECTED = "testsurge:selected-project";
 const LS_RECENT = "testsurge:recent-projects";
+// Locally-created projects that have no stories yet (not yet in backend).
+// Merged with real projects on load; dropped once a story exists in the project.
+const LS_LOCAL_PROJECTS = "testsurge:local-projects";
 
 function describeLoadError(err: unknown): string {
   if (err instanceof ApiError) {
@@ -117,13 +120,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const realProjects = await fetchProjects();
         if (cancelled) return;
 
-        setAllProjects(realProjects);
+        // Merge locally-created projects that don't yet have stories.
+        // Once a project has real stories it will appear in realProjects; drop the local copy then.
+        const localRaw = (() => { try { return JSON.parse(localStorage.getItem(LS_LOCAL_PROJECTS) ?? "[]"); } catch { return []; } })();
+        const realIds = new Set(realProjects.map((p: Project) => p.id));
+        const localOnly = (localRaw as Project[]).filter((p) => !realIds.has(p.id));
+        // Prune local projects that now have real backing so localStorage doesn't grow unboundedly
+        if (localOnly.length !== localRaw.length) {
+          try { localStorage.setItem(LS_LOCAL_PROJECTS, JSON.stringify(localOnly)); } catch {}
+        }
+        const merged = [...realProjects, ...localOnly];
+        setAllProjects(merged);
 
-        if (realProjects.length > 0) {
-          // If saved selection doesn't match any real project, auto-select first
+        if (merged.length > 0) {
+          // If saved selection doesn't match any merged project, auto-select first
           const saved = localStorage.getItem(LS_SELECTED);
-          if (!saved || !realProjects.find((p) => p.id === saved)) {
-            const firstId = realProjects[0].id;
+          if (!saved || !merged.find((p) => p.id === saved)) {
+            const firstId = merged[0].id;
             setSelectedId(firstId);
             localStorage.setItem(LS_SELECTED, firstId);
             localStorage.setItem("activeProject", firstId);
@@ -223,9 +236,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setAllProjects((prev) => [project, ...prev]);
       setSelectedId(project.id);
       pushRecent(project.id);
-      // Keep localStorage.activeProject in sync so the upload flow (which reads
-      // it directly) targets the newly created project, not a stale "default".
       try { localStorage.setItem("activeProject", project.id); } catch {}
+      // Persist locally so the project survives a reload before any story is uploaded to it.
+      try {
+        const existing: Project[] = JSON.parse(localStorage.getItem(LS_LOCAL_PROJECTS) ?? "[]");
+        existing.unshift(project);
+        localStorage.setItem(LS_LOCAL_PROJECTS, JSON.stringify(existing.slice(0, 20)));
+      } catch {}
       return project;
     },
     [pushRecent]

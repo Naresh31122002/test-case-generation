@@ -21,15 +21,13 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { testCases, type Story } from "@/lib/seed";
+import { type Story } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { useFloatingPanel } from "@/components/ui/useFloatingPanel";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
-import dynamic from "next/dynamic";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { useProject } from "@/contexts/ProjectContext";
-import { storiesForProject } from "@/lib/projects";
 import { NoProjects } from "@/components/projects/EmptyState";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
@@ -40,18 +38,6 @@ import { NewStoryButton } from "@/components/HeaderActions";
 import { NewStoryModal } from "@/components/stories/NewStoryModal";
 import { StoryKanban } from "@/components/StoryKanban";
 import { TestCaseKanban } from "@/components/TestCaseKanban";
-
-// Kanban is heavy (drag-and-drop) and only shown in kanban view — lazy-load it.
-const KanbanView = dynamic(
-  () => import("@/components/KanbanView").then((m) => m.KanbanView),
-  {
-    loading: () => (
-      <div className="h-[60vh] flex items-center justify-center text-sm text-muted">
-        Loading board…
-      </div>
-    ),
-  }
-);
 
 type ViewMode = "board" | "list" | "kanban";
 type SortKey = "lastUpdated" | "name" | "coverageAsc" | "coverageDesc" | "impactDesc";
@@ -183,6 +169,7 @@ export default function StoriesPage() {
   const { selectedProject, hasProjects, ready, reloadProjects } = useProject();
   const { notify } = useAIAction();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState("All Types");
   const [sortKey, setSortKey] = useState<SortKey>("lastUpdated");
   const [viewMode, setViewMode] = useState<ViewMode>("board");
@@ -191,14 +178,22 @@ export default function StoriesPage() {
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Sprint 1 Phase 3: server-side story filters.
-  const [storyStatus, setStoryStatus] = useState<string>("");   // '' | in_review | in_progress | completed
-  const [storyPriority, setStoryPriority] = useState<string>(""); // '' | High | Medium | Low
-  const [storyImpact, setStoryImpact] = useState<string>("");   // '' | detected | none
+  const [storyStatus, setStoryStatus] = useState<string>("");
+  const [storyPriority, setStoryPriority] = useState<string>("");
+  const [storyImpact, setStoryImpact] = useState<string>("");
+
+  // Debounce search to avoid a request on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const serverFilters = useMemo(() => ({
     ...(storyStatus ? { status: [storyStatus] } : {}),
     ...(storyPriority ? { priority: [storyPriority] } : {}),
     ...(storyImpact ? { impact: storyImpact as 'detected' | 'none' } : {}),
-  }), [storyStatus, storyPriority, storyImpact]);
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+  }), [storyStatus, storyPriority, storyImpact, debouncedSearch]);
 
   // Derive the active project ID to filter by.
   // Wait until ProjectContext is ready — otherwise first render fetches ALL stories
@@ -227,21 +222,10 @@ export default function StoriesPage() {
     () => new Set(projectStories.map((s) => s.id)),
     [projectStories]
   );
-  const projectTests = useMemo(
-    () => testCases.filter((t) => projectStoryIds.has(t.storyId)),
-    [projectStoryIds]
-  );
 
   const filtered = useMemo(() => {
     let result = [...projectStories];
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (s) =>
-          s.title.toLowerCase().includes(q) ||
-          s.id.toLowerCase().includes(q)
-      );
-    }
+    // Search is now server-side (via debouncedSearch in serverFilters) — no client-side filter needed.
     if (filterType !== "All Types") {
       result = result.filter((s) => s.type === filterType);
     }
@@ -265,7 +249,7 @@ export default function StoriesPage() {
         break;
     }
     return result;
-  }, [projectStories, search, filterType, sortKey, activeFilter]);
+  }, [projectStories, filterType, sortKey, activeFilter]);
 
   // Bulk selection helpers
   const toggleSelect = (id: string) =>
@@ -592,13 +576,7 @@ function BulkActionBar({
       description: `Generate tests for ${count} selected ${count === 1 ? "story" : "stories"} in one batch.`,
       run: async () => {
         const results = await Promise.allSettled(
-          stories.map((s) =>
-            fetch(`/api/stories/${s.id}/regenerate`, {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-            })
-          )
+          stories.map((s) => api.regenerateTests(s.id))
         );
         const failed = results.filter((r) => r.status === "rejected").length;
         if (failed === results.length) throw new Error("All regenerations failed. Please try again.");

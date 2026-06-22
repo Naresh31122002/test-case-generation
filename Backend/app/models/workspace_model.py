@@ -185,6 +185,35 @@ class WorkspaceModel:
             conn.close()
 
     @staticmethod
+    def update(workspace_id: str, name: str | None = None, config: dict | None = None) -> dict | None:
+        """Update workspace name and/or config. Config is stored in workspace_integrations table
+        as a special 'workspace_config' row so no schema change is needed."""
+        import json as _json
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+            if name:
+                cursor.execute(
+                    "UPDATE workspaces SET name = %s WHERE id = %s",
+                    (name, workspace_id),
+                )
+            if config is not None:
+                cursor.execute("""
+                    INSERT INTO workspace_integrations (workspace_id, integration_type, config)
+                    VALUES (%s, 'workspace_config', %s)
+                    ON CONFLICT (workspace_id, integration_type) DO UPDATE SET config = EXCLUDED.config
+                """, (workspace_id, _json.dumps(config)))
+            conn.commit()
+            return WorkspaceModel.get_by_id(workspace_id)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+
+    @staticmethod
     def get_default_for_user(user_id: str) -> dict | None:
         """The user's primary workspace: prefer one they own, else earliest joined."""
         conn = Config.get_postgres_connection()

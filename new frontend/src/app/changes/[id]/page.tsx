@@ -93,10 +93,18 @@ export default function ChangeReviewPage({ params }: { params: { id: string } })
 
   async function handleSubmit() {
     setSubmitting(true);
-    const reviews = impacts.map((i) => ({
-      impact_id: i.impactId,
-      action: accepted.has(i.impactId) ? 'accept' as const : rejected.has(i.impactId) ? 'reject' as const : 'accept' as const,
-    }));
+    // Only submit impacts that were explicitly reviewed — skip unreviewed ones
+    const reviews = impacts
+      .filter((i) => accepted.has(i.impactId) || rejected.has(i.impactId))
+      .map((i) => ({
+        impact_id: i.impactId,
+        action: accepted.has(i.impactId) ? 'accept' as const : 'reject' as const,
+      }));
+    if (reviews.length === 0) {
+      alert('Please review at least one impact before submitting.');
+      setSubmitting(false);
+      return;
+    }
     try {
       await api.batchReviewImpacts('', storyId, reviews);
       setSubmitted(true);

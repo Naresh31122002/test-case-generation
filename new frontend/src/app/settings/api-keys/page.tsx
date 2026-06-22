@@ -11,8 +11,10 @@ export default function ApiKeysSettings() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [newKey, setNewKey] = useState<string | null>(null);  // shown once after creation
+  const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   function loadKeys() {
     fetch('/api/auth/api-keys', { credentials: 'include' })
@@ -26,7 +28,7 @@ export default function ApiKeysSettings() {
 
   async function create() {
     if (!newName.trim()) return;
-    setCreating(true);
+    setCreating(true); setCreateError(null);
     try {
       const r = await fetch('/api/auth/api-keys', {
         method: 'POST', credentials: 'include',
@@ -34,20 +36,27 @@ export default function ApiKeysSettings() {
         body: JSON.stringify({ name: newName.trim() }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
+      if (!r.ok) throw new Error(d.error ?? `Server error ${r.status}`);
       setNewKey(d.key);
       setNewName(""); setShowNew(false);
       loadKeys();
-    } catch { }
-    finally { setCreating(false); }
+    } catch (e: any) {
+      setCreateError(e?.message ?? 'Failed to create key.');
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function revoke(id: string) {
     if (!confirm('Revoke this API key? This cannot be undone.')) return;
+    setRevokeError(null);
     try {
-      await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE', credentials: 'include' });
+      const r = await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
       setKeys(k => k.filter(x => x.id !== id));
-    } catch { }
+    } catch (e: any) {
+      setRevokeError(e?.message ?? 'Failed to revoke key.');
+    }
   }
 
   function copyKey() {
@@ -64,11 +73,14 @@ export default function ApiKeysSettings() {
           <h2 className="text-[18px] font-semibold text-navy mb-1">API Keys</h2>
           <p className="text-sm text-muted">Create and revoke API keys for programmatic access.</p>
         </div>
-        <button onClick={() => setShowNew(true)}
+        <button onClick={() => { setShowNew(true); setCreateError(null); }}
           className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2">
           <Plus size={14} /> Create Key
         </button>
       </div>
+
+      {createError && <p className="text-sm text-error">{createError}</p>}
+      {revokeError && <p className="text-sm text-error">{revokeError}</p>}
 
       {/* New key just created — show once */}
       {newKey && (
