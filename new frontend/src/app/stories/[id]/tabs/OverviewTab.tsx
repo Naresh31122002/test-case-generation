@@ -104,7 +104,7 @@ export function OverviewTab({ story }: { story: Story }) {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[15px] font-semibold text-navy flex items-center gap-1.5">
             Story Quality Analysis
-            <Tooltip content="AI-powered analysis of Completeness, Clarity and Testability using the Groq LLM.">
+            <Tooltip content="AI-powered analysis of Completeness, Clarity and Testability.">
               <Info size={13} className="text-muted cursor-help" />
             </Tooltip>
           </h3>

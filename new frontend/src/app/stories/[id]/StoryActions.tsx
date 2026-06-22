@@ -167,7 +167,7 @@ function SubmitButton({
 
 /* ─────────────────────────── Upload New Version ─────────────────────────── */
 
-function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => void }) {
+function UploadVersionModal({ story, onClose, onVersionUploaded }: { story: Story; onClose: () => void; onVersionUploaded?: (versionNumber?: number) => void }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -200,8 +200,9 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
         throw new Error("Please provide content for the new version.");
       }
       if (notes.trim()) formData.append("version_notes", notes.trim());
-      await api.uploadNewVersion(story.id, formData);
+      const result = await api.uploadNewVersion(story.id, formData);
       setPhase("success");
+      onVersionUploaded?.(result?.version_number);
     } catch (err) {
       setError((err as Error).message);
       setPhase("error");
@@ -219,7 +220,7 @@ function UploadVersionModal({ story, onClose }: { story: Story; onClose: () => v
         <ResultPanel
           phase={phase}
           successTitle="New version uploaded"
-          successBody={`New version of ${story.id} is now processing.`}
+          successBody={`Test regeneration started for ${story.id}. New test cases will appear automatically — check the Tests tab in a moment.`}
           error={error}
           onRetry={submit}
           onClose={onClose}
@@ -575,9 +576,9 @@ function ExportModal({ story, onClose }: { story: Story; onClose: () => void }) 
 /* ─────────────────────────── Action bar ─────────────────────────── */
 /* ─────────────────────────── Action bar ─────────────────────────── */
 
-type ActiveModal = "upload" | "compare" | "export" | null;
+type ActiveModal = "upload" | "compare" | null;
 
-export function StoryActions({ story }: { story: Story }) {
+export function StoryActions({ story, onVersionUploaded }: { story: Story; onVersionUploaded?: (versionNumber?: number) => void }) {
   const [active, setActive] = useState<ActiveModal>(null);
   const { runAIAction } = useAIAction();
   const close = () => setActive(null);
@@ -592,10 +593,8 @@ export function StoryActions({ story }: { story: Story }) {
     });
 
   const buttons: { id: string; label: string; icon: LucideIcon; onClick: () => void }[] = [
-    { id: "upload",   label: "Upload New Version", icon: Upload,     onClick: () => setActive("upload") },
-    { id: "generate", label: "Generate Tests",     icon: RefreshCw,  onClick: generateTests },
-    { id: "compare",  label: "Compare",            icon: GitCompare, onClick: () => setActive("compare") },
-    { id: "export",   label: "Export",             icon: Download,   onClick: () => setActive("export") },
+    { id: "upload",  label: "Upload New Version", icon: Upload,     onClick: () => setActive("upload") },
+    { id: "compare", label: "Compare",            icon: GitCompare, onClick: () => setActive("compare") },
   ];
 
   return (
@@ -618,9 +617,8 @@ export function StoryActions({ story }: { story: Story }) {
       </div>
 
       <AnimatePresence>
-        {active === "upload" && <UploadVersionModal story={story} onClose={close} />}
+        {active === "upload" && <UploadVersionModal story={story} onClose={close} onVersionUploaded={onVersionUploaded} />}
         {active === "compare" && <CompareModal story={story} onClose={close} />}
-        {active === "export" && <ExportModal story={story} onClose={close} />}
       </AnimatePresence>
     </>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Loader2 } from "lucide-react";
+import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 
 interface Member { user_id: string; email: string; role: string; }
 
@@ -15,6 +16,7 @@ export default function TeamSettings() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [toastVariant, setToastVariant] = useState<'success' | 'error'>('success');
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   function showToast(msg: string, variant: 'success' | 'error' = 'success') {
     setToast(msg);
@@ -66,14 +68,20 @@ export default function TeamSettings() {
     }
   }
 
-  async function removeMember(userId: string) {
-    if (!confirm('Remove this member from the workspace?')) return;
-    try {
-      const r = await fetch(`/api/workspaces/members/${userId}`, { method: 'DELETE', credentials: 'include' });
-      if (!r.ok) throw new Error(`Server error ${r.status}`);
-      setMembers(prev => prev.filter(m => m.user_id !== userId));
-      showToast('Member removed');
-    } catch { showToast('Failed to remove member', 'error'); }
+  function removeMember(userId: string) {
+    setConfirmState({
+      title: "Remove member",
+      message: "This member will lose access to the workspace immediately.",
+      confirmLabel: "Remove",
+      onConfirm: async () => {
+        try {
+          const r = await fetch(`/api/workspaces/members/${userId}`, { method: 'DELETE', credentials: 'include' });
+          if (!r.ok) throw new Error(`Server error ${r.status}`);
+          setMembers(prev => prev.filter(m => m.user_id !== userId));
+          showToast('Member removed');
+        } catch { showToast('Failed to remove member', 'error'); }
+      },
+    });
   }
 
   return (
@@ -139,6 +147,7 @@ export default function TeamSettings() {
           </div>
         ))}
       </div>
+      <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
     </>
   );
 }

@@ -24,6 +24,7 @@ import {
 import { type Story } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
 import { StatusChip } from "@/components/ui/StatusChip";
+import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 import { useFloatingPanel } from "@/components/ui/useFloatingPanel";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
@@ -177,6 +178,7 @@ export default function StoriesPage() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<SavedFilterId | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   // Sprint 1 Phase 3: server-side story filters.
   const [storyStatus, setStoryStatus] = useState<string>("");
   const [storyPriority, setStoryPriority] = useState<string>("");
@@ -261,34 +263,32 @@ export default function StoriesPage() {
   // Permanently delete one or more stories. Backend deletes from Postgres +
   // LanceDB (workspace-scoped); on success we drop them from local state,
   // clear any selection, refresh project counts, and toast the result.
-  const deleteStories = async (ids: string[]) => {
+  const deleteStories = (ids: string[]) => {
     if (ids.length === 0) return;
     const label = ids.length === 1 ? "story" : `${ids.length} stories`;
-    if (!window.confirm(`Delete ${label}? This permanently removes the ${ids.length === 1 ? "story and its" : "stories and their"} test cases. This cannot be undone.`)) {
-      return;
-    }
-    const results = await Promise.allSettled(ids.map((id) => api.deleteStory(id)));
-    const okIds = ids.filter((_, i) => results[i].status === "fulfilled");
-    const failed = ids.length - okIds.length;
-
-    if (okIds.length > 0) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        okIds.forEach((id) => next.delete(id));
-        return next;
-      });
-      setOpenMenu(null);
-      reloadProjects();
-      invalidateStories();
-    }
-
-    if (failed === 0) {
-      notify({ variant: "success", title: okIds.length === 1 ? "Story deleted" : `${okIds.length} stories deleted` });
-    } else if (okIds.length === 0) {
-      notify({ variant: "error", title: "Delete failed", detail: "Could not delete. Please try again." });
-    } else {
-      notify({ variant: "error", title: "Some deletes failed", detail: `${okIds.length} deleted, ${failed} failed.` });
-    }
+    setConfirmState({
+      title: `Delete ${label}`,
+      message: `This permanently removes the ${ids.length === 1 ? "story and its" : "stories and their"} test cases. This cannot be undone.`,
+      confirmLabel: `Delete ${label}`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map((id) => api.deleteStory(id)));
+        const okIds = ids.filter((_, i) => results[i].status === "fulfilled");
+        const failed = ids.length - okIds.length;
+        if (okIds.length > 0) {
+          setSelected((prev) => { const next = new Set(prev); okIds.forEach((id) => next.delete(id)); return next; });
+          setOpenMenu(null);
+          reloadProjects();
+          invalidateStories();
+        }
+        if (failed === 0) {
+          notify({ variant: "success", title: okIds.length === 1 ? "Story deleted" : `${okIds.length} stories deleted` });
+        } else if (okIds.length === 0) {
+          notify({ variant: "error", title: "Delete failed", detail: "Could not delete. Please try again." });
+        } else {
+          notify({ variant: "error", title: "Some deletes failed", detail: `${okIds.length} deleted, ${failed} failed.` });
+        }
+      },
+    });
   };
 
   // Empty state: no projects yet.
@@ -521,6 +521,7 @@ export default function StoriesPage() {
         </AnimatePresence>
       </PageBody>
     </PageLayout>
+    <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
   );
 }
 

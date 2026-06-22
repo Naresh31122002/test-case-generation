@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Copy, Trash2, Plus, Loader2, Check } from "lucide-react";
+import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 
 interface ApiKey { id: string; name: string; key_prefix: string; created_at: string; last_used_at: string | null; }
 
@@ -15,6 +16,7 @@ export default function ApiKeysSettings() {
   const [copied, setCopied] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   function loadKeys() {
     fetch('/api/auth/api-keys', { credentials: 'include' })
@@ -47,16 +49,22 @@ export default function ApiKeysSettings() {
     }
   }
 
-  async function revoke(id: string) {
-    if (!confirm('Revoke this API key? This cannot be undone.')) return;
-    setRevokeError(null);
-    try {
-      const r = await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE', credentials: 'include' });
-      if (!r.ok) throw new Error(`Server error ${r.status}`);
-      setKeys(k => k.filter(x => x.id !== id));
-    } catch (e: any) {
-      setRevokeError(e?.message ?? 'Failed to revoke key.');
-    }
+  function revoke(id: string) {
+    setConfirmState({
+      title: "Revoke API key",
+      message: "This key will be immediately invalidated. Any applications using it will lose access.",
+      confirmLabel: "Revoke",
+      onConfirm: async () => {
+        setRevokeError(null);
+        try {
+          const r = await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE', credentials: 'include' });
+          if (!r.ok) throw new Error(`Server error ${r.status}`);
+          setKeys(k => k.filter(x => x.id !== id));
+        } catch (e: any) {
+          setRevokeError(e?.message ?? 'Failed to revoke key.');
+        }
+      },
+    });
   }
 
   function copyKey() {
@@ -139,6 +147,7 @@ export default function ApiKeysSettings() {
           </div>
         ))}
       </div>
+      <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
     </>
   );
 }

@@ -7,6 +7,7 @@ import {
   Pencil, Trash2, X, Plus, Loader2, CheckCircle2,
   Paperclip, FileText, ChevronDown,
 } from "lucide-react";
+import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 import { type TestCase, type TestType } from "@/lib/seed";
 import { fadeInUp, duration, easeStandard } from "@/lib/motion";
 import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
@@ -172,6 +173,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [bulkLoading, setBulkLoading] = useState(false);
   const [regrouping, setRegrouping] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   // Re-fetch server-side when priority or status filter changes
   useEffect(() => {
@@ -325,44 +327,57 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }, [storyId, checked]);
 
   // ── Delete ────────────────────────────────────────────────────────────────
-  const handleDelete = useCallback(async (testId: string) => {
-    if (!confirm('Delete this test case? This cannot be undone.')) return;
-    setDeletingIds((p) => new Set(p).add(testId));
-    try {
-      await api.deleteTestCase(storyId, testId);
-      setTests((prev) => prev.filter((t) => t.id !== testId));
-      if (selected === testId) setSelected(null);
-      showToast('Test case deleted');
-      invalidateStories();
-    } catch {
-      showToast('Failed to delete', 'error');
-    } finally {
-      setDeletingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
-    }
+  const handleDelete = useCallback((testId: string) => {
+    setConfirmState({
+      title: "Delete test case",
+      message: "This test case will be permanently deleted. This cannot be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        setDeletingIds((p) => new Set(p).add(testId));
+        try {
+          await api.deleteTestCase(storyId, testId);
+          setTests((prev) => prev.filter((t) => t.id !== testId));
+          if (selected === testId) setSelected(null);
+          showToast('Test case deleted');
+          invalidateStories();
+        } catch {
+          showToast('Failed to delete', 'error');
+        } finally {
+          setDeletingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+        }
+      },
+    });
   }, [storyId, selected]);
 
-  const handleBulkDelete = useCallback(async () => {
-    if (!confirm(`Delete ${checked.size} test cases? This cannot be undone.`)) return;
-    setBulkLoading(true);
-    const ids = Array.from(checked);
-    try {
-      const results = await Promise.allSettled(ids.map((id) => api.deleteTestCase(storyId, id)));
-      const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
-      const failed = ids.filter((_, i) => results[i].status === 'rejected');
-      setTests((prev) => prev.filter((t) => !succeeded.includes(t.id)));
-      if (selected && succeeded.includes(selected)) setSelected(null);
-      setChecked(new Set());
-      invalidateStories();
-      if (failed.length > 0) {
-        showToast(`${succeeded.length} deleted, ${failed.length} failed`, 'error');
-      } else {
-        showToast(`${succeeded.length} test cases deleted`);
-      }
-    } catch {
-      showToast('Some deletions failed', 'error');
-    } finally {
-      setBulkLoading(false);
-    }
+  const handleBulkDelete = useCallback(() => {
+    const count = checked.size;
+    setConfirmState({
+      title: `Delete ${count} test case${count === 1 ? '' : 's'}`,
+      message: `${count} test case${count === 1 ? '' : 's'} will be permanently deleted. This cannot be undone.`,
+      confirmLabel: "Delete all",
+      onConfirm: async () => {
+        setBulkLoading(true);
+        const ids = Array.from(checked);
+        try {
+          const results = await Promise.allSettled(ids.map((id) => api.deleteTestCase(storyId, id)));
+          const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+          const failed = ids.filter((_, i) => results[i].status === 'rejected');
+          setTests((prev) => prev.filter((t) => !succeeded.includes(t.id)));
+          if (selected && succeeded.includes(selected)) setSelected(null);
+          setChecked(new Set());
+          invalidateStories();
+          if (failed.length > 0) {
+            showToast(`${succeeded.length} deleted, ${failed.length} failed`, 'error');
+          } else {
+            showToast(`${succeeded.length} test cases deleted`);
+          }
+        } catch {
+          showToast('Some deletions failed', 'error');
+        } finally {
+          setBulkLoading(false);
+        }
+      },
+    });
   }, [storyId, checked, selected]);
 
   // ── Regenerate single ─────────────────────────────────────────────────────
@@ -1180,25 +1195,6 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       Reject
                     </button>
                   )}
-                  {(selectedTest.status === 'Approved' || selectedTest.status === 'Rejected') && (
-                    <button
-                      onClick={async () => {
-                        setApprovingIds(p => new Set(p).add(selectedTest.id));
-                        try {
-                          await api.approveTestCase(storyId, selectedTest.id, 'Pending');
-                          setTests(prev => prev.map(t => t.id === selectedTest.id ? {...t, status: 'Pending' as any} : t));
-                          showToast('Status reset to Pending');
-                        } catch {
-                          showToast('Failed to reset status', 'error');
-                        } finally {
-                          setApprovingIds(p => { const n = new Set(p); n.delete(selectedTest.id); return n; });
-                        }
-                      }}
-                      className="h-8 px-3 text-xs font-medium rounded-btn border border-border text-muted hover:bg-gray-50 transition-colors"
-                    >
-                      Reset
-                    </button>
-                  )}
                   {/* Regenerate */}
                   <button
                     onClick={() => handleRegenerate(selectedTest.id)}
@@ -1268,5 +1264,6 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
         </AnimatePresence>
       </div>
     </div>
+    <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
   );
 }

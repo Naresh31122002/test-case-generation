@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Download,
   TestTube2,
   Zap,
   FileText,
@@ -41,16 +40,14 @@ const OverviewTab = dynamic(() => import("./tabs/OverviewTab").then((m) => m.Ove
 const TestsTab = dynamic(() => import("./tabs/TestsTab").then((m) => m.TestsTab), { loading: TabFallback });
 const CoverageTab = dynamic(() => import("./tabs/CoverageTab").then((m) => m.CoverageTab), { loading: TabFallback });
 const ImpactTab = dynamic(() => import("./tabs/ImpactTab").then((m) => m.ImpactTab), { loading: TabFallback });
-const ExportTab = dynamic(() => import("./tabs/ExportTab").then((m) => m.ExportTab), { loading: TabFallback });
 
-type Tab = "overview" | "tests" | "coverage" | "impact" | "export";
+type Tab = "overview" | "tests" | "coverage" | "impact";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: FileText },
   { id: "tests",    label: "Tests",    icon: TestTube2 },
   { id: "coverage", label: "Coverage", icon: PieChart },
   { id: "impact",   label: "Impact",   icon: Zap },
-  { id: "export",   label: "Export",   icon: Download },
 ];
 
 /* ─── Secondary contextual sidebar (Story navigation) ─── */
@@ -151,13 +148,17 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
     "default";
 
   // Track generating state — true when arriving from wizard OR when testCount is 0
-  // Resets to false once test cases arrive (unlike URL param which never changes)
   const arrivedAnalyzing =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("analyzing") === "true";
   const [isGenerating, setIsGenerating] = useState(arrivedAnalyzing);
-  // Keep backward-compat alias
   const isAnalyzing = isGenerating || (story !== null && story.testCount === 0);
+
+  // Version history state
+  const [versions, setVersions] = useState<Array<{ version_number: number; description: string; created_on: string }>>([]);
+  const [versionRegenerating, setVersionRegenerating] = useState(false);
+  const [newVersionLabel, setNewVersionLabel] = useState<string | null>(null);
+  const [regenProgress, setRegenProgress] = useState(0); // 0-100 for progress bar
 
   function inferCategory(title: string): SeedTestCase["type"] {
     const t = title.toLowerCase();
@@ -194,8 +195,22 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
         }
       })
       .catch(() => { if (!cancelled) setLoading(false); });
+    // Fetch version history for the version chips
+    api.getStoryVersions(storyId)
+      .then((data) => { if (!cancelled) setVersions(data.versions ?? []); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [storyId]);
+
+  // Animate regenProgress from 0→85 while versionRegenerating (never reaches 100 until polling confirms)
+  useEffect(() => {
+    if (!versionRegenerating) { setRegenProgress(0); return; }
+    setRegenProgress(5);
+    const interval = setInterval(() => {
+      setRegenProgress(prev => prev < 85 ? prev + Math.random() * 6 : prev);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [versionRegenerating]);
 
   // Polling — runs until test cases appear, then keeps going until impact settles
   useEffect(() => {
@@ -234,7 +249,13 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
 
         if (s.testCaseCount > 0) {
           testsFound = true;
-          setIsGenerating(false); // clears the spinner immediately
+          setIsGenerating(false);
+          if (versionRegenerating) {
+            setVersionRegenerating(false);
+            setRegenProgress(100);
+            // Refresh version list now that a new version exists
+            api.getStoryVersions(storyId).then((data) => setVersions(data.versions ?? [])).catch(() => {});
+          }
           invalidateStories();
         }
 
@@ -247,7 +268,16 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
     }, 4000);
 
     return () => { stopped = true; clearInterval(interval); };
-  }, [storyId, loading, arrivedAnalyzing]);
+  }, [storyId, loading, arrivedAnalyzing, versionRegenerating]);
+
+  // Called by StoryActions when upload-new-version succeeds
+  const handleVersionUploaded = useCallback((versionNumber?: number) => {
+    setVersionRegenerating(true);
+    setIsGenerating(true);
+    if (versionNumber) setNewVersionLabel(`v${versionNumber}`);
+    // Refresh version list immediately after upload
+    api.getStoryVersions(storyId).then((data) => setVersions(data.versions ?? [])).catch(() => {});
+  }, [storyId]);
 
   if (loading) {
     return (
@@ -342,8 +372,44 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           </div>
 
           {/* Actions */}
-          <StoryActions story={story} />
+          <StoryActions story={story} onVersionUploaded={handleVersionUploaded} />
         </div>
+
+        {/* Version chips + regeneration progress banner */}
+        {(versions.length > 0 || versionRegenerating) && (
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            {versions.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted">Versions:</span>
+                {versions.map((v) => (
+                  <span key={v.version_number}
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20"
+                    title={`v${v.version_number} — ${v.description || 'No description'} — ${new Date(v.created_on).toLocaleDateString()}`}
+                  >
+                    v{v.version_number}
+                  </span>
+                ))}
+                {versionRegenerating && (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1D4ED8] border border-[#93C5FD] flex items-center gap-1">
+                    <Loader2 size={9} className="animate-spin" />
+                    {newVersionLabel ?? 'New'} generating…
+                  </span>
+                )}
+              </div>
+            )}
+            {versionRegenerating && (
+              <div className="flex-1 max-w-xs">
+                <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-pink rounded-full transition-all duration-[2500ms] ease-out"
+                    style={{ width: `${regenProgress}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted mt-1">Regenerating test cases… this takes 30–90 seconds</p>
+              </div>
+            )}
+          </div>
+        )}
         </div>
       </div>
       )}
@@ -404,7 +470,6 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                 )}
                 {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} realTests={domainTestCases} />}
                 {activeTab === "impact" && <ImpactTab storyId={storyId} projectId={projectId} />}
-                {activeTab === "export" && <ExportTab story={story} testCount={story.testCount} />}
               </motion.div>
             </AnimatePresence>
           </div>
