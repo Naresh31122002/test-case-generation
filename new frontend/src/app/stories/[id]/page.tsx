@@ -174,12 +174,12 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
 
   // Derived: the test cases shown depend on selectedVersion
   // When null (latest), use real-time storyTests; when a version, use snapshot TCs
-  const displayedTests = selectedVersion !== null && versionSnapshot
+  const displayedTests: SeedTestCase[] = selectedVersion !== null && versionSnapshot
     ? versionSnapshot.test_cases.map((t: any) => ({
         id: t.id, storyId,
         title: t.title,
         type: inferCategory(t.title),
-        priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
+        priority: (t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : t.priority === "P1" ? "P1" : t.priority === "P3" ? "P3" : "P2") as any,
         status: (t.status as any) ?? "Pending",
         steps: t.steps ?? [],
         expectedResult: t.expected_result ?? t.expectedResult ?? '',
