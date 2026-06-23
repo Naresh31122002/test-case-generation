@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -101,6 +101,12 @@ const testTypes = [
   { id: "accessibility", label: "Accessibility", description: "ARIA, keyboard, contrast", count: "~2 tests" },
 ];
 
+const qualityIssues = [
+  { title: "Missing acceptance criteria for error states", description: "No criteria for server-unavailable scenario.", area: "Completeness" },
+  { title: "User role is ambiguous", description: "Which type of user? Admin, guest, or standard?", area: "Clarity" },
+  { title: "No definition of post-lockout behavior", description: "Unlock after 15 minutes — automatic or manual reset?", area: "Testability" },
+];
+
 const steps: { id: StepId; label: string }[] = [
   { id: 1, label: "Input" },
   { id: 2, label: "Settings" },
@@ -119,16 +125,6 @@ export default function CreateStoryPage() {
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
   );
-
-  // Quality analysis state — fetched when step 3 loads
-  const [qualityLoading, setQualityLoading] = useState(false);
-  const [qualityScore, setQualityScore] = useState(0);
-  const [qualityBreakdown, setQualityBreakdown] = useState([
-    { label: "Completeness", value: 0 },
-    { label: "Clarity", value: 0 },
-    { label: "Testability", value: 0 },
-  ]);
-  const [qualityIssues, setQualityIssues] = useState<Array<{ title: string; description: string; area: string }>>([]);
   // Active project: ProjectContext is the source of truth (it stays in sync with
   // the dashboard's project selector). Fall back to localStorage only until the
   // context has resolved, then to "default". This prevents uploading a story under
@@ -140,7 +136,6 @@ export default function CreateStoryPage() {
   const goTo = (next: StepId) => {
     setPrevStep(step);
     setStep(next);
-    // Trigger real quality analysis when entering step 3
     if (next === 3) {
       const content = pasteBlocks.join("\n---\n").trim();
       if (content) {
@@ -154,10 +149,10 @@ export default function CreateStoryPage() {
               { label: "Clarity", value: result.clarity },
               { label: "Testability", value: result.testability },
             ]);
-            setQualityIssues(result.issues ?? []);
+            setQualityIssuesList(result.issues ?? []);
           } catch {
             setQualityScore(0);
-            setQualityIssues([]);
+            setQualityIssuesList([]);
           } finally {
             setQualityLoading(false);
           }
@@ -165,6 +160,15 @@ export default function CreateStoryPage() {
       }
     }
   };
+
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityScore, setQualityScore] = useState(87);
+  const [qualityBreakdown, setQualityBreakdown] = useState([
+    { label: "Completeness", value: 80 },
+    { label: "Clarity", value: 95 },
+    { label: "Testability", value: 63 },
+  ]);
+  const [qualityIssuesList, setQualityIssuesList] = useState<Array<{ title: string; description: string; area: string }>>(qualityIssues);
 
   const direction = step > prevStep ? 1 : -1;
 
@@ -260,7 +264,7 @@ export default function CreateStoryPage() {
                 qualityLoading={qualityLoading}
                 qualityScore={qualityScore}
                 qualityBreakdown={qualityBreakdown}
-                qualityIssues={qualityIssues}
+                qualityIssuesList={qualityIssuesList}
               />
             )}
           </AnimatePresence>
@@ -1000,7 +1004,7 @@ function StepSettings({
 /* ─── Step 3 ─── */
 function StepGenerate({
   direction, onBack, detected, files, pasteBlocks, projectId,
-  qualityLoading, qualityScore, qualityBreakdown, qualityIssues,
+  qualityLoading, qualityScore, qualityBreakdown, qualityIssuesList,
 }: {
   direction: number;
   onBack: () => void;
@@ -1011,7 +1015,7 @@ function StepGenerate({
   qualityLoading: boolean;
   qualityScore: number;
   qualityBreakdown: Array<{ label: string; value: number }>;
-  qualityIssues: Array<{ title: string; description: string; area: string }>;
+  qualityIssuesList: Array<{ title: string; description: string; area: string }>;
 }) {
   const router = useRouter();
   const { notify } = useAIAction();
@@ -1096,7 +1100,7 @@ function StepGenerate({
   }
 
   return (
-    <div className="contents">
+    <React.Fragment>
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Story analysis complete.</h2>
       <p className="text-sm text-muted mb-6">Here&apos;s what we found before generating tests.</p>
@@ -1118,7 +1122,6 @@ function StepGenerate({
           {/* Bars */}
           <div className="flex-1 space-y-3">
             {qualityBreakdown.map((bar, i) => (
-            ].map((bar, i) => (
               <div key={bar.label}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-muted font-medium">{bar.label}</span>
@@ -1143,10 +1146,10 @@ function StepGenerate({
       <div className="bg-white border border-border rounded-card p-5 mb-5">
         <div className="flex items-center gap-2 mb-4">
           <AlertTriangle size={16} className="text-warning" />
-          <h3 className="text-[15px] font-semibold text-navy">Issues found ({qualityIssues.length})</h3>
+          <h3 className="text-[15px] font-semibold text-navy">Issues found ({qualityIssuesList.length})</h3>
         </div>
         <div className="space-y-3">
-          {qualityIssues.map((issue, i) => (
+          {qualityIssuesList.map((issue, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 6 }}
@@ -1310,7 +1313,7 @@ function StepGenerate({
         </div>
       </div>
     )}
-    </div>
+    </React.Fragment>
   );
 }
 
