@@ -619,6 +619,50 @@ def trigger_reload():
         print(f"Error triggering scheduler: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@stories_bp.route('/improve-story', methods=['POST'])
+@dev_jwt_required
+def improve_story():
+    """
+    LLM-powered story improvement.
+    Takes the current story text + user instructions and returns an improved version.
+    Used by the 'Improve Story First' button in the Create Story wizard.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        story_content = (data.get('story_content') or '').strip()
+        instructions = (data.get('instructions') or '').strip()
+
+        if not story_content:
+            return jsonify({'error': 'story_content is required'}), 400
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="improve_story")
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception:
+            pass  # non-fatal
+
+        prompt = f"""You are a senior business analyst and QA expert. Improve the following user story to make it clearer, more complete, and more testable.
+
+ORIGINAL STORY:
+{story_content[:3000]}
+
+{"USER INSTRUCTIONS: " + instructions if instructions else "Improve clarity, completeness, and testability. Add missing acceptance criteria if needed."}
+
+Return ONLY the improved story text, no explanation or commentary. Keep the same format as the original but improve it."""
+
+        response = Config.llm.invoke(prompt)
+        improved = response.content.strip()
+
+        return jsonify({'improved_story': improved}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @stories_bp.route('/copilot-chat', methods=['POST'])
 @dev_jwt_required
 def copilot_chat():
@@ -2478,6 +2522,7 @@ def get_version_snapshot(story_id, version_number):
                                 try: inp = _json2.loads(inp)
                                 except: inp = {}
                             story_content = (
+                                inp.get('main_text') or
                                 inp.get('content') or
                                 inp.get('file_content') or
                                 ''
@@ -4013,13 +4058,35 @@ def upload_new_version(story_id):
                 existing_run = cur.fetchone()
                 current_run_id = existing_run[0] if existing_run else None
 
+                # Get the current story content to archive.
+                # Priority: LanceDB doc_content_text -> test_cases.inputs (main_text/content) -> empty
+                archive_content = existing_story.get('document_content', '') or ''
+                if not archive_content.strip():
+                    cur.execute(
+                        "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s LIMIT 1",
+                        (story_id, workspace_id)
+                    )
+                    inp_row = cur.fetchone()
+                    if inp_row and inp_row[0]:
+                        import json as _j
+                        inp = inp_row[0]
+                        if isinstance(inp, str):
+                            try: inp = _j.loads(inp)
+                            except: inp = {}
+                        archive_content = (
+                            inp.get('main_text') or
+                            inp.get('content') or
+                            inp.get('file_content') or
+                            ''
+                        )
+
                 # Archive current version
                 cur.execute("""
                     INSERT INTO story_versions (story_id, user_id, workspace_id, version_number, content, description, file_name, run_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (story_id, user_id, version_number) DO NOTHING
+                    ON CONFLICT (story_id, user_id, version_number) DO UPDATE SET content = EXCLUDED.content
                 """, (story_id, user_id, workspace_id, next_version - 1 if next_version > 1 else 1,
-                      existing_story.get('document_content', ''),
+                      archive_content,
                       existing_story.get('description', ''),
                       None, current_run_id))
                 conn.commit()

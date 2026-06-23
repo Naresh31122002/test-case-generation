@@ -982,6 +982,44 @@ function StepGenerate({
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState("");
 
+  // Improve Story modal state
+  const [improveModalOpen, setImproveModalOpen] = useState(false);
+  const [improveInstructions, setImproveInstructions] = useState("");
+  const [improving, setImproving] = useState(false);
+  const [improvedStory, setImprovedStory] = useState<string | null>(null);
+  const [improveError, setImproveError] = useState<string | null>(null);
+  // Local copy of story content that can be improved (starts from pasteBlocks)
+  const [currentStoryContent, setCurrentStoryContent] = useState(
+    pasteBlocks.join("\n---\n").trim()
+  );
+
+  async function handleImprove() {
+    if (!currentStoryContent.trim()) return;
+    setImproving(true);
+    setImprovedStory(null);
+    setImproveError(null);
+    try {
+      const { api } = await import("@/lib/api");
+      const result = await api.improveStory(currentStoryContent, improveInstructions);
+      setImprovedStory(result.improved_story);
+    } catch (e: any) {
+      setImproveError(e?.message ?? "Improvement failed. Please try again.");
+    } finally {
+      setImproving(false);
+    }
+  }
+
+  function acceptImprovedStory() {
+    if (improvedStory) {
+      setCurrentStoryContent(improvedStory);
+      // Also update pasteBlocks reference used by handleGenerate
+      pasteBlocks.splice(0, pasteBlocks.length, improvedStory);
+    }
+    setImproveModalOpen(false);
+    setImprovedStory(null);
+    setImproveInstructions("");
+  }
+
   async function handleGenerate() {
     setSubmitting(true);
     try {
@@ -1104,7 +1142,7 @@ function StepGenerate({
       {/* Footer */}
       <div className="flex items-center justify-between">
         <button
-          onClick={onBack}
+          onClick={() => setImproveModalOpen(true)}
           disabled={submitting}
           className="text-sm font-medium text-muted hover:text-navy transition-colors disabled:opacity-40"
         >
@@ -1129,6 +1167,104 @@ function StepGenerate({
         </div>
       </div>
     </StepWrapper>
+
+    {/* Improve Story Modal */}
+    {improveModalOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); } }}>
+        <div className="w-full max-w-2xl bg-white border border-border rounded-card shadow-card overflow-hidden max-h-[90vh] flex flex-col" onMouseDown={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
+            <div>
+              <h2 className="text-base font-semibold text-navy">Improve Story</h2>
+              <p className="text-xs text-muted mt-0.5">Tell the AI how to improve your story, then accept the result.</p>
+            </div>
+            <button onClick={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); } }} className="text-muted hover:text-navy transition-colors">
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            {/* Current story */}
+            <div>
+              <label className="block text-sm font-semibold text-navy mb-2">
+                {improvedStory ? "Original story" : "Your story"}
+              </label>
+              <div className="bg-gray-50 border border-border rounded-card px-4 py-3 text-sm text-navy max-h-40 overflow-y-auto whitespace-pre-wrap">
+                {currentStoryContent || "No story content found."}
+              </div>
+            </div>
+
+            {/* Instructions input */}
+            {!improvedStory && (
+              <div>
+                <label className="block text-sm font-semibold text-navy mb-2">
+                  How should it be improved? <span className="text-muted font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={improveInstructions}
+                  onChange={e => setImproveInstructions(e.target.value)}
+                  placeholder={'e.g. "Add more specific acceptance criteria for error states" or "Make the MFA flow clearer with specific code expiry rules"'}
+                  rows={3}
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-none"
+                />
+                {improveError && <p className="text-xs text-error mt-1">{improveError}</p>}
+              </div>
+            )}
+
+            {/* Improved story result */}
+            {improvedStory && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-5 h-5 rounded-full bg-success/20 text-success flex items-center justify-center text-xs">✓</span>
+                  <label className="text-sm font-semibold text-navy">Improved story</label>
+                </div>
+                <div className="bg-[#ECFDF5] border border-[#6EE7B7] rounded-card px-4 py-3 text-sm text-navy max-h-64 overflow-y-auto whitespace-pre-wrap">
+                  {improvedStory}
+                </div>
+                <button
+                  onClick={() => { setImprovedStory(null); }}
+                  className="mt-2 text-xs text-muted hover:text-navy underline"
+                >
+                  Not happy? Try again with different instructions
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-end gap-3 px-6 py-4 border-t border-border flex-shrink-0">
+            <button
+              onClick={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); } }}
+              disabled={improving}
+              className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            {!improvedStory ? (
+              <button
+                onClick={handleImprove}
+                disabled={improving || !currentStoryContent.trim()}
+                className="h-9 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {improving ? (
+                  <><span className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" /> Improving…</>
+                ) : (
+                  "✨ Improve with AI"
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={acceptImprovedStory}
+                className="h-9 px-5 rounded-btn bg-success text-white text-sm font-medium hover:bg-[#059669] transition-colors flex items-center gap-2"
+              >
+                ✓ Use this version
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
   );
 }
 

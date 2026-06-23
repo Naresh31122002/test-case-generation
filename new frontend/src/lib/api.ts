@@ -637,6 +637,10 @@ export const api = {
     return { testCases: raw.map((tc) => normalizeTestCase(tc as RawTestCase)) }
   },
 
+  async improveStory(storyContent: string, instructions?: string): Promise<{ improved_story: string }> {
+    return post(`/api/stories/improve-story`, { story_content: storyContent, instructions: instructions || '' })
+  },
+
   /** Permanently delete a story (and its test cases / impacts / vector),
    *  scoped to the current workspace on the backend. */
   async deleteStory(storyId: string): Promise<void> {
