@@ -648,7 +648,7 @@ function BoardView({
       variants={staggerContainer}
       initial="initial"
       animate="animate"
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch"
     >
       <AnimatePresence>
         {stories.map((story) => (
@@ -657,6 +657,7 @@ function BoardView({
             layout
             variants={fadeInUp}
             exit={{ opacity: 0, scale: 0.92, y: -8, transition: { duration: 0.2 } }}
+            className="h-full"
           >
             <StoryCard
               story={story}
@@ -769,7 +770,7 @@ function StoryCard({
           openStory();
         }
       }}
-      className="relative bg-white border rounded-card p-5 cursor-pointer overflow-hidden transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan/40"
+      className="relative bg-white border rounded-card p-5 cursor-pointer overflow-hidden transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan/40 h-full flex flex-col"
       style={{
         borderColor: isSelected ? "var(--color-brand-primary)" : hovered ? "#06B6D4" : "#E2E8F0",
         boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.06)" : "none",
