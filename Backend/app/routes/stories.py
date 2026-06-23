@@ -3647,10 +3647,23 @@ Return ONLY valid JSON:
                 tc['version'] = version_number
                 tc['id'] = f"{story_id}-v{version_number}-{i+1}"
                 tc.setdefault('status', 'Pending')
-                tc.setdefault('group', 'General')
 
             # Append to existing test cases
             all_cases = existing_cases + new_test_cases
+
+            # Re-run AI grouping on ALL test cases so v2 TCs are grouped
+            # alongside v1 TCs (not dumped into "General")
+            try:
+                from app.LLM.Test_case_generator import assign_groups
+                story_desc_for_group = existing_tc_json.get('storyDescription', new_doc[:200])
+                assign_groups(all_cases, story_desc_for_group)
+                print(f"[SmartVersion] Re-grouped {len(all_cases)} TCs after v{version_number} append")
+            except Exception as ge:
+                print(f"[SmartVersion] Group assignment failed (non-fatal): {ge}")
+                # Fallback: assign group based on type
+                for tc in new_test_cases:
+                    tc.setdefault('group', tc.get('type', 'General'))
+
             updated_json = dict(existing_tc_json)
             updated_json['test_cases'] = all_cases
 
@@ -3662,8 +3675,8 @@ Return ONLY valid JSON:
                     )
                     conn.commit()
             print(f"[SmartVersion] Appended {len(new_test_cases)} new TCs for v{version_number}")
-    else:
-        print(f"[SmartVersion] No new requirements for {story_id}")
+        else:
+            print(f"[SmartVersion] No new requirements for {story_id}")
 
     # ── Step 3: Create impact records for changed requirements ─────────────────
     if changed_reqs and existing_cases:

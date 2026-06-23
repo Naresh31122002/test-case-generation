@@ -1005,26 +1005,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 <ChevronDown size={12} className="text-muted" />
               </div>
             </div>
-            {/* Version filter -- only shown if any test case has version > 1 */}
-            {tests.some(t => t.version && t.version > 1) && (
-              <div className="relative">
-                <select
-                  value={versionFilter}
-                  onChange={(e) => setVersionFilter(e.target.value)}
-                  className="h-8 pl-3 pr-7 text-xs font-medium border border-pink/40 rounded-btn bg-pink/5 text-pink appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
-                >
-                  <option value="">All Versions</option>
-                  {Array.from(new Set(tests.map(t => t.version).filter(Boolean))).sort().map(v => (
-                    <option key={v} value={String(v)}>v{v} only</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
-                  <ChevronDown size={12} className="text-pink" />
-                </div>
-              </div>
-            )}
           </div>
-          {/* Row 2: Search + AI Group button */}
+          {/* Row 2: Search + Version filter + AI Group button */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <input
@@ -1038,6 +1020,24 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 </button>
               )}
             </div>
+            {/* Version filter -- only shown if any test case has version > 1 */}
+            {tests.some(t => t.version && t.version > 1) && (
+              <div className="relative flex-shrink-0">
+                <select
+                  value={versionFilter}
+                  onChange={(e) => setVersionFilter(e.target.value)}
+                  className="h-8 pl-2.5 pr-6 text-[11px] font-semibold border border-pink/40 rounded-btn bg-pink/5 text-pink appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+                >
+                  <option value="">All Versions</option>
+                  {Array.from(new Set(tests.map(t => t.version).filter(Boolean))).sort().map(v => (
+                    <option key={v} value={String(v)}>v{v} only</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2">
+                  <ChevronDown size={10} className="text-pink" />
+                </div>
+              </div>
+            )}
             {/* AI Group button */}
             <button
               onClick={handleRegroup}

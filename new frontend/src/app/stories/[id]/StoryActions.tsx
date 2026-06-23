@@ -216,15 +216,31 @@ function UploadVersionModal({ story, onClose, onVersionUploaded }: { story: Stor
 
   return (
     <Modal title="Upload New Version" icon={Upload} onClose={onClose}>
-      {phase === "success" || phase === "error" ? (
+      {phase === "error" ? (
         <ResultPanel
           phase={phase}
           successTitle="New version uploaded"
-          successBody={`Test regeneration started for ${story.id}. New test cases will appear automatically — check the Tests tab in a moment.`}
+          successBody=""
           error={error}
           onRetry={submit}
           onClose={onClose}
         />
+      ) : phase === "success" ? (
+        <div className="p-5 flex flex-col items-center gap-4 text-center">
+          <span className="w-12 h-12 rounded-full bg-[#ECFDF5] text-success flex items-center justify-center">
+            <CheckCircle2 size={24} />
+          </span>
+          <div>
+            <h3 className="text-base font-semibold text-navy">New version uploaded</h3>
+            <p className="text-sm text-muted mt-1">Test regeneration has started. Check the Tests tab — new test cases will appear shortly.</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-9 px-6 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors"
+          >
+            Done
+          </button>
+        </div>
       ) : (
         <div className="p-5 space-y-4">
           {/* Input mode tabs */}
