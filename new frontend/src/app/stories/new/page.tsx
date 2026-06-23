@@ -1059,6 +1059,7 @@ function StepGenerate({
   }
 
   return (
+    <>
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Story analysis complete.</h2>
       <p className="text-sm text-muted mb-6">Here&apos;s what we found before generating tests.</p>
