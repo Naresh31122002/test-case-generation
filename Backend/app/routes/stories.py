@@ -1188,7 +1188,12 @@ def get_story_impacts(story_id):
 
                 for impact in impacts:
                     impact_dict = dict(impact)
-                    if impact['new_story_id'] == story_id:
+                    is_self_impact = impact['new_story_id'] == impact['original_story_id']
+                    if is_self_impact:
+                        # Self-impact (same story, new version changed existing TC)
+                        # Show in received_impacts so Impact tab displays it for review
+                        received_impacts.append(impact_dict)
+                    elif impact['new_story_id'] == story_id:
                         caused_impacts.append(impact_dict)
                     else:
                         received_impacts.append(impact_dict)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload,
@@ -351,12 +351,33 @@ function versionsFor(story: Story): string[] {
 }
 
 function CompareModal({ story, onClose }: { story: Story; onClose: () => void }) {
-  const versions = versionsFor(story);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
-  const [current, setCurrent] = useState(versions[0]);
-  const [previous, setPrevious] = useState(versions[1] ?? versions[0]);
   const [result, setResult] = useState<any>(null);
+  const [versionList, setVersionList] = useState<string[]>([]);
+  const [current, setCurrent] = useState("Current");
+  const [previous, setPrevious] = useState("");
+  const [loadingVersions, setLoadingVersions] = useState(true);
+
+  // Fetch real version list on mount
+  useEffect(() => {
+    api.getStoryVersions(story.id)
+      .then((data) => {
+        const versions = (data.versions ?? [])
+          .sort((a: any, b: any) => b.version_number - a.version_number)
+          .map((v: any) => `v${v.version_number}`);
+        const list = ['Current', ...versions];
+        setVersionList(list);
+        setCurrent('Current');
+        setPrevious(versions[0] ?? 'Current');
+      })
+      .catch(() => {
+        setVersionList(['Current', 'v1']);
+        setCurrent('Current');
+        setPrevious('v1');
+      })
+      .finally(() => setLoadingVersions(false));
+  }, [story.id]);
 
   const sameVersion = current === previous;
 
@@ -421,19 +442,25 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
         <ResultPanel phase={phase} successTitle="" successBody="" error={error} onRetry={submit} onClose={onClose} />
       ) : (
         <div className="p-5 space-y-4">
+          {loadingVersions ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-muted text-sm">
+              <Loader2 size={16} className="animate-spin" /> Loading versions…
+            </div>
+          ) : (
+          <>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-navy mb-1.5">Version A</label>
               <select value={current} onChange={(e) => setCurrent(e.target.value)}
                 className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer">
-                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+                {versionList.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-navy mb-1.5">Version B</label>
               <select value={previous} onChange={(e) => setPrevious(e.target.value)}
                 className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy bg-white focus:outline-none focus:border-pink transition-colors cursor-pointer">
-                {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+                {versionList.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
           </div>
@@ -444,6 +471,8 @@ function CompareModal({ story, onClose }: { story: Story; onClose: () => void })
               {phase === "loading" ? "Comparing…" : "Run Comparison"}
             </SubmitButton>
           </div>
+          </>
+          )}
         </div>
       )}
     </Modal>
