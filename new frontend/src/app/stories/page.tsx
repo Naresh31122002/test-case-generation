@@ -650,14 +650,22 @@ function BoardView({
       animate="animate"
       className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
     >
-      {stories.map((story) => (
-        <StoryCard
-          key={story.id}
-          story={story}
-          isSelected={selected.has(story.id)}
-          onToggleSelect={() => onToggleSelect(story.id)}
-        />
-      ))}
+      <AnimatePresence>
+        {stories.map((story) => (
+          <motion.div
+            key={story.id}
+            layout
+            variants={fadeInUp}
+            exit={{ opacity: 0, scale: 0.92, y: -8, transition: { duration: 0.2 } }}
+          >
+            <StoryCard
+              story={story}
+              isSelected={selected.has(story.id)}
+              onToggleSelect={() => onToggleSelect(story.id)}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -904,12 +912,15 @@ function ListView({
         )}
       </div>
 
+      <AnimatePresence>
       {stories.map((story, idx) => {
         const health = computeHealth(story);
         return (
         <motion.div
           key={story.id}
+          layout
           variants={fadeInUp}
+          exit={{ opacity: 0, x: -20, transition: { duration: 0.18 } }}
           className={`grid grid-cols-[36px_100px_1fr_90px_80px_100px_80px_120px_80px] items-center px-4 py-3 hover:bg-gray-50 transition-colors ${
             idx < stories.length - 1 ? "border-b border-border" : ""
           }`}
@@ -1004,6 +1015,7 @@ function ListView({
         </motion.div>
         );
       })}
+      </AnimatePresence>
     </motion.div>
   );
 }
