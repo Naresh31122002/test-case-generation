@@ -209,6 +209,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
         steps: t.steps,
         expectedResult: t.expectedResult,
         group: t.group,
+        version: t.version,
       })));
       showToast('Test cases regrouped with AI ✓');
     } catch {
