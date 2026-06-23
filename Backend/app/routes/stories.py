@@ -3856,8 +3856,8 @@ Return ONLY valid JSON:
             with Config.get_postgres_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE test_cases SET test_case_json = %s WHERE story_id = %s AND workspace_id = %s",
-                        (_json.dumps(updated_json), story_id, workspace_id)
+                        "UPDATE test_cases SET test_case_json = %s, total_test_cases = %s WHERE story_id = %s AND workspace_id = %s",
+                        (_json.dumps(updated_json), len(all_cases), story_id, workspace_id)
                     )
                     conn.commit()
             print(f"[SmartVersion] Appended {len(new_test_cases)} new TCs for v{version_number}")

@@ -404,8 +404,10 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             <div className="flex items-center gap-1.5 text-sm text-muted">
               {(story.testCount === 0 || isAnalyzing) && selectedVersion === null ? (
                 <><Loader2 size={14} className="animate-spin text-pink" /><span className="text-pink font-medium">Generating…</span></>
-              ) : selectedVersion !== null ? (
-                <><TestTube2 size={14} /><span>{displayedTests.length} Tests (v{selectedVersion})</span></>
+              ) : selectedVersion !== null && snapshotLoading ? (
+                <><Loader2 size={14} className="animate-spin" /><span>Loading v{selectedVersion}…</span></>
+              ) : selectedVersion !== null && versionSnapshot ? (
+                <><TestTube2 size={14} /><span>{versionSnapshot.test_case_count} Tests (v{selectedVersion})</span></>
               ) : (
                 <><TestTube2 size={14} /><span>{story.testCount} Tests</span></>
               )}
