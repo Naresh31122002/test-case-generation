@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -987,7 +987,7 @@ function StepGenerate({
   const [qualityIssues, setQualityIssues] = useState<Array<{ title: string; description: string; area: string }>>([]);
 
   // Fetch real quality analysis when step 3 loads
-  React.useEffect(() => {
+  useEffect(() => {
     const content = pasteBlocks.join("\n---\n").trim();
     if (!content) { setQualityLoading(false); return; }
     setQualityLoading(true);
@@ -1088,7 +1088,7 @@ function StepGenerate({
   }
 
   return (
-    <React.Fragment>
+    <div style={{display:'contents'}}>
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Story analysis complete.</h2>
       <p className="text-sm text-muted mb-6">Here&apos;s what we found before generating tests.</p>
@@ -1302,7 +1302,7 @@ function StepGenerate({
         </div>
       </div>
     )}
-    </React.Fragment>
+    </div>
   );
 }
 
