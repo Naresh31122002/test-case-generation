@@ -646,13 +646,15 @@ def Chat_RAG(user_query, top_k=3, workspace_id=None):
 
 
 
-def assign_groups(test_cases, story_description=''):
+def assign_groups(test_cases, story_description='', grouping_prompt=''):
     if not test_cases:
         return
     lines = '\n'.join(str(i+1)+'. ['+tc.get('id','?')+'] '+tc.get('title','') for i,tc in enumerate(test_cases))
+    extra = f'\nUser grouping instructions: {grouping_prompt}\n' if grouping_prompt and grouping_prompt.strip() else ''
     prompt = (
         'Group these test cases into 3-8 logical feature areas.\n'
         'Story: ' + story_description[:200] + '\n'
+        + extra
         + lines +
         '\nReturn ONLY JSON: {"groups":[{"name":"Group Name","ids":["id1"]}]}'
     )

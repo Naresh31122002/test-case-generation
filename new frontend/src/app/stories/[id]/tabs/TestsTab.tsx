@@ -163,6 +163,10 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
+  // AI Regroup modal
+  const [regroupModalOpen, setRegroupModalOpen] = useState(false);
+  const [regroupPrompt, setRegroupPrompt] = useState("");
+
   const toggleGroup = (g: string) => setCollapsedGroups(prev => {
     const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
   });
@@ -194,10 +198,11 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
     return () => { cancelled = true; };
   }, [storyId, priorityFilter, statusFilter, initialTests]);
 
-  const handleRegroup = useCallback(async () => {
+  const handleRegroup = useCallback(async (prompt?: string) => {
     setRegrouping(true);
+    setRegroupModalOpen(false);
     try {
-      await api.regroupTestCases(storyId);
+      await api.regroupTestCases(storyId, prompt);
       // Re-fetch to get updated group fields -- preserve real status from server
       const tc = await api.getTestCases(storyId);
       setTests(tc.testCases.map((t) => ({
@@ -216,6 +221,7 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
       showToast('Regrouping failed', 'error');
     } finally {
       setRegrouping(false);
+      setRegroupPrompt("");
     }
   }, [storyId]);
 
@@ -1041,7 +1047,7 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
             )}
             {/* AI Group button */}
             <button
-              onClick={handleRegroup}
+              onClick={() => setRegroupModalOpen(true)}
               disabled={regrouping}
               title="Let AI group test cases by theme"
               className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-surface-pink hover:border-pink hover:text-pink transition-colors flex items-center gap-1.5 disabled:opacity-60 flex-shrink-0"
@@ -1314,6 +1320,49 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
       </div>
     </div>
     <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+
+    {/* AI Regroup Modal */}
+    {regroupModalOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }}>
+        <div className="w-full max-w-md bg-white border border-border rounded-card shadow-card overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-surface-pink text-pink flex items-center justify-center">
+                <Sparkles size={14} />
+              </span>
+              <h2 className="text-sm font-semibold text-navy">AI Group Test Cases</h2>
+            </div>
+            <button onClick={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }} className="text-muted hover:text-navy transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-muted">AI will group your test cases into logical feature areas. Optionally tell it how you want them grouped.</p>
+            <div>
+              <label className="block text-xs font-semibold text-navy mb-1.5">Grouping instructions <span className="text-muted font-normal">(optional)</span></label>
+              <textarea
+                value={regroupPrompt}
+                onChange={e => setRegroupPrompt(e.target.value)}
+                placeholder={`e.g. "Group by authentication flow, error handling, and performance" or "Separate security tests into their own group"`}
+                rows={3}
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }}
+                className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => handleRegroup(regroupPrompt.trim() || undefined)}
+                className="h-9 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors flex items-center gap-2">
+                <Sparkles size={14} /> Regroup
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }

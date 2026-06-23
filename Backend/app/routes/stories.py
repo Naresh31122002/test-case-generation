@@ -2463,6 +2463,41 @@ def get_version_snapshot(story_id, version_number):
                     story_description = row['description'] or ''
                     version_created_on = row['created_on'].isoformat() if row['created_on'] else None
 
+                    # Fallback: if content is empty (older stories archived before content was stored),
+                    # try to get it from test_cases.inputs which stores the original upload
+                    if not story_content.strip():
+                        cur.execute("""
+                            SELECT inputs FROM test_cases
+                            WHERE story_id = %s AND workspace_id = %s LIMIT 1
+                        """, (story_id, workspace_id))
+                        tc_row = cur.fetchone()
+                        if tc_row and tc_row['inputs']:
+                            import json as _json2
+                            inp = tc_row['inputs']
+                            if isinstance(inp, str):
+                                try: inp = _json2.loads(inp)
+                                except: inp = {}
+                            story_content = (
+                                inp.get('content') or
+                                inp.get('file_content') or
+                                ''
+                            )
+                        # Final fallback: try LanceDB current content
+                        if not story_content.strip():
+                            try:
+                                import lancedb as _ldb2
+                                _db2 = _ldb2.connect(Config.LANCE_DB_PATH)
+                                _t2 = _db2.open_table(Config.TABLE_NAME_LANCE)
+                                _r2 = _t2.to_pandas()
+                                _m2 = _r2['storyID'] == story_id
+                                if 'workspace_id' in _r2.columns:
+                                    _m2 = _m2 & (_r2['workspace_id'] == workspace_id)
+                                _match2 = _r2[_m2]
+                                if len(_match2) > 0:
+                                    story_content = str(_match2.iloc[0].get('doc_content_text', ''))
+                            except Exception:
+                                pass
+
                 # ── 3. Test cases for this version (version field <= version_number) ─
                 cur.execute("""
                     SELECT test_case_json FROM test_cases
@@ -3497,6 +3532,7 @@ def regroup_test_cases(story_id):
                     tc_json = json.loads(tc_json)
 
                 cases = tc_json.get('test_cases', [])
+                grouping_prompt = (request.get_json(silent=True) or {}).get('grouping_prompt', '')
 
                 try:
                     from app.models.credits_model import CreditsModel, OutOfCreditsException
@@ -3507,7 +3543,7 @@ def regroup_test_cases(story_id):
                     return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
                 from app.LLM.Test_case_generator import assign_groups
-                assign_groups(cases, story_desc)
+                assign_groups(cases, story_desc, grouping_prompt=grouping_prompt)
                 tc_json['test_cases'] = cases
 
                 cur.execute("""

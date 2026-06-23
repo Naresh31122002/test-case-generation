@@ -988,8 +988,8 @@ export const api = {
     })
   },
 
-  async regroupTestCases(storyId: string): Promise<{ story_id: string; groups: string[] }> {
-    return post(`/api/stories/${storyId}/testcases/regroup`, {})
+  async regroupTestCases(storyId: string, groupingPrompt?: string): Promise<{ story_id: string; groups: string[] }> {
+    return post(`/api/stories/${storyId}/testcases/regroup`, { grouping_prompt: groupingPrompt || '' })
   },
 
   async recordTestRun(storyId: string, testCaseId: string, runStatus: 'pass' | 'fail' | 'skip', comment?: string): Promise<{ run: any }> {
