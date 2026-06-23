@@ -167,6 +167,11 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
   const [regroupModalOpen, setRegroupModalOpen] = useState(false);
   const [regroupPrompt, setRegroupPrompt] = useState("");
 
+  // Export modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"excel" | "playwright" | "cypress" | "pytest" | "bdd" | "json">("excel");
+  const [exporting, setExporting] = useState(false);
+
   const toggleGroup = (g: string) => setCollapsedGroups(prev => {
     const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
   });
@@ -225,6 +230,96 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
     }
   }, [storyId]);
 
+  const handleExport = useCallback(async () => {
+    const selectedTcs = tests.filter(t => checked.has(t.id));
+    if (selectedTcs.length === 0) return;
+    setExporting(true);
+    try {
+      if (exportFormat === "excel") {
+        // Use backend Excel endpoint for the full story, then filter client-side isn't possible
+        // So build a simple CSV-style Excel-compatible TSV for selected TCs
+        const rows = [
+          ["ID", "Title", "Priority", "Type", "Steps", "Expected Result", "Status", "Version"],
+          ...selectedTcs.map(tc => [
+            tc.id,
+            tc.title,
+            tc.priority,
+            tc.type,
+            tc.steps.join(" | "),
+            tc.expectedResult,
+            tc.status ?? "Pending",
+            tc.version ? `v${tc.version}` : "v1",
+          ]),
+        ];
+        const tsv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join("\t")).join("\n");
+        const blob = new Blob([tsv], { type: "text/tab-separated-values" });
+        triggerDownload(blob, `test-cases-${storyId}-selected.xls`);
+      } else if (exportFormat === "json") {
+        const json = JSON.stringify(selectedTcs.map(tc => ({
+          id: tc.id, title: tc.title, priority: tc.priority,
+          type: tc.type, steps: tc.steps, expected_result: tc.expectedResult,
+          status: tc.status, version: tc.version ?? 1,
+        })), null, 2);
+        triggerDownload(new Blob([json], { type: "application/json" }), `test-cases-${storyId}-selected.json`);
+      } else {
+        // Code formats: generate client-side from TC objects
+        const code = generateCode(selectedTcs, exportFormat, storyId);
+        const extMap: Record<string, string> = {
+          playwright: ".spec.ts", cypress: ".spec.js", pytest: ".py", bdd: ".feature",
+        };
+        triggerDownload(new Blob([code], { type: "text/plain" }), `test-cases-${storyId}-selected${extMap[exportFormat] ?? ".txt"}`);
+      }
+      setExportModalOpen(false);
+      showToast(`${selectedTcs.length} test case${selectedTcs.length === 1 ? "" : "s"} exported`);
+    } catch {
+      showToast("Export failed", "error");
+    } finally {
+      setExporting(false);
+    }
+  }, [tests, checked, exportFormat, storyId]);
+
+  function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  function generateCode(tcs: typeof tests, fmt: string, sid: string): string {
+    switch (fmt) {
+      case "playwright":
+        return `import { test, expect } from '@playwright/test';\n\n` +
+          tcs.map(tc =>
+            `test('${tc.title.replace(/'/g, "\\'")}', async ({ page }) => {\n` +
+            tc.steps.map(s => `  // ${s}`).join("\n") + "\n" +
+            `  // Expected: ${tc.expectedResult}\n});\n`
+          ).join("\n");
+      case "cypress":
+        return `describe('${sid} Test Cases', () => {\n` +
+          tcs.map(tc =>
+            `  it('${tc.title.replace(/'/g, "\\'")}', () => {\n` +
+            tc.steps.map(s => `    // ${s}`).join("\n") + "\n" +
+            `    // Expected: ${tc.expectedResult}\n  });`
+          ).join("\n") + "\n});\n";
+      case "pytest":
+        return tcs.map(tc =>
+          `def test_${tc.id.replace(/-/g, "_").toLowerCase()}():\n` +
+          `    """${tc.title}"""\n` +
+          tc.steps.map(s => `    # ${s}`).join("\n") + "\n" +
+          `    # Expected: ${tc.expectedResult}\n    pass\n`
+        ).join("\n");
+      case "bdd":
+        return tcs.map(tc =>
+          `Scenario: ${tc.title}\n` +
+          tc.steps.map((s, i) => `  ${i === 0 ? "Given" : i === 1 ? "When" : "Then"} ${s}`).join("\n") + "\n" +
+          `  Then ${tc.expectedResult}\n`
+        ).join("\n");
+      default:
+        return tcs.map(tc => `# ${tc.title}\n${tc.steps.join("\n")}\nExpected: ${tc.expectedResult}`).join("\n\n");
+    }
+  }
+
   // Edit modal
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
@@ -237,6 +332,14 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
   const [regenInstructions, setRegenInstructions] = useState("");
   const [regenFile, setRegenFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const detailPanelRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll detail panel to top whenever a different test case is selected
+  useEffect(() => {
+    if (selected) {
+      detailPanelRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [selected]);
 
   // Phase 2: Review & Refine state
   type ReviewState = {
@@ -1103,6 +1206,12 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                       className="text-xs text-pink hover:underline font-medium"
                     >Regenerate all</button>
                     <button onClick={handleBulkDelete} className="text-xs text-error hover:underline font-medium">Delete all</button>
+                    <button
+                      onClick={() => setExportModalOpen(true)}
+                      className="text-xs text-navy hover:underline font-medium flex items-center gap-1"
+                    >
+                      <FileText size={11} /> Export
+                    </button>
                   </>
                 )}
                 <button onClick={() => setChecked(new Set())} className="ml-auto text-muted hover:text-navy"><X size={13} /></button>
@@ -1172,7 +1281,7 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={detailPanelRef} className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           {selectedTest ? (
             <motion.div key={selectedTest.id}
@@ -1320,6 +1429,59 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
       </div>
     </div>
     <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+
+    {/* Export Modal */}
+    {exportModalOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => setExportModalOpen(false)}>
+        <div className="w-full max-w-sm bg-white border border-border rounded-card shadow-card overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-surface-pink text-pink flex items-center justify-center">
+                <FileText size={14} />
+              </span>
+              <h2 className="text-sm font-semibold text-navy">Export {checked.size} test case{checked.size === 1 ? "" : "s"}</h2>
+            </div>
+            <button onClick={() => setExportModalOpen(false)} className="text-muted hover:text-navy transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-muted">Choose a format to export the selected test cases.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: "excel",      label: "Excel (.xls)",     desc: "Spreadsheet" },
+                { id: "json",       label: "JSON",             desc: "Raw data" },
+                { id: "playwright", label: "Playwright",       desc: "TypeScript E2E" },
+                { id: "cypress",    label: "Cypress",          desc: "JavaScript E2E" },
+                { id: "pytest",     label: "PyTest",           desc: "Python tests" },
+                { id: "bdd",        label: "BDD / Gherkin",    desc: "Feature file" },
+              ] as const).map(fmt => (
+                <button key={fmt.id} type="button"
+                  onClick={() => setExportFormat(fmt.id as typeof exportFormat)}
+                  className={`flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-card border text-left transition-colors ${
+                    exportFormat === fmt.id ? "border-pink bg-surface-pink" : "border-border hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="text-xs font-semibold text-navy">{fmt.label}</span>
+                  <span className="text-[10px] text-muted">{fmt.desc}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setExportModalOpen(false)}
+                className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleExport} disabled={exporting}
+                className="h-9 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+                {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* AI Regroup Modal */}
     {regroupModalOpen && (
