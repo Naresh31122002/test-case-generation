@@ -991,24 +991,25 @@ function StepGenerate({
     const content = pasteBlocks.join("\n---\n").trim();
     if (!content) { setQualityLoading(false); return; }
     setQualityLoading(true);
-    import("@/lib/api").then(({ api }) =>
-      api.analyzeStoryContent(content)
-        .then(result => {
-          setQualityScore(result.overall_score);
-          setQualityBreakdown([
-            { label: "Completeness", value: result.completeness },
-            { label: "Clarity", value: result.clarity },
-            { label: "Testability", value: result.testability },
-          ]);
-          setQualityIssues(result.issues ?? []);
-        })
-        .catch(() => {
-          // Fallback: show placeholder if analysis fails
-          setQualityScore(0);
-          setQualityIssues([]);
-        })
-        .finally(() => setQualityLoading(false))
-    );
+    async function run() {
+      try {
+        const { api } = await import("@/lib/api");
+        const result = await api.analyzeStoryContent(content);
+        setQualityScore(result.overall_score);
+        setQualityBreakdown([
+          { label: "Completeness", value: result.completeness },
+          { label: "Clarity", value: result.clarity },
+          { label: "Testability", value: result.testability },
+        ]);
+        setQualityIssues(result.issues ?? []);
+      } catch {
+        setQualityScore(0);
+        setQualityIssues([]);
+      } finally {
+        setQualityLoading(false);
+      }
+    }
+    run();
   }, []);
 
   // Improve Story modal state
