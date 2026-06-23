@@ -119,6 +119,16 @@ export default function CreateStoryPage() {
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
   );
+
+  // Quality analysis state — fetched when step 3 loads
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityScore, setQualityScore] = useState(0);
+  const [qualityBreakdown, setQualityBreakdown] = useState([
+    { label: "Completeness", value: 0 },
+    { label: "Clarity", value: 0 },
+    { label: "Testability", value: 0 },
+  ]);
+  const [qualityIssues, setQualityIssues] = useState<Array<{ title: string; description: string; area: string }>>([]);
   // Active project: ProjectContext is the source of truth (it stays in sync with
   // the dashboard's project selector). Fall back to localStorage only until the
   // context has resolved, then to "default". This prevents uploading a story under
@@ -130,6 +140,30 @@ export default function CreateStoryPage() {
   const goTo = (next: StepId) => {
     setPrevStep(step);
     setStep(next);
+    // Trigger real quality analysis when entering step 3
+    if (next === 3) {
+      const content = pasteBlocks.join("\n---\n").trim();
+      if (content) {
+        setQualityLoading(true);
+        import("@/lib/api").then(async ({ api }) => {
+          try {
+            const result = await api.analyzeStoryContent(content);
+            setQualityScore(result.overall_score);
+            setQualityBreakdown([
+              { label: "Completeness", value: result.completeness },
+              { label: "Clarity", value: result.clarity },
+              { label: "Testability", value: result.testability },
+            ]);
+            setQualityIssues(result.issues ?? []);
+          } catch {
+            setQualityScore(0);
+            setQualityIssues([]);
+          } finally {
+            setQualityLoading(false);
+          }
+        });
+      }
+    }
   };
 
   const direction = step > prevStep ? 1 : -1;
@@ -223,6 +257,10 @@ export default function CreateStoryPage() {
                 files={files}
                 pasteBlocks={pasteBlocks}
                 projectId={projectId}
+                qualityLoading={qualityLoading}
+                qualityScore={qualityScore}
+                qualityBreakdown={qualityBreakdown}
+                qualityIssues={qualityIssues}
               />
             )}
           </AnimatePresence>
@@ -962,6 +1000,7 @@ function StepSettings({
 /* ─── Step 3 ─── */
 function StepGenerate({
   direction, onBack, detected, files, pasteBlocks, projectId,
+  qualityLoading, qualityScore, qualityBreakdown, qualityIssues,
 }: {
   direction: number;
   onBack: () => void;
@@ -969,48 +1008,16 @@ function StepGenerate({
   files: File[];
   pasteBlocks: string[];
   projectId: string;
+  qualityLoading: boolean;
+  qualityScore: number;
+  qualityBreakdown: Array<{ label: string; value: number }>;
+  qualityIssues: Array<{ title: string; description: string; area: string }>;
 }) {
   const router = useRouter();
   const { notify } = useAIAction();
   const { reloadProjects } = useProject();
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState("");
-
-  // Real quality analysis state (replaces hardcoded mock)
-  const [qualityLoading, setQualityLoading] = useState(true);
-  const [qualityScore, setQualityScore] = useState(0);
-  const [qualityBreakdown, setQualityBreakdown] = useState([
-    { label: "Completeness", value: 0 },
-    { label: "Clarity", value: 0 },
-    { label: "Testability", value: 0 },
-  ]);
-  const [qualityIssues, setQualityIssues] = useState<Array<{ title: string; description: string; area: string }>>([]);
-
-  // Fetch real quality analysis when step 3 loads
-  useEffect(() => {
-    const content = pasteBlocks.join("\n---\n").trim();
-    if (!content) { setQualityLoading(false); return; }
-    setQualityLoading(true);
-    async function run() {
-      try {
-        const { api } = await import("@/lib/api");
-        const result = await api.analyzeStoryContent(content);
-        setQualityScore(result.overall_score);
-        setQualityBreakdown([
-          { label: "Completeness", value: result.completeness },
-          { label: "Clarity", value: result.clarity },
-          { label: "Testability", value: result.testability },
-        ]);
-        setQualityIssues(result.issues ?? []);
-      } catch {
-        setQualityScore(0);
-        setQualityIssues([]);
-      } finally {
-        setQualityLoading(false);
-      }
-    }
-    run();
-  }, []);
 
   // Improve Story modal state
   const [improveModalOpen, setImproveModalOpen] = useState(false);
