@@ -2557,11 +2557,14 @@ def get_version_snapshot(story_id, version_number):
                         tc_data = _json.loads(tc_data)
                     all_tcs = tc_data.get('test_cases', [])
 
-                # Filter: include TCs with version <= version_number
-                # TCs without a version field are v1 (tagged as original)
+                # Filter: TCs that existed when this version was current.
+                # When archiving vN, existing TCs get tagged version=N+1 (the next upload number).
+                # So "vN's TCs" = TCs with version <= N+1.
+                # TCs with no version field default to 1 (original upload).
+                tc_version_threshold = version_number + 1
                 filtered_tcs = [
                     tc for tc in all_tcs
-                    if int(tc.get('version', 1)) <= version_number
+                    if int(tc.get('version', 1)) <= tc_version_threshold
                 ]
 
         return jsonify({
