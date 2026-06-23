@@ -158,7 +158,39 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   const [versions, setVersions] = useState<Array<{ version_number: number; description: string | null; created_on: string }>>([]);
   const [versionRegenerating, setVersionRegenerating] = useState(false);
   const [newVersionLabel, setNewVersionLabel] = useState<string | null>(null);
-  const [regenProgress, setRegenProgress] = useState(0); // 0-100 for progress bar
+  const [regenProgress, setRegenProgress] = useState(0);
+
+  // Version picker: null = latest (current), number = specific historical version
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [versionSnapshot, setVersionSnapshot] = useState<{
+    story_content: string;
+    story_description: string;
+    test_cases: any[];
+    version_number: number;
+    is_latest: boolean;
+  } | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+  // Derived: the test cases shown depend on selectedVersion
+  // When null (latest), use real-time storyTests; when a version, use snapshot TCs
+  const displayedTests = selectedVersion !== null && versionSnapshot
+    ? versionSnapshot.test_cases.map((t: any) => ({
+        id: t.id, storyId,
+        title: t.title,
+        type: inferCategory(t.title),
+        priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
+        status: (t.status as any) ?? "Pending",
+        steps: t.steps ?? [],
+        expectedResult: t.expected_result ?? t.expectedResult ?? '',
+        group: t.group,
+        version: t.version,
+      }))
+    : storyTests;
+
+  // Story content shown in Overview — from snapshot when viewing old version
+  const displayedContent = selectedVersion !== null && versionSnapshot
+    ? versionSnapshot.story_content
+    : story?.content ?? '';
 
   function inferCategory(title: string): SeedTestCase["type"] {
     const t = title.toLowerCase();
@@ -202,6 +234,25 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
       .catch(() => {});
     return () => { cancelled = true; };
   }, [storyId]);
+
+  // When user selects a version from the picker, fetch that version's snapshot
+  useEffect(() => {
+    if (selectedVersion === null) {
+      setVersionSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    setSnapshotLoading(true);
+    api.getVersionSnapshot(storyId, selectedVersion)
+      .then((snap) => {
+        if (!cancelled) setVersionSnapshot(snap);
+      })
+      .catch(() => {
+        if (!cancelled) setVersionSnapshot(null);
+      })
+      .finally(() => { if (!cancelled) setSnapshotLoading(false); });
+    return () => { cancelled = true; };
+  }, [storyId, selectedVersion]);
 
   // Animate regenProgress from 0→85 while versionRegenerating (never reaches 100 until polling confirms)
   useEffect(() => {
@@ -276,8 +327,9 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
   const handleVersionUploaded = useCallback((versionNumber?: number) => {
     setVersionRegenerating(true);
     setIsGenerating(true);
+    setSelectedVersion(null); // always return to current view when new version uploaded
+    setVersionSnapshot(null);
     if (versionNumber) setNewVersionLabel(`v${versionNumber}`);
-    // Refresh version list immediately after upload
     api.getStoryVersions(storyId).then((data) => setVersions(data.versions ?? [])).catch(() => {});
   }, [storyId]);
 
@@ -349,8 +401,10 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-1.5 text-sm text-muted">
-              {(story.testCount === 0 || isAnalyzing) ? (
+              {(story.testCount === 0 || isAnalyzing) && selectedVersion === null ? (
                 <><Loader2 size={14} className="animate-spin text-pink" /><span className="text-pink font-medium">Generating…</span></>
+              ) : selectedVersion !== null && versionSnapshot ? (
+                <><TestTube2 size={14} /><span>{versionSnapshot.test_case_count} Tests (v{selectedVersion})</span></>
               ) : (
                 <><TestTube2 size={14} /><span>{story.testCount} Tests</span></>
               )}
@@ -377,37 +431,71 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
           <StoryActions story={story} onVersionUploaded={handleVersionUploaded} />
         </div>
 
-        {/* Version chips + regeneration progress banner */}
+        {/* Version picker + regeneration progress banner */}
         {(versions.length > 0 || versionRegenerating) && (
-          <div className="mt-3 flex items-center gap-3 flex-wrap">
-            {versions.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted">Versions:</span>
-                {versions.map((v) => (
-                  <span key={v.version_number}
-                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20"
-                    title={`v${v.version_number} — ${v.description || 'No description'} — ${new Date(v.created_on).toLocaleDateString()}`}
+          <div className="mt-3 flex items-center gap-4 flex-wrap">
+            {/* Version picker dropdown */}
+            {versions.length > 0 && !versionRegenerating && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted font-medium">Viewing:</span>
+                <div className="relative">
+                  <select
+                    value={selectedVersion === null ? 'latest' : String(selectedVersion)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedVersion(val === 'latest' ? null : Number(val));
+                    }}
+                    className="h-7 pl-2.5 pr-7 text-[12px] font-semibold border border-pink/40 rounded-btn bg-pink/5 text-pink appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
                   >
-                    v{v.version_number}
-                  </span>
-                ))}
-                {versionRegenerating && (
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1D4ED8] border border-[#93C5FD] flex items-center gap-1">
-                    <Loader2 size={9} className="animate-spin" />
-                    {newVersionLabel ?? 'New'} generating…
+                    <option value="latest">Current (latest)</option>
+                    {[...versions]
+                      .sort((a, b) => b.version_number - a.version_number)
+                      .map((v) => (
+                        <option key={v.version_number} value={String(v.version_number)}>
+                          v{v.version_number} — {v.description ? v.description.slice(0, 30) : 'No description'}{v.created_on ? ` (${new Date(v.created_on).toLocaleDateString()})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="text-pink"><path d="M2 3.5L5 6.5L8 3.5"/></svg>
+                  </div>
+                </div>
+                {selectedVersion !== null && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#FFF7ED] text-[#92400E] border border-[#FCD34D] font-semibold">
+                      Viewing v{selectedVersion} — read-only snapshot
+                    </span>
+                    <button
+                      onClick={() => setSelectedVersion(null)}
+                      className="text-[11px] text-muted hover:text-navy underline"
+                    >
+                      Back to current
+                    </button>
+                  </div>
+                )}
+                {snapshotLoading && (
+                  <span className="flex items-center gap-1 text-[11px] text-muted">
+                    <Loader2 size={11} className="animate-spin" /> Loading snapshot…
                   </span>
                 )}
               </div>
             )}
+            {/* Regeneration progress bar */}
             {versionRegenerating && (
-              <div className="flex-1 max-w-xs">
-                <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-pink rounded-full transition-all duration-[2500ms] ease-out"
-                    style={{ width: `${regenProgress}%` }}
-                  />
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1D4ED8] border border-[#93C5FD] flex items-center gap-1">
+                  <Loader2 size={9} className="animate-spin" />
+                  {newVersionLabel ?? 'New'} generating…
+                </span>
+                <div className="w-40">
+                  <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-pink rounded-full transition-all duration-[2500ms] ease-out"
+                      style={{ width: `${regenProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted mt-0.5">Regenerating test cases…</p>
                 </div>
-                <p className="text-[10px] text-muted mt-1">Regenerating test cases… this takes 30–90 seconds</p>
               </div>
             )}
           </div>
@@ -456,9 +544,20 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                 exit={{ opacity: 0 }}
                 transition={{ duration: duration.fast, ease: easeStandard }}
               >
-                {activeTab === "overview" && <OverviewTab story={story} />}
+                {activeTab === "overview" && (
+                  <OverviewTab
+                    story={selectedVersion !== null && versionSnapshot
+                      ? { ...story, content: versionSnapshot.story_content, title: versionSnapshot.story_description || story.title }
+                      : story
+                    }
+                  />
+                )}
                 {activeTab === "tests" && (
-                  (story.testCount === 0 || isAnalyzing) ? (
+                  snapshotLoading ? (
+                    <div className="flex items-center justify-center py-24 gap-2 text-muted text-sm">
+                      <Loader2 size={20} className="animate-spin" /> Loading v{selectedVersion} test cases…
+                    </div>
+                  ) : (story.testCount === 0 || isAnalyzing) && selectedVersion === null ? (
                     <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
                       <div className="w-14 h-14 rounded-full bg-surface-pink flex items-center justify-center">
                         <Loader2 size={28} className="text-pink animate-spin" />
@@ -467,11 +566,27 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                       <p className="text-sm text-muted max-w-xs">Our AI is writing test cases for this story. This usually takes 15–30 seconds.</p>
                     </div>
                   ) : (
-                    <TestsTab tests={storyTests} storyId={storyId} />
+                    <TestsTab tests={displayedTests} storyId={storyId} readOnly={selectedVersion !== null} />
                   )
                 )}
-                {activeTab === "coverage" && <CoverageTab story={story} gaps={storyGaps} realTests={domainTestCases} />}
-                {activeTab === "impact" && <ImpactTab storyId={storyId} projectId={projectId} />}
+                {activeTab === "coverage" && (
+                  <CoverageTab
+                    story={story}
+                    gaps={storyGaps}
+                    realTests={selectedVersion !== null && versionSnapshot
+                      ? versionSnapshot.test_cases.map((t: any) => ({
+                          id: t.id, title: t.title,
+                          priority: t.priority ?? 'Medium',
+                          steps: t.steps ?? [],
+                          expectedResult: t.expected_result ?? t.expectedResult ?? '',
+                          status: t.status,
+                        }))
+                      : domainTestCases}
+                  />
+                )}
+                {activeTab === "impact" && (
+                  <ImpactTab storyId={storyId} projectId={projectId} versionFilter={selectedVersion} />
+                )}
               </motion.div>
             </AnimatePresence>
           </div>

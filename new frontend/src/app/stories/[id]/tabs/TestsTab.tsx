@@ -152,7 +152,7 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
   );
 }
 
-export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; storyId: string }) {
+export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { tests: TestCase[]; storyId: string; readOnly?: boolean }) {
   const [tests, setTests] = useState<TestCase[]>(initialTests);
   const [filter, setFilter] = useState<TestType | "All">("All");
   const [priorityFilter, setPriorityFilter] = useState("");
@@ -1215,6 +1215,12 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   </div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                  {readOnly ? (
+                    <span className="text-[11px] text-muted italic px-2 py-1 bg-gray-50 rounded-btn border border-border">
+                      Read-only snapshot — switch to Current to edit
+                    </span>
+                  ) : (
+                  <>
                   {/* Approve / Reject -- only show if not already in that state */}
                   {selectedTest.status !== 'Approved' && (
                     <button
@@ -1261,6 +1267,8 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                     {deletingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                     Delete
                   </button>
+                  </>
+                  )}
                 </div>
               </div>
 

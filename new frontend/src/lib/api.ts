@@ -850,6 +850,19 @@ export const api = {
     return get(`/api/stories/${storyId}/versions`)
   },
 
+  async getVersionSnapshot(storyId: string, versionNumber: number): Promise<{
+    story_id: string;
+    version_number: number;
+    is_latest: boolean;
+    story_content: string;
+    story_description: string;
+    created_on: string | null;
+    test_cases: Array<any>;
+    test_case_count: number;
+  }> {
+    return get(`/api/stories/${storyId}/versions/${versionNumber}/snapshot`)
+  },
+
   async regenerateTests(storyId: string): Promise<{ message: string; story_id: string }> {
     return post(`/api/stories/${storyId}/regenerate`, {})
   },

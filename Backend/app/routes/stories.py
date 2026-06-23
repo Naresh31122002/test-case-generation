@@ -2400,6 +2400,106 @@ def get_story_versions(story_id):
         return jsonify({'error': str(e)}), 500
 
 
+@stories_bp.route('/<story_id>/versions/<int:version_number>/snapshot', methods=['GET'])
+@dev_jwt_required
+def get_version_snapshot(story_id, version_number):
+    """
+    Return a complete snapshot for a given version number:
+    - story content (from story_versions for historical, from LanceDB for current/latest)
+    - test cases filtered to version <= version_number
+    - version metadata (description, created_on)
+
+    Used by the version picker in the story workspace so the user can
+    browse any past version's story text and its test cases.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # ── 1. Get max version so we know if this is "current" ──────────
+                cur.execute("""
+                    SELECT COALESCE(MAX(version_number), 0) FROM story_versions
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+                max_archived = cur.fetchone()[0]
+
+                # ── 2. Story content ──────────────────────────────────────────────
+                # Archived versions are in story_versions; the latest is in LanceDB.
+                # "latest" version number = max_archived + 1
+                latest_version = max_archived + 1
+                is_latest = version_number >= latest_version
+
+                if is_latest:
+                    # Fetch from LanceDB
+                    try:
+                        import lancedb as _ldb
+                        _db = _ldb.connect(Config.LANCE_DB_PATH)
+                        _table = _db.open_table(Config.TABLE_NAME_LANCE)
+                        _rows = _table.to_pandas()
+                        _mask = _rows['storyID'] == story_id
+                        if 'workspace_id' in _rows.columns:
+                            _mask = _mask & (_rows['workspace_id'] == workspace_id)
+                        _match = _rows[_mask]
+                        story_content = str(_match.iloc[0].get('doc_content_text', '')) if len(_match) > 0 else ''
+                        story_description = str(_match.iloc[0].get('storyDescription', '')) if len(_match) > 0 else ''
+                    except Exception as le:
+                        print(f"[VersionSnapshot] LanceDB read failed: {le}")
+                        story_content = ''
+                        story_description = ''
+                    version_created_on = None
+                else:
+                    # Fetch from story_versions
+                    cur.execute("""
+                        SELECT content, description, created_on
+                        FROM story_versions
+                        WHERE story_id = %s AND workspace_id = %s AND version_number = %s
+                    """, (story_id, workspace_id, version_number))
+                    row = cur.fetchone()
+                    if not row:
+                        return jsonify({'error': f'Version {version_number} not found'}), 404
+                    story_content = row['content'] or ''
+                    story_description = row['description'] or ''
+                    version_created_on = row['created_on'].isoformat() if row['created_on'] else None
+
+                # ── 3. Test cases for this version (version field <= version_number) ─
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+                tc_row = cur.fetchone()
+                all_tcs = []
+                if tc_row and tc_row['test_case_json']:
+                    import json as _json
+                    tc_data = tc_row['test_case_json']
+                    if isinstance(tc_data, str):
+                        tc_data = _json.loads(tc_data)
+                    all_tcs = tc_data.get('test_cases', [])
+
+                # Filter: include TCs with version <= version_number
+                # TCs without a version field are v1 (tagged as original)
+                filtered_tcs = [
+                    tc for tc in all_tcs
+                    if int(tc.get('version', 1)) <= version_number
+                ]
+
+        return jsonify({
+            'story_id': story_id,
+            'version_number': version_number,
+            'is_latest': is_latest,
+            'story_content': story_content,
+            'story_description': story_description,
+            'created_on': version_created_on,
+            'test_cases': filtered_tcs,
+            'test_case_count': len(filtered_tcs),
+        }), 200
+
+    except Exception as e:
+        print(f"[VersionSnapshot] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @stories_bp.route('/<story_id>/compare', methods=['POST'])
 @dev_jwt_required
 def compare_story_versions(story_id):

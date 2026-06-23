@@ -41,7 +41,7 @@ function parseModificationReason(analysisJson: string): string {
   } catch { return ""; }
 }
 
-export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: string }) {
+export function ImpactTab({ storyId, projectId, versionFilter }: { storyId: string; projectId: string; versionFilter?: number | null }) {
   const [data, setData] = useState<StoryTestCaseImpacts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +118,13 @@ export function ImpactTab({ storyId, projectId }: { storyId: string; projectId: 
 
   return (
     <div className="px-8 py-6 max-w-content mx-auto space-y-5">
-      {/* Metric cards — no version chips (Gap 3) */}
+      {versionFilter !== null && versionFilter !== undefined && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-[#FFF7ED] border border-[#FCD34D] rounded-card text-sm text-[#92400E]">
+          <span className="font-semibold">v{versionFilter} impact view</span>
+          — showing impacts that version {versionFilter} caused on existing test cases.
+        </div>
+      )}
+      {/* Metric cards */}
       <h2 className="text-h2 text-navy font-semibold">Impact Analysis</h2>
       <div className="grid grid-cols-3 gap-4">
         <MetricCard label="Modified" value={data.impactedTestCasesCount} color="warning" />
