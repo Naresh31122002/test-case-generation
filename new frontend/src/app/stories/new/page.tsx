@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -1059,7 +1059,7 @@ function StepGenerate({
   }
 
   return (
-    <>
+    <React.Fragment>
     <StepWrapper direction={direction}>
       <h2 className="text-[24px] font-bold text-navy mb-1">Story analysis complete.</h2>
       <p className="text-sm text-muted mb-6">Here&apos;s what we found before generating tests.</p>
@@ -1266,6 +1266,7 @@ function StepGenerate({
         </div>
       </div>
     )}
+    </React.Fragment>
   );
 }
 
