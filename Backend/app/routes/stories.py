@@ -655,12 +655,88 @@ ORIGINAL STORY:
 Return ONLY the improved story text, no explanation or commentary. Keep the same format as the original but improve it."""
 
         response = Config.llm.invoke(prompt)
-        improved = response.content.strip()
-
-        return jsonify({'improved_story': improved}), 200
+        return jsonify({'improved_story': response.content.strip()}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/analyze-content', methods=['POST'])
+@dev_jwt_required
+def analyze_story_content():
+    """
+    Analyze raw story content for quality before it is uploaded/saved.
+    Used by Create Story step 3 to show real quality scores instead of mock data.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        story_content = (data.get('content') or '').strip()
+        if not story_content or len(story_content) < 30:
+            return jsonify({'error': 'Story content too short for analysis'}), 422
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="analyze_story")
+        except Exception:
+            pass  # non-fatal
+
+        # Reuse the same prompt as _compute_or_get_quality
+        prompt = f"""You are a senior QA analyst and business analyst expert. Analyze this user story and return a quality assessment.
+
+USER STORY:
+{story_content[:3000]}
+
+Evaluate the story on three dimensions (0-100 each):
+- Completeness: Are all scenarios, edge cases, and error states covered?
+- Clarity: Is the story unambiguous and clearly written?
+- Testability: Can acceptance criteria be turned directly into test cases?
+
+Also identify quality issues, risk areas, and recommendations.
+
+Return ONLY this JSON, no other text:
+{{
+  "completeness": <0-100>,
+  "clarity": <0-100>,
+  "testability": <0-100>,
+  "issues": [
+    {{"title": "Issue title", "description": "Specific explanation", "area": "Completeness|Clarity|Testability"}}
+  ],
+  "risk_areas": [
+    {{"area": "Risk area name", "severity": "High|Medium|Low", "description": "Why this is risky"}}
+  ],
+  "recommendations": ["Specific actionable recommendation"]
+}}"""
+
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        result = json.loads(raw[start:end])
+
+        completeness = int(result.get('completeness', 70))
+        clarity = int(result.get('clarity', 70))
+        testability = int(result.get('testability', 70))
+        overall = round((completeness + clarity + testability) / 3)
+
+        return jsonify({
+            'overall_score': overall,
+            'completeness': completeness,
+            'clarity': clarity,
+            'testability': testability,
+            'issues': result.get('issues', []),
+            'risk_areas': result.get('risk_areas', []),
+            'recommendations': result.get('recommendations', []),
+        }), 200
+
+    except Exception as e:
+        print(f"[analyze-content] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 
 @stories_bp.route('/copilot-chat', methods=['POST'])

@@ -641,6 +641,18 @@ export const api = {
     return post(`/api/stories/improve-story`, { story_content: storyContent, instructions: instructions || '' })
   },
 
+  async analyzeStoryContent(content: string): Promise<{
+    overall_score: number;
+    completeness: number;
+    clarity: number;
+    testability: number;
+    issues: Array<{ title: string; description: string; area: string }>;
+    risk_areas: Array<{ area: string; severity: string; description: string }>;
+    recommendations: string[];
+  }> {
+    return post(`/api/stories/analyze-content`, { content })
+  },
+
   /** Permanently delete a story (and its test cases / impacts / vector),
    *  scoped to the current workspace on the backend. */
   async deleteStory(storyId: string): Promise<void> {

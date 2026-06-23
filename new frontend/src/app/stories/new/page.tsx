@@ -101,12 +101,6 @@ const testTypes = [
   { id: "accessibility", label: "Accessibility", description: "ARIA, keyboard, contrast", count: "~2 tests" },
 ];
 
-const qualityIssues = [
-  { title: "Missing acceptance criteria for error states", description: "No criteria for server-unavailable scenario.", area: "Completeness" },
-  { title: "User role is ambiguous", description: "Which type of user? Admin, guest, or standard?", area: "Clarity" },
-  { title: "No definition of post-lockout behavior", description: "Unlock after 15 minutes — automatic or manual reset?", area: "Testability" },
-];
-
 const steps: { id: StepId; label: string }[] = [
   { id: 1, label: "Input" },
   { id: 2, label: "Settings" },
@@ -982,6 +976,41 @@ function StepGenerate({
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState("");
 
+  // Real quality analysis state (replaces hardcoded mock)
+  const [qualityLoading, setQualityLoading] = useState(true);
+  const [qualityScore, setQualityScore] = useState(0);
+  const [qualityBreakdown, setQualityBreakdown] = useState([
+    { label: "Completeness", value: 0 },
+    { label: "Clarity", value: 0 },
+    { label: "Testability", value: 0 },
+  ]);
+  const [qualityIssues, setQualityIssues] = useState<Array<{ title: string; description: string; area: string }>>([]);
+
+  // Fetch real quality analysis when step 3 loads
+  React.useEffect(() => {
+    const content = pasteBlocks.join("\n---\n").trim();
+    if (!content) { setQualityLoading(false); return; }
+    setQualityLoading(true);
+    import("@/lib/api").then(({ api }) =>
+      api.analyzeStoryContent(content)
+        .then(result => {
+          setQualityScore(result.overall_score);
+          setQualityBreakdown([
+            { label: "Completeness", value: result.completeness },
+            { label: "Clarity", value: result.clarity },
+            { label: "Testability", value: result.testability },
+          ]);
+          setQualityIssues(result.issues ?? []);
+        })
+        .catch(() => {
+          // Fallback: show placeholder if analysis fails
+          setQualityScore(0);
+          setQualityIssues([]);
+        })
+        .finally(() => setQualityLoading(false))
+    );
+  }, []);
+
   // Improve Story modal state
   const [improveModalOpen, setImproveModalOpen] = useState(false);
   const [improveInstructions, setImproveInstructions] = useState("");
@@ -1066,15 +1095,21 @@ function StepGenerate({
 
       {/* Quality score card */}
       <div className="bg-white border border-border rounded-card p-5 mb-5">
+        {qualityLoading ? (
+          <div className="flex items-center gap-3 py-4">
+            <div className="w-8 h-8 rounded-full border-4 border-cyan border-t-transparent animate-spin flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-navy">Analyzing story quality…</p>
+              <p className="text-xs text-muted">This takes about 10 seconds</p>
+            </div>
+          </div>
+        ) : (
         <div className="flex gap-6 items-center">
           {/* Donut */}
-          <QualityDonut score={87} />
+          <QualityDonut score={qualityScore} />
           {/* Bars */}
           <div className="flex-1 space-y-3">
-            {[
-              { label: "Completeness", value: 80 },
-              { label: "Clarity", value: 95 },
-              { label: "Testability", value: 63 },
+            {qualityBreakdown.map((bar, i) => (
             ].map((bar, i) => (
               <div key={bar.label}>
                 <div className="flex justify-between text-xs mb-1">
@@ -1093,6 +1128,7 @@ function StepGenerate({
             ))}
           </div>
         </div>
+        )}
       </div>
 
       {/* Issues */}
