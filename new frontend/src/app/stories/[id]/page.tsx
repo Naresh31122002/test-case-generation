@@ -166,6 +166,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
     story_content: string;
     story_description: string;
     test_cases: any[];
+    test_case_count: number;
     version_number: number;
     is_latest: boolean;
   } | null>(null);
