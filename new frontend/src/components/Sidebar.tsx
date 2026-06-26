@@ -16,21 +16,21 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  PlayCircle,
   ChevronUp,
   Kanban,
+  Play,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
 import { useProductTour } from "@/contexts/ProductTourContext";
 
 const navItems = [
-  { label: "Stories", icon: BookOpen, href: "/stories", tourId: "nav-stories" },
-  { label: "Kanban", icon: Kanban, href: "/kanban", tourId: "nav-kanban" },
-  { label: "Changes", icon: GitPullRequest, href: "/changes", tourId: "nav-changes" },
-  { label: "Coverage", icon: PieChart, href: "/coverage", tourId: "nav-coverage" },
-  { label: "Compare", icon: GitCompare, href: "/compare", tourId: "nav-compare" },
-  { label: "Exports", icon: Download, href: "/exports", tourId: "nav-exports" },
+  { label: "Stories", icon: BookOpen, href: "/stories", tourId: "nav-stories", title: "Stories — manage user stories and view generated test cases" },
+  { label: "Kanban", icon: Kanban, href: "/kanban", tourId: "nav-kanban", title: "Kanban board — drag stories between status columns" },
+  { label: "Changes", icon: GitPullRequest, href: "/changes", tourId: "nav-changes", title: "Changes — track impact when stories are updated" },
+  { label: "Coverage", icon: PieChart, href: "/coverage", tourId: "nav-coverage", title: "Coverage — see test coverage across all your stories" },
+  { label: "Compare", icon: GitCompare, href: "/compare", tourId: "nav-compare", title: "Compare — cross-story impact detection, see how changes ripple across tests" },
+  { label: "Exports", icon: Download, href: "/exports", tourId: "nav-exports", title: "Exports — export test cases to Excel, Playwright, Cypress, or PyTest" },
 ];
 
 const STORAGE_KEY = "testsurge:sidebar-pinned";
@@ -154,17 +154,17 @@ export function Sidebar() {
                   <motion.div
                     layoutId="sidebar-active"
                     className="absolute inset-0 bg-surface-pink rounded-lg"
-                    style={{ borderLeft: "3px solid var(--color-brand-primary)" }}
+                    style={{ borderLeft: "4px solid var(--color-brand-primary)", boxShadow: "inset 0 0 0 0 transparent" }}
                     transition={spring.snappy}
                   />
                 )}
                 <Link
                   href={item.href}
                   prefetch
-                  title={item.label}
+                  title={item.title}
                   className={`relative flex items-center gap-3 px-4 h-10 rounded-lg text-sm font-medium transition-colors duration-100
                     ${isActive
-                      ? "text-navy"
+                      ? "text-navy font-semibold"
                       : "text-muted hover:bg-gray-50 hover:text-navy"
                     }`}
                 >
@@ -241,12 +241,14 @@ export function Sidebar() {
                 onClick={() => { setMenuOpen(false); startTour(); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-navy hover:bg-gray-50 transition-colors"
               >
-                <PlayCircle size={16} className="text-muted" />
+                <Play size={16} className="text-muted" />
                 Product Tour
               </button>
+              <div className="border-t border-border" />
               <Link
                 href="/settings"
                 onClick={() => setMenuOpen(false)}
+                data-tour="nav-settings"
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
                   settingsActive ? "text-pink bg-surface-pink" : "text-navy hover:bg-gray-50"
                 }`}

@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Check, Clock, RefreshCw, Sparkles, TestTube2,
   Pencil, Trash2, X, Plus, Loader2, CheckCircle2,
   Paperclip, FileText, ChevronDown,
 } from "lucide-react";
+import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 import { type TestCase, type TestType } from "@/lib/seed";
 import { fadeInUp, duration, easeStandard } from "@/lib/motion";
 import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
 import { api } from "@/lib/api";
 import { invalidateStories } from "@/lib/storiesStore";
+import { useCanDo } from "@/contexts/RBACContext";
 
 function testConfidence(test: TestCase): number {
   let score = 55;
@@ -49,13 +51,133 @@ interface EditState {
   priority: string;
 }
 
-export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; storyId: string }) {
+// ── Execution Panel (Pass/Fail/Skip) ─────────────────────────────────────────
+
+const RUN_COLORS = {
+  pass: 'bg-success/10 text-success border-success/30 hover:bg-success/20',
+  fail: 'bg-error/10 text-error border-error/30 hover:bg-error/20',
+  skip: 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100',
+} as const;
+
+const RUN_LABELS = { pass: '✓ Pass', fail: '✗ Fail', skip: '⟳ Skip' } as const;
+const RUN_TITLES = {
+  pass: 'Mark as executed and passed — adds to test run history',
+  fail: 'Mark as executed and failed — flags for investigation',
+  skip: 'Mark as skipped this cycle — not executed',
+} as const;
+
+function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: string }) {
+  const [runs, setRuns] = useState<any[]>([]);
+  const [latest, setLatest] = useState<any>(null);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    api.getTestRuns(storyId, testCaseId)
+      .then(d => { setRuns(d.runs ?? []); setLatest(d.latest ?? null); })
+      .catch(() => {});
+  }, [storyId, testCaseId]);
+
+  async function record(status: 'pass' | 'fail' | 'skip') {
+    setSubmitting(status);
+    setRunError(null);
+    try {
+      const res = await api.recordTestRun(storyId, testCaseId, status, comment || undefined);
+      setLatest(res.run);
+      setRuns(prev => [res.run, ...prev].slice(0, 20));
+      setComment('');
+    } catch {
+      setRunError('Failed to record run. Please try again.');
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <div className="border border-border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] font-semibold text-navy">Execution</p>
+        {latest && (
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${RUN_COLORS[latest.run_status as keyof typeof RUN_COLORS]}`}>
+            Last: {latest.run_status.toUpperCase()} · {latest.run_by_name ?? latest.run_by_email ?? 'Unknown'}
+          </span>
+        )}
+      </div>
+
+      {/* Comment box */}
+      <textarea
+        value={comment}
+        onChange={e => setComment(e.target.value)}
+        placeholder="Add a comment (optional)…"
+        rows={2}
+        className="w-full px-3 py-2 text-xs border border-border rounded-lg focus:outline-none focus:border-pink resize-none placeholder:text-muted/60"
+      />
+
+      {/* Pass / Fail / Skip buttons */}
+      <div className="flex gap-2">
+        {(['pass', 'fail', 'skip'] as const).map(s => (
+          <button key={s} onClick={() => record(s)} disabled={!!submitting}
+            title={RUN_TITLES[s]}
+            className={`flex-1 h-8 text-xs font-semibold rounded-btn border transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60 ${RUN_COLORS[s]}`}>
+            {submitting === s ? <Loader2 size={11} className="animate-spin" /> : null}
+            {RUN_LABELS[s]}
+          </button>
+        ))}
+      </div>
+      {runError && (
+        <p className="text-[11px] text-error">{runError}</p>
+      )}
+
+      {/* Run history */}
+      {runs.length > 0 && (
+        <div>
+          <button onClick={() => setExpanded(v => !v)} className="text-[11px] text-muted hover:text-navy flex items-center gap-1">
+            <ChevronDown size={11} className={expanded ? '' : '-rotate-90'} />
+            History ({runs.length})
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+              {runs.map((r, i) => (
+                <div key={r.id ?? i} className="text-[11px] flex items-start gap-2 py-1 border-b border-border/50 last:border-0">
+                  <span className={`font-bold uppercase flex-shrink-0 ${r.run_status === 'pass' ? 'text-success' : r.run_status === 'fail' ? 'text-error' : 'text-yellow-600'}`}>
+                    {r.run_status}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-navy font-medium">{r.run_by_name ?? r.run_by_email ?? 'Unknown'}</span>
+                    {r.comment && <p className="text-muted truncate">{r.comment}</p>}
+                  </div>
+                  <span className="text-muted flex-shrink-0">{r.run_at ? new Date(r.run_at).toLocaleDateString() : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { tests: TestCase[]; storyId: string; readOnly?: boolean }) {
   const [tests, setTests] = useState<TestCase[]>(initialTests);
   const [filter, setFilter] = useState<TestType | "All">("All");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [versionFilter, setVersionFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(initialTests[0]?.id ?? null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // AI Regroup modal
+  const [regroupModalOpen, setRegroupModalOpen] = useState(false);
+  const [regroupPrompt, setRegroupPrompt] = useState("");
+
+  // Export modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"excel" | "playwright" | "cypress" | "pytest" | "bdd" | "json">("excel");
+  const [exporting, setExporting] = useState(false);
 
   const toggleGroup = (g: string) => setCollapsedGroups(prev => {
     const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
@@ -65,32 +187,147 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [regenIds, setRegenIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const canEdit = useCanDo("can_edit_tests");
+  const canGenerate = useCanDo("can_generate_tests");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [regrouping, setRegrouping] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
-  const handleRegroup = useCallback(async () => {
+  // Re-fetch server-side when priority or status filter changes
+  useEffect(() => {
+    if (!priorityFilter && !statusFilter) {
+      // No server filters -- use the prop data to avoid extra network round-trips
+      setTests(initialTests);
+      return;
+    }
+    let cancelled = false;
+    setFilterLoading(true);
+    api.getTestCases(storyId, {
+      ...(priorityFilter ? { priority: [priorityFilter] } : {}),
+      ...(statusFilter ? { status: [statusFilter] } : {}),
+    }).then((res) => {
+      if (!cancelled) setTests(res.testCases as any[]);
+    }).catch(() => {}).finally(() => { if (!cancelled) setFilterLoading(false); });
+    return () => { cancelled = true; };
+  }, [storyId, priorityFilter, statusFilter, initialTests]);
+
+  const handleRegroup = useCallback(async (prompt?: string) => {
     setRegrouping(true);
+    setRegroupModalOpen(false);
     try {
-      await api.regroupTestCases(storyId);
-      // Re-fetch test cases to get updated group fields
+      await api.regroupTestCases(storyId, prompt);
+      // Re-fetch to get updated group fields -- preserve real status from server
       const tc = await api.getTestCases(storyId);
       setTests(tc.testCases.map((t) => ({
         id: t.id, storyId,
         title: t.title,
-        type: "Functional" as const,
+        type: (((t as any).type as string) ?? "Functional") as TestType,
         priority: t.priority === "High" ? "P1" : t.priority === "Low" ? "P3" : "P2",
-        status: "Pending" as const,
+        status: (t.status as any) ?? "Pending",
         steps: t.steps,
         expectedResult: t.expectedResult,
         group: t.group,
+        version: t.version,
       })));
       showToast('Test cases regrouped with AI ✓');
     } catch {
       showToast('Regrouping failed', 'error');
     } finally {
       setRegrouping(false);
+      setRegroupPrompt("");
     }
   }, [storyId]);
+
+  const handleExport = useCallback(async () => {
+    const selectedTcs = tests.filter(t => checked.has(t.id));
+    if (selectedTcs.length === 0) return;
+    setExporting(true);
+    try {
+      if (exportFormat === "excel") {
+        // Use backend Excel endpoint for the full story, then filter client-side isn't possible
+        // So build a simple CSV-style Excel-compatible TSV for selected TCs
+        const rows = [
+          ["ID", "Title", "Priority", "Type", "Steps", "Expected Result", "Status", "Version"],
+          ...selectedTcs.map(tc => [
+            tc.id,
+            tc.title,
+            tc.priority,
+            tc.type,
+            tc.steps.join(" | "),
+            tc.expectedResult,
+            tc.status ?? "Pending",
+            tc.version ? `v${tc.version}` : "v1",
+          ]),
+        ];
+        const tsv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join("\t")).join("\n");
+        const blob = new Blob([tsv], { type: "text/tab-separated-values" });
+        triggerDownload(blob, `test-cases-${storyId}-selected.xls`);
+      } else if (exportFormat === "json") {
+        const json = JSON.stringify(selectedTcs.map(tc => ({
+          id: tc.id, title: tc.title, priority: tc.priority,
+          type: tc.type, steps: tc.steps, expected_result: tc.expectedResult,
+          status: tc.status, version: tc.version ?? 1,
+        })), null, 2);
+        triggerDownload(new Blob([json], { type: "application/json" }), `test-cases-${storyId}-selected.json`);
+      } else {
+        // Code formats: generate client-side from TC objects
+        const code = generateCode(selectedTcs, exportFormat, storyId);
+        const extMap: Record<string, string> = {
+          playwright: ".spec.ts", cypress: ".spec.js", pytest: ".py", bdd: ".feature",
+        };
+        triggerDownload(new Blob([code], { type: "text/plain" }), `test-cases-${storyId}-selected${extMap[exportFormat] ?? ".txt"}`);
+      }
+      setExportModalOpen(false);
+      showToast(`${selectedTcs.length} test case${selectedTcs.length === 1 ? "" : "s"} exported`);
+    } catch {
+      showToast("Export failed", "error");
+    } finally {
+      setExporting(false);
+    }
+  }, [tests, checked, exportFormat, storyId]);
+
+  function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  function generateCode(tcs: typeof tests, fmt: string, sid: string): string {
+    switch (fmt) {
+      case "playwright":
+        return `import { test, expect } from '@playwright/test';\n\n` +
+          tcs.map(tc =>
+            `test('${tc.title.replace(/'/g, "\\'")}', async ({ page }) => {\n` +
+            tc.steps.map(s => `  // ${s}`).join("\n") + "\n" +
+            `  // Expected: ${tc.expectedResult}\n});\n`
+          ).join("\n");
+      case "cypress":
+        return `describe('${sid} Test Cases', () => {\n` +
+          tcs.map(tc =>
+            `  it('${tc.title.replace(/'/g, "\\'")}', () => {\n` +
+            tc.steps.map(s => `    // ${s}`).join("\n") + "\n" +
+            `    // Expected: ${tc.expectedResult}\n  });`
+          ).join("\n") + "\n});\n";
+      case "pytest":
+        return tcs.map(tc =>
+          `def test_${tc.id.replace(/-/g, "_").toLowerCase()}():\n` +
+          `    """${tc.title}"""\n` +
+          tc.steps.map(s => `    # ${s}`).join("\n") + "\n" +
+          `    # Expected: ${tc.expectedResult}\n    pass\n`
+        ).join("\n");
+      case "bdd":
+        return tcs.map(tc =>
+          `Scenario: ${tc.title}\n` +
+          tc.steps.map((s, i) => `  ${i === 0 ? "Given" : i === 1 ? "When" : "Then"} ${s}`).join("\n") + "\n" +
+          `  Then ${tc.expectedResult}\n`
+        ).join("\n");
+      default:
+        return tcs.map(tc => `# ${tc.title}\n${tc.steps.join("\n")}\nExpected: ${tc.expectedResult}`).join("\n\n");
+    }
+  }
 
   // Edit modal
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -100,9 +337,56 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   // Regenerate modal (single + bulk share the same modal)
   const [regenModalId, setRegenModalId] = useState<string | null>(null);  // null = bulk mode when regenBulkMode=true
   const [regenBulkMode, setRegenBulkMode] = useState(false);
+  const [regenSubmitting, setRegenSubmitting] = useState(false);
   const [regenInstructions, setRegenInstructions] = useState("");
   const [regenFile, setRegenFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const detailPanelRef = useRef<HTMLDivElement>(null);
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-scroll whenever a different test case is selected so the detail panel
+  // (Pass/Fail/Skip + test info) is immediately visible without manual
+  // scrolling. The TestsTab root has min-height ~100vh, so the element that
+  // actually scrolls is an ANCESTOR overflow-y-auto wrapper (the story page's
+  // content scroller / AppShell <main>), not detailPanelRef itself — calling
+  // scrollTo() on the panel does nothing. So we walk up from the panel to find
+  // the nearest genuinely-scrollable ancestor and scroll IT back to the top,
+  // which brings Pass/Fail/Skip into view regardless of which wrapper scrolls.
+  useEffect(() => {
+    if (!selected) return;
+    const id = requestAnimationFrame(() => {
+      const panel = detailPanelRef.current;
+      if (panel) {
+        // Reset the panel's own scroll (in case it became the scroller).
+        panel.scrollTop = 0;
+        // Find and scroll the nearest scrollable ancestor to the top.
+        let el: HTMLElement | null = panel.parentElement;
+        while (el) {
+          const style = window.getComputedStyle(el);
+          const canScrollY =
+            (style.overflowY === "auto" || style.overflowY === "scroll") &&
+            el.scrollHeight > el.clientHeight + 1;
+          if (canScrollY) {
+            el.scrollTo({ top: 0, behavior: "smooth" });
+            break;
+          }
+          el = el.parentElement;
+        }
+      }
+      selectedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selected]);
+
+  // When tests first appear (e.g. generation just finished) or the current
+  // selection no longer exists, auto-select the first test so the user lands on
+  // a relevant test case instead of an empty detail panel.
+  useEffect(() => {
+    if (tests.length === 0) return;
+    if (!selected || !tests.some((t) => t.id === selected)) {
+      setSelected(tests[0].id);
+    }
+  }, [tests, selected]);
 
   // Phase 2: Review & Refine state
   type ReviewState = {
@@ -128,6 +412,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const filtered = tests.filter((t) => {
     if (filter !== "All" && t.type !== filter) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (versionFilter && String(t.version ?? 1) !== versionFilter) return false;
     return true;
   });
 
@@ -154,64 +439,104 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   const handleApprove = useCallback(async (testId: string) => {
     setApprovingIds((p) => new Set(p).add(testId));
     try {
-      const tc = tests.find((t) => t.id === testId);
-      const newStatus = tc?.status === 'Approved' ? 'Pending' : 'Approved';
-      await api.approveTestCase(storyId, testId, newStatus as any);
-      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: newStatus as any } : t));
-      showToast(newStatus === 'Approved' ? 'Test case approved ✓' : 'Approval removed');
+      await api.approveTestCase(storyId, testId, 'Approved');
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Approved' as any } : t));
+      showToast('Test case approved ✓');
       invalidateStories();
     } catch {
       showToast('Failed to update status', 'error');
     } finally {
       setApprovingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
     }
-  }, [storyId, tests]);
+  }, [storyId]);
+
+  const handleReject = useCallback(async (testId: string) => {
+    setApprovingIds((p) => new Set(p).add(testId));
+    try {
+      await api.approveTestCase(storyId, testId, 'Rejected');
+      setTests((prev) => prev.map((t) => t.id === testId ? { ...t, status: 'Rejected' as any } : t));
+      showToast('Test case rejected');
+    } catch {
+      showToast('Failed to update status', 'error');
+    } finally {
+      setApprovingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+    }
+  }, [storyId]);
 
   const handleBulkApprove = useCallback(async () => {
     setBulkLoading(true);
+    const ids = Array.from(checked);
     try {
-      await Promise.all(Array.from(checked).map((id) => api.approveTestCase(storyId, id, 'Approved')));
-      setTests((prev) => prev.map((t) => checked.has(t.id) ? { ...t, status: 'Approved' as any } : t));
+      const results = await Promise.allSettled(ids.map((id) => api.approveTestCase(storyId, id, 'Approved')));
+      const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = ids.filter((_, i) => results[i].status === 'rejected');
+      setTests((prev) => prev.map((t) => succeeded.includes(t.id) ? { ...t, status: 'Approved' as any } : t));
       setChecked(new Set());
-      showToast(`${checked.size} test cases approved ✓`);
+      invalidateStories();
+      if (failed.length > 0) {
+        showToast(`${succeeded.length} approved, ${failed.length} failed`, 'error');
+      } else {
+        showToast(`${succeeded.length} test cases approved ✓`);
+      }
     } catch {
-      showToast('Some approvals failed', 'error');
+      showToast('Bulk approve failed', 'error');
     } finally {
       setBulkLoading(false);
     }
   }, [storyId, checked]);
 
   // ── Delete ────────────────────────────────────────────────────────────────
-  const handleDelete = useCallback(async (testId: string) => {
-    if (!confirm('Delete this test case? This cannot be undone.')) return;
-    setDeletingIds((p) => new Set(p).add(testId));
-    try {
-      await api.deleteTestCase(storyId, testId);
-      setTests((prev) => prev.filter((t) => t.id !== testId));
-      if (selected === testId) setSelected(null);
-      showToast('Test case deleted');
-      invalidateStories();
-    } catch {
-      showToast('Failed to delete', 'error');
-    } finally {
-      setDeletingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
-    }
+  const handleDelete = useCallback((testId: string) => {
+    setConfirmState({
+      title: "Delete test case",
+      message: "This test case will be permanently deleted. This cannot be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        setDeletingIds((p) => new Set(p).add(testId));
+        try {
+          await api.deleteTestCase(storyId, testId);
+          setTests((prev) => prev.filter((t) => t.id !== testId));
+          if (selected === testId) setSelected(null);
+          showToast('Test case deleted');
+          invalidateStories();
+        } catch {
+          showToast('Failed to delete', 'error');
+        } finally {
+          setDeletingIds((p) => { const n = new Set(p); n.delete(testId); return n; });
+        }
+      },
+    });
   }, [storyId, selected]);
 
-  const handleBulkDelete = useCallback(async () => {
-    if (!confirm(`Delete ${checked.size} test cases? This cannot be undone.`)) return;
-    setBulkLoading(true);
-    try {
-      await Promise.all(Array.from(checked).map((id) => api.deleteTestCase(storyId, id)));
-      setTests((prev) => prev.filter((t) => !checked.has(t.id)));
-      if (selected && checked.has(selected)) setSelected(null);
-      setChecked(new Set());
-      showToast(`${checked.size} test cases deleted`);
-    } catch {
-      showToast('Some deletions failed', 'error');
-    } finally {
-      setBulkLoading(false);
-    }
+  const handleBulkDelete = useCallback(() => {
+    const count = checked.size;
+    setConfirmState({
+      title: `Delete ${count} test case${count === 1 ? '' : 's'}`,
+      message: `${count} test case${count === 1 ? '' : 's'} will be permanently deleted. This cannot be undone.`,
+      confirmLabel: "Delete all",
+      onConfirm: async () => {
+        setBulkLoading(true);
+        const ids = Array.from(checked);
+        try {
+          const results = await Promise.allSettled(ids.map((id) => api.deleteTestCase(storyId, id)));
+          const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+          const failed = ids.filter((_, i) => results[i].status === 'rejected');
+          setTests((prev) => prev.filter((t) => !succeeded.includes(t.id)));
+          if (selected && succeeded.includes(selected)) setSelected(null);
+          setChecked(new Set());
+          invalidateStories();
+          if (failed.length > 0) {
+            showToast(`${succeeded.length} deleted, ${failed.length} failed`, 'error');
+          } else {
+            showToast(`${succeeded.length} test cases deleted`);
+          }
+        } catch {
+          showToast('Some deletions failed', 'error');
+        } finally {
+          setBulkLoading(false);
+        }
+      },
+    });
   }, [storyId, checked, selected]);
 
   // ── Regenerate single ─────────────────────────────────────────────────────
@@ -223,63 +548,56 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }, []);
 
   const handleRegenSubmit = useCallback(async () => {
+    setRegenSubmitting(true);
     if (regenBulkMode) {
-      // Bulk regen
-      setRegenModalId(null);
-      setBulkLoading(true);
       const ids = Array.from(checked);
-      // Mark all as regenerating
       setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Regenerating' as any } : t));
       try {
         const res = await api.bulkRegenerateTestCases(storyId, ids, regenInstructions || undefined, regenFile || undefined);
-        // Go to Phase 2 review for bulk
         const bulkResults = (res.test_cases || []).map((tc: any) => ({
-          id: tc.id,
-          title: tc.title,
-          steps: tc.steps,
-          expectedResult: tc.expected_result,
-          priority: tc.priority,
+          id: tc.id, title: tc.title, steps: tc.steps,
+          expectedResult: tc.expected_result, priority: tc.priority,
         }));
+        setRegenModalId(null); setRegenBulkMode(false);
         setReviewState({ testCaseId: null, original: null, result: bulkResults[0] ?? {} as any, isBulk: true, bulkResults });
         setRefineInstructions("");
       } catch {
         setTests((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, status: 'Pending' as any } : t));
         showToast('Bulk regeneration failed', 'error');
+        setRegenModalId(null); setRegenBulkMode(false);
       } finally {
-        setBulkLoading(false);
+        setRegenSubmitting(false); setBulkLoading(false);
         setRegenInstructions(""); setRegenFile(null);
       }
       return;
     }
 
-    if (!regenModalId) return;
+    if (!regenModalId) { setRegenSubmitting(false); return; }
     const tcId = regenModalId;
     const original = tests.find((t) => t.id === tcId) ?? null;
-    setRegenModalId(null);
-    setRegenIds((p) => new Set(p).add(tcId));
     setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Regenerating' as any } : t));
     try {
       const res = await api.regenerateSingleTestCase(storyId, tcId, regenInstructions || undefined, regenFile || undefined);
       const updated = res.test_case;
-      // Go to Phase 2 review
+      setRegenModalId(null);
       setReviewState({
-        testCaseId: tcId,
-        original,
+        testCaseId: tcId, original,
         result: {
           title: updated.title ?? original?.title ?? '',
           steps: updated.steps ?? original?.steps ?? [],
           expectedResult: updated.expected_result ?? original?.expectedResult ?? '',
           priority: updated.priority ?? original?.priority ?? 'Medium',
         },
-        isBulk: false,
-        bulkResults: [],
+        isBulk: false, bulkResults: [],
       });
       setRefineInstructions("");
       setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
     } catch {
       setTests((prev) => prev.map((t) => t.id === tcId ? { ...t, status: 'Pending' as any } : t));
       showToast('Regeneration failed', 'error');
+      setRegenModalId(null);
     } finally {
+      setRegenSubmitting(false);
       setRegenIds((p) => { const n = new Set(p); n.delete(tcId); return n; });
       setRegenInstructions(""); setRegenFile(null);
     }
@@ -378,10 +696,11 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
         showToast('Test case updated ✓');
         invalidateStories();
       }
+      setReviewState(null); // only close on success
     } catch {
       showToast('Failed to save', 'error');
+      // Keep modal open so user can retry -- do NOT call setReviewState(null)
     }
-    setReviewState(null);
   }, [storyId, reviewState]);
 
   // ── Edit ──────────────────────────────────────────────────────────────────
@@ -434,13 +753,14 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
   }
 
   return (
+    <>
     <div className="flex h-full relative" style={{ minHeight: "calc(100vh - 220px)" }}>
 
       {/* Hidden file input for refine */}
       <input ref={refineFileRef} type="file" accept=".pdf,.docx,.txt,.md" className="hidden"
         onChange={(e) => setRefineFile(e.target.files?.[0] ?? null)} />
 
-      {/* Phase 2 — Review & Refine Modal */}
+      {/* Phase 2 -- Review & Refine Modal */}
       <AnimatePresence>
         {reviewState && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -659,14 +979,18 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
               </div>
 
               <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
-                <button onClick={() => { setRegenModalId(null); setRegenBulkMode(false); }} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50">
+                <button onClick={() => { if (!regenSubmitting) { setRegenModalId(null); setRegenBulkMode(false); } }} disabled={regenSubmitting} className="h-9 px-4 text-sm border border-border rounded-btn text-navy hover:bg-gray-50 disabled:opacity-40">
                   Cancel
                 </button>
                 <button
                   onClick={handleRegenSubmit}
-                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] flex items-center gap-2"
+                  disabled={regenSubmitting}
+                  className="h-9 px-4 text-sm bg-pink text-white rounded-btn hover:bg-[#e0005f] flex items-center gap-2 disabled:opacity-80"
                 >
-                  <RefreshCw size={13} /> Regenerate
+                  {regenSubmitting
+                    ? <><Loader2 size={13} className="animate-spin" /> Regenerating…</>
+                    : <><RefreshCw size={13} /> Regenerate</>
+                  }
                 </button>
               </div>
             </motion.div>
@@ -785,33 +1109,134 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
 
       {/* Left panel */}
       <div className="w-[320px] flex-shrink-0 border-r border-border flex flex-col">
-        {/* Filter chips + Regroup button */}
-        <div className="px-3 pt-3 pb-2 flex flex-wrap gap-1.5 items-center">
-          {TYPE_FILTERS.map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                filter === f ? "bg-pink text-white border-pink" : "bg-white text-muted border-border hover:border-navy hover:text-navy"
-              }`}
+        {/* Toolbar */}
+        <div className="px-3 pt-3 pb-2 space-y-2">
+          {/* Row 1: Filter dropdown + AI Group button */}
+          <div className="flex items-center gap-2">
+            {/* Filter dropdown */}
+            <div className="relative flex-1">
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as typeof filter)}
+                className="w-full h-8 pl-3 pr-8 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="All">All Types</option>
+                <option value="Functional">Functional</option>
+                <option value="Negative">Negative</option>
+                <option value="Boundary">Boundary</option>
+                <option value="Security">Security</option>
+                <option value="Accessibility">Accessibility</option>
+              </select>
+              <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+            {/* Priority filter */}
+            <div className="relative">
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="h-8 pl-3 pr-7 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="">All Priority</option>
+                <option value="P1">P1</option>
+                <option value="P2">P2</option>
+                <option value="P3">P3</option>
+              </select>
+              <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+            {/* Status filter */}
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-8 pl-3 pr-7 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+              >
+                <option value="">All Status</option>
+                <option value="Pending" title="Awaiting review — not yet accepted or rejected">Pending</option>
+                <option value="Approved" title="Reviewed and accepted — ready for execution">Approved</option>
+                <option value="Rejected" title="Needs revision — flagged during review">Rejected</option>
+              </select>
+              <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+                <ChevronDown size={12} className="text-muted" />
+              </div>
+            </div>
+          </div>
+          {/* Row 2: Search + Version filter + AI Group button */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text" placeholder="Search test cases…" value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-8 pl-3 pr-8 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-navy">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {/* Version filter -- only shown if any test case has version > 1 */}
+            {tests.some(t => t.version && t.version > 1) && (
+              <div className="relative flex-shrink-0">
+                <select
+                  value={versionFilter}
+                  onChange={(e) => setVersionFilter(e.target.value)}
+                  className="h-8 pl-2.5 pr-6 text-[11px] font-semibold border border-pink/40 rounded-btn bg-pink/5 text-pink appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
+                >
+                  <option value="">All Versions</option>
+                  {Array.from(new Set(tests.map(t => t.version).filter(Boolean))).sort().map(v => (
+                    <option key={v} value={String(v)}>v{v} only</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2">
+                  <ChevronDown size={10} className="text-pink" />
+                </div>
+              </div>
+            )}
+            {/* AI Group button */}
+            <button
+              onClick={() => setRegroupModalOpen(true)}
+              disabled={regrouping}
+              title="Automatically group test cases by feature area using AI"
+              className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-surface-pink hover:border-pink hover:text-pink transition-colors flex items-center gap-1.5 disabled:opacity-60 flex-shrink-0"
             >
-              {f}
+              {regrouping
+                ? <><Loader2 size={11} className="animate-spin" /> Grouping…</>
+                : <><Sparkles size={11} /> AI Group Tests</>
+              }
             </button>
-          ))}
-          <button
-            onClick={handleRegroup}
-            disabled={regrouping}
-            title="Re-assign AI groups"
-            className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-semibold border border-border rounded-full text-muted hover:border-pink hover:text-pink transition-colors disabled:opacity-50"
-          >
-            {regrouping && <Loader2 size={10} className="animate-spin" />}
-            {regrouping ? 'Grouping…' : 'AI Group'}
-          </button>
-        </div>
-        {/* Search */}
-        <div className="px-3 pb-2">
-          <input type="text" placeholder="Search tests…" value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-8 px-3 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
-          />
+          </div>
+          {/* Active filter indicator */}
+          {(filter !== 'All' || priorityFilter || statusFilter || versionFilter) && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {filter !== 'All' && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
+                  {filter} <button onClick={() => setFilter('All')}><X size={9} /></button>
+                </span>
+              )}
+              {priorityFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20">
+                  {priorityFilter} <button onClick={() => setPriorityFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              {statusFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-pink text-pink border border-pink/20">
+                  {statusFilter} <button onClick={() => setStatusFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              {versionFilter && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
+                  v{versionFilter} only <button onClick={() => setVersionFilter('')}><X size={9} /></button>
+                </span>
+              )}
+              <button onClick={() => { setFilter('All'); setPriorityFilter(''); setStatusFilter(''); setVersionFilter(''); }} className="text-[10px] text-muted hover:text-error ml-auto">
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
         {/* Bulk action bar */}
         <AnimatePresence>
@@ -821,22 +1246,18 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
             >
               <div className="px-3 py-2 bg-surface-pink border-b border-border flex items-center gap-2">
                 <span className="text-xs font-semibold text-navy">{checked.size} selected</span>
-                {bulkLoading ? <Loader2 size={12} className="animate-spin text-muted" /> : (
-                  <>
-                    <button onClick={handleBulkApprove} className="text-xs text-success hover:underline font-medium">Approve all</button>
-                    <button
-                      onClick={() => { setRegenBulkMode(true); setRegenInstructions(""); setRegenFile(null); setRegenModalId("bulk"); }}
-                      className="text-xs text-pink hover:underline font-medium"
-                    >Regenerate all</button>
-                    <button onClick={handleBulkDelete} className="text-xs text-error hover:underline font-medium">Delete all</button>
-                  </>
-                )}
+                <button
+                  onClick={() => setExportModalOpen(true)}
+                  className="text-xs text-navy hover:underline font-medium flex items-center gap-1"
+                >
+                  <FileText size={11} /> Export
+                </button>
                 <button onClick={() => setChecked(new Set())} className="ml-auto text-muted hover:text-navy"><X size={13} /></button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Test list — grouped by AI feature group */}
+        {/* Test list -- grouped by AI feature group */}
         <div className="flex-1 overflow-y-auto">
           {Object.entries(groupedTests).map(([groupName, groupTests]) => {
             const isCollapsed = collapsedGroups.has(groupName);
@@ -856,6 +1277,7 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 {/* Group items */}
                 {!isCollapsed && groupTests.map((test) => (
                   <button key={test.id} onClick={() => setSelected(test.id)}
+                    ref={selected === test.id ? selectedRowRef : undefined}
                     className={`w-full flex items-center gap-3 px-3 h-11 text-left border-b border-border transition-colors relative ${
                       selected === test.id ? "bg-surface-pink" : "hover:bg-gray-50"
                     }`}
@@ -875,10 +1297,17 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       {test.priority}
                     </span>
                     <span className="flex-1 text-[12px] font-semibold text-navy truncate">{test.title}</span>
+                    {test.version && test.version > 1 && (
+                      <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-pink/10 text-pink border border-pink/20 flex-shrink-0">
+                        v{test.version}
+                      </span>
+                    )}
                     {regenIds.has(test.id) ? (
                       <Loader2 size={13} className="text-pink animate-spin flex-shrink-0" />
                     ) : test.status === "Approved" ? (
                       <CheckCircle2 size={13} className="text-success flex-shrink-0" />
+                    ) : test.status === "Rejected" ? (
+                      <X size={13} className="text-error flex-shrink-0" />
                     ) : (
                       <Clock size={13} className="text-muted flex-shrink-0" />
                     )}
@@ -887,11 +1316,23 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
               </div>
             );
           })}
+          {filtered.length === 0 && tests.length > 0 && (
+            <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+              <p className="text-sm font-medium text-navy mb-1">No test cases match your filters</p>
+              <p className="text-xs text-muted">Try clearing the filters to see all {tests.length} test cases</p>
+              <button
+                onClick={() => { setFilter("All"); setPriorityFilter(""); setStatusFilter(""); setSearch(""); }}
+                className="mt-3 text-xs text-pink hover:underline"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={detailPanelRef} className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           {selectedTest ? (
             <motion.div key={selectedTest.id}
@@ -910,10 +1351,41 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${typeColor[selectedTest.type] ?? typeColor.Functional}`}>
                       {selectedTest.type}
                     </span>
+                    {selectedTest.version && (
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                        selectedTest.version > 1
+                          ? 'bg-pink/10 text-pink border-pink/20'
+                          : 'bg-gray-50 text-muted border-border'
+                      }`}>
+                        v{selectedTest.version}
+                      </span>
+                    )}
                     <AIConfidenceBadge level={confidenceLevel(testConfidence(selectedTest))} score={testConfidence(selectedTest)} />
+                    {selectedTest.severity && (selectedTest.severity as string) !== (selectedTest.priority as string) && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        selectedTest.severity === 'Critical' ? 'bg-red-50 text-red-700 border-red-200' :
+                        selectedTest.severity === 'High' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                        selectedTest.severity === 'Medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                        'bg-gray-50 text-muted border-border'
+                      }`}>
+                        {selectedTest.severity}
+                      </span>
+                    )}
+                    {selectedTest.automation_feasibility && (
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E40AF] border border-[#BFDBFE]">
+                        Auto: {selectedTest.automation_feasibility}
+                      </span>
+                    )}
+                    {selectedTest.estimated_duration_minutes && (
+                      <span className="text-[10px] text-muted">~{selectedTest.estimated_duration_minutes}m</span>
+                    )}
                     {selectedTest.status === "Approved" ? (
                       <span className="text-[11px] font-semibold text-success flex items-center gap-1">
                         <Check size={12} /> Approved
+                      </span>
+                    ) : selectedTest.status === 'Rejected' ? (
+                      <span className="text-[11px] font-semibold text-error flex items-center gap-1">
+                        <X size={12} /> Rejected
                       </span>
                     ) : regenIds.has(selectedTest.id) ? (
                       <span className="text-[11px] font-semibold text-pink flex items-center gap-1">
@@ -925,48 +1397,93 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                       </span>
                     )}
                   </div>
+                  {selectedTest.tags && selectedTest.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {selectedTest.tags.map((tag, i) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-muted font-medium">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-                  {/* Approve */}
-                  <button
-                    onClick={() => handleApprove(selectedTest.id)}
-                    disabled={approvingIds.has(selectedTest.id)}
-                    className={`h-8 px-3 text-xs font-medium rounded-btn border transition-colors flex items-center gap-1.5 disabled:opacity-60 ${
-                      selectedTest.status === 'Approved'
-                        ? 'bg-success/10 text-success border-success/30 hover:bg-gray-50 hover:text-muted hover:border-border'
-                        : 'bg-success/10 text-success border-success/30 hover:bg-success/20'
-                    }`}
-                  >
-                    {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                    {selectedTest.status === 'Approved' ? 'Approved' : 'Approve'}
-                  </button>
+                  {readOnly ? (
+                    <span className="text-[11px] text-muted italic px-2 py-1 bg-gray-50 rounded-btn border border-border">
+                      Read-only snapshot — switch to Current to edit
+                    </span>
+                  ) : (
+                  <>
+                  {/* Approve / Reject -- only show if not already in that state */}
+                  {selectedTest.status !== 'Approved' && (
+                    <button
+                      onClick={() => handleApprove(selectedTest.id)}
+                      disabled={approvingIds.has(selectedTest.id)}
+                      title="Mark this test case as reviewed and accepted"
+                      className="h-8 px-3 text-xs font-medium rounded-btn border bg-success/10 text-success border-success/30 hover:bg-success/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                      Approve
+                    </button>
+                  )}
+                  {canEdit && selectedTest.status !== 'Rejected' && (
+                    <button
+                      onClick={() => handleReject(selectedTest.id)}
+                      disabled={approvingIds.has(selectedTest.id)}
+                      title="Mark this test case as needing revision"
+                      className="h-8 px-3 text-xs font-medium rounded-btn border bg-error/10 text-error border-error/30 hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                      Reject
+                    </button>
+                  )}
                   {/* Regenerate */}
-                  <button
+                  {canEdit && <button
                     onClick={() => handleRegenerate(selectedTest.id)}
                     disabled={regenIds.has(selectedTest.id)}
+                    title="Ask AI to rewrite this test case with better steps"
                     className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                   >
                     {regenIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                     Regenerate
-                  </button>
+                  </button>}
                   {/* Edit */}
-                  <button
+                  {canEdit && <button
                     onClick={() => openEdit(selectedTest)}
+                    title="Manually edit the test case content"
                     className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5"
                   >
                     <Pencil size={12} /> Edit
-                  </button>
+                  </button>}
                   {/* Delete */}
-                  <button
+                  {canEdit && <button
                     onClick={() => handleDelete(selectedTest.id)}
                     disabled={deletingIds.has(selectedTest.id)}
+                    title="Permanently remove this test case"
                     className="h-8 px-3 text-xs font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                   >
                     {deletingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                     Delete
-                  </button>
+                  </button>}
+                  </>
+                  )}
                 </div>
               </div>
+
+              {/* Preconditions */}
+              {selectedTest.preconditions && selectedTest.preconditions.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Preconditions</p>
+                  <ul className="space-y-1.5">
+                    {selectedTest.preconditions.map((pre, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="mt-1 w-1.5 h-1.5 rounded-full bg-cyan flex-shrink-0" />
+                        <span className="text-sm text-navy">{pre}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Steps */}
               <div>
@@ -981,11 +1498,60 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                 </ol>
               </div>
 
+              {/* Test Data */}
+              {selectedTest.test_data && (
+                (() => {
+                  const td = selectedTest.test_data as any;
+                  const values = td.values || (typeof td === 'object' && !td.values && !td.description ? td : null);
+                  const entries = values ? Object.entries(values) : [];
+                  if (entries.length === 0 && !td.description) return null;
+                  return (
+                    <div className="mb-4">
+                      <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Test Data</p>
+                      {td.description && <p className="text-xs text-muted mb-2">{td.description}</p>}
+                      {entries.length > 0 && (
+                        <div className="rounded-lg border border-border overflow-hidden">
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {entries.map(([key, val], i) => (
+                                <tr key={i} className={i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                                  <td className="px-3 py-1.5 font-medium text-muted w-1/3">{key}</td>
+                                  <td className="px-3 py-1.5 text-navy font-mono">{String(val)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+
               {/* Expected result */}
               <div>
                 <p className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-2">Expected Result</p>
                 <p className="text-sm text-navy leading-relaxed">{selectedTest.expectedResult}</p>
               </div>
+
+              {/* Traceability — shown only when the fields exist */}
+              {(selectedTest.rationale || selectedTest.requirement_ref) && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Traceability</p>
+                  {selectedTest.rationale && (
+                    <div className="flex gap-2 mb-2">
+                      <span className="text-[11px] font-medium text-muted w-28 flex-shrink-0">Rationale:</span>
+                      <span className="text-[12px] text-navy">{selectedTest.rationale}</span>
+                    </div>
+                  )}
+                  {selectedTest.requirement_ref && selectedTest.requirement_ref !== 'General' && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-medium text-muted w-28 flex-shrink-0">Requirement:</span>
+                      <span className="text-[12px] text-navy italic">"{selectedTest.requirement_ref}"</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* AI review */}
               {selectedTest.aiReview && (
@@ -997,6 +1563,9 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
                   <p className="text-[13px] text-muted leading-relaxed">{selectedTest.aiReview}</p>
                 </div>
               )}
+
+              {/* ── Execution: Pass / Fail / Skip ── */}
+              <ExecutionPanel storyId={storyId} testCaseId={selectedTest.id} />
             </motion.div>
           ) : (
             <motion.div key="empty" {...fadeInUp} className="flex items-center justify-center h-full py-24">
@@ -1006,5 +1575,103 @@ export function TestsTab({ tests: initialTests, storyId }: { tests: TestCase[]; 
         </AnimatePresence>
       </div>
     </div>
+    <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+
+    {/* Export Modal */}
+    {exportModalOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => setExportModalOpen(false)}>
+        <div className="w-full max-w-sm bg-white border border-border rounded-card shadow-card overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-surface-pink text-pink flex items-center justify-center">
+                <FileText size={14} />
+              </span>
+              <h2 className="text-sm font-semibold text-navy">Export {checked.size} test case{checked.size === 1 ? "" : "s"}</h2>
+            </div>
+            <button onClick={() => setExportModalOpen(false)} className="text-muted hover:text-navy transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-muted">Choose a format to export the selected test cases.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: "excel",      label: "Excel (.xls)",     desc: "Spreadsheet" },
+                { id: "json",       label: "JSON",             desc: "Raw data" },
+                { id: "playwright", label: "Playwright",       desc: "TypeScript E2E" },
+                { id: "cypress",    label: "Cypress",          desc: "JavaScript E2E" },
+                { id: "pytest",     label: "PyTest",           desc: "Python tests" },
+                { id: "bdd",        label: "BDD / Gherkin",    desc: "Feature file" },
+              ] as const).map(fmt => (
+                <button key={fmt.id} type="button"
+                  onClick={() => setExportFormat(fmt.id as typeof exportFormat)}
+                  className={`flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-card border text-left transition-colors ${
+                    exportFormat === fmt.id ? "border-pink bg-surface-pink" : "border-border hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="text-xs font-semibold text-navy">{fmt.label}</span>
+                  <span className="text-[10px] text-muted">{fmt.desc}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setExportModalOpen(false)}
+                className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleExport} disabled={exporting}
+                className="h-9 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+                {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* AI Regroup Modal */}
+    {regroupModalOpen && (
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }}>
+        <div className="w-full max-w-md bg-white border border-border rounded-card shadow-card overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-surface-pink text-pink flex items-center justify-center">
+                <Sparkles size={14} />
+              </span>
+              <h2 className="text-sm font-semibold text-navy">AI Group Test Cases</h2>
+            </div>
+            <button onClick={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }} className="text-muted hover:text-navy transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-muted">AI will group your test cases into logical feature areas. Optionally tell it how you want them grouped.</p>
+            <div>
+              <label className="block text-xs font-semibold text-navy mb-1.5">Grouping instructions <span className="text-muted font-normal">(optional)</span></label>
+              <textarea
+                value={regroupPrompt}
+                onChange={e => setRegroupPrompt(e.target.value)}
+                placeholder={`e.g. "Group by authentication flow, error handling, and performance" or "Separate security tests into their own group"`}
+                rows={3}
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setRegroupModalOpen(false); setRegroupPrompt(""); }}
+                className="h-9 px-4 rounded-btn border border-border text-sm font-medium text-muted hover:text-navy hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => handleRegroup(regroupPrompt.trim() || undefined)}
+                className="h-9 px-5 rounded-btn bg-pink text-white text-sm font-medium hover:bg-[#e0005f] transition-colors flex items-center gap-2">
+                <Sparkles size={14} /> Regroup
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

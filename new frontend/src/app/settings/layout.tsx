@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { LogOut, X, ExternalLink } from "lucide-react";
 import { PageLayout, PageHeader, PageActions } from "@/components/layout/PageLayout";
 import { useAuth } from "@/contexts/AuthContext";
 
-const DOCS_URL = "https://docs.testsurge.app";
+const DOCS_URL = "https://testsurge.kynetropo.com/docs";
 
 interface NavItem {
   label: string;
@@ -29,6 +29,7 @@ function buildNavSections(hasWorkspace: boolean): NavSection[] {
       label: "Workspace",
       items: [
         { label: "Workspace",     href: "/settings/workspace" },
+        ...(hasWorkspace ? [{ label: "Team", href: "/settings/team" }] : []),
         { label: "Integrations",  href: "/settings/integrations" },
         { label: "API Keys",      href: "/settings/api-keys" },
         { label: "Notifications", href: "/settings/notifications" },
@@ -39,23 +40,30 @@ function buildNavSections(hasWorkspace: boolean): NavSection[] {
       items: [
         { label: "Profile",     href: "/settings/profile" },
         { label: "Preferences", href: "/settings/preferences" },
-        ...(hasWorkspace ? [{ label: "Team", href: "/settings/team" }] : []),
         { label: "Billing",     href: "/settings/billing" },
       ],
     },
     {
       label: "Support",
       items: [
-        { label: "Contact Us",    href: "/settings/contact" },
+        { label: "Contact & Report Bug", href: "/settings/contact" },
         { label: "Documentation", href: DOCS_URL, external: true },
-        { label: "Report Bug",    href: "/settings/contact?type=bug" },
       ],
     },
   ];
 }
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense>
+      <SettingsLayoutInner>{children}</SettingsLayoutInner>
+    </Suspense>
+  );
+}
+
+function SettingsLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [showLogout, setShowLogout] = useState(false);
   const { user, signOut } = useAuth();
   const navSections = buildNavSections(Boolean(user?.currentWorkspace));
@@ -74,7 +82,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         <nav className="w-[200px] flex-shrink-0 border-r border-border py-4 px-2 overflow-y-auto flex flex-col">
           {navSections.map((section) => (
             <div key={section.label} className="mb-4">
-              <p className="px-3 mb-1 text-[11px] font-semibold text-muted uppercase tracking-wide">
+              <p className="px-3 mb-1 text-[11px] font-semibold text-pink uppercase tracking-wide">
                 {section.label}
               </p>
               {section.items.map((item) => {
@@ -92,9 +100,15 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                     </a>
                   );
                 }
-                // Active match ignores query params (e.g. /settings/contact?type=bug).
+                // Active match: items WITH query params require the full search string to match.
+                // This prevents /settings/contact and /settings/contact?type=bug from both
+                // highlighting at the same time — they share a base path but differ by query.
                 const itemPath = item.href.split("?")[0];
-                const isActive = pathname === itemPath;
+                const itemQuery = item.href.includes("?") ? item.href.split("?")[1] : null;
+                const currentQuery = searchParams.toString();
+                const isActive = itemQuery
+                  ? pathname === itemPath && currentQuery === itemQuery
+                  : pathname === itemPath && currentQuery === "";
                 return (
                   <Link
                     key={item.href}
