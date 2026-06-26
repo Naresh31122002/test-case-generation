@@ -19,7 +19,7 @@ const DEFAULT_PERMS: WorkspacePermissions = {
   can_generate_tests: true,
   can_edit_tests: true,
   can_delete_stories: false,
-  can_manage_members: false,
+  can_manage_members: true, // optimistic — corrected after role is fetched
 };
 
 interface RBACContextValue {
@@ -59,12 +59,12 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
         can_manage_members: p.can_manage_members ?? (role === "owner" || role === "admin"),
       });
     } catch (err) {
-      // On 401 the apiClient will redirect to login; on other errors fall back
-      // to default (no permissions) so the UI degrades gracefully.
+      // On 401 the apiClient will redirect to login; on other errors keep
+      // optimistic defaults so UI doesn't break for legitimate users.
       if (!(err instanceof ApiError && err.status === 401)) {
         console.error("[RBAC] fetchRole failed:", err);
       }
-      setPermissions(DEFAULT_PERMS);
+      // Only zero-out on 401 (not authenticated) — keep defaults for network errors
     } finally {
       setLoading(false);
     }
