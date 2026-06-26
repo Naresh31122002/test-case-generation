@@ -15,9 +15,9 @@ export interface WorkspacePermissions {
 
 const DEFAULT_PERMS: WorkspacePermissions = {
   role: null,
-  can_create_stories: false,
-  can_generate_tests: false,
-  can_edit_tests: false,
+  can_create_stories: true,
+  can_generate_tests: true,
+  can_edit_tests: true,
   can_delete_stories: false,
   can_manage_members: false,
 };
@@ -81,8 +81,10 @@ export function RBACProvider({ children }: { children: React.ReactNode }) {
 
 export function useRBAC() { return useContext(RBACContext); }
 
-/** Convenience: returns true if user can perform the action. */
+/** Convenience: returns true if user can perform the action.
+ *  Returns true while loading (optimistic) — hides only once role is confirmed. */
 export function useCanDo(permission: keyof Omit<WorkspacePermissions, "role">): boolean {
-  const { permissions } = useRBAC();
+  const { permissions, loading } = useRBAC();
+  if (loading) return true; // show buttons while role is being fetched
   return permissions[permission] ?? false;
 }
