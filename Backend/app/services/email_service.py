@@ -12,6 +12,11 @@ class EmailService:
             cls._instance._initialize()
         return cls._instance
 
+    @classmethod
+    def get_instance(cls):
+        """Return the singleton EmailService instance."""
+        return cls()
+
     def _initialize(self):
         # Initialize SES client
         # In a real environment, boto3 will pick up credentials from env automatically
