@@ -27,6 +27,7 @@ from app.utils.workspace import (
     workspace_required,
     get_current_user_id,
     get_current_workspace_id,
+    require_workspace_role,
 )
 from app.models.story_collaboration_model import StoryAssigneesModel, StoryActivityModel, StoryCommentsModel
 from app.models.test_case_collaboration_model import (
@@ -36,10 +37,98 @@ from app.models.test_case_collaboration_model import (
 )
 stories_bp = Blueprint('stories', __name__)
 
+
+_JSON_VALID_ESCAPE_NEXT = set('"\\/bfnrtu')
+
+
+def _fix_invalid_json_escapes(s: str) -> str:
+    """
+    Double any backslash that is not the start of a valid JSON escape sequence
+    (\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX). LLMs frequently emit a lone
+    backslash inside a string — e.g. a Windows path like C:\\data or a regex —
+    which json.loads rejects with "Invalid \\escape". Valid escapes are left
+    untouched so \\n / \\t / \\uXXXX still decode correctly.
+    """
+    out = []
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if ch == '\\':
+            nxt = s[i + 1] if i + 1 < n else ''
+            if nxt in _JSON_VALID_ESCAPE_NEXT:
+                out.append(ch)
+                out.append(nxt)
+                i += 2
+                continue
+            out.append('\\\\')
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
+def _robust_json_loads(raw: str):
+    """
+    Parse JSON returned by an LLM, tolerating the two failure modes seen most
+    often in production logs for the quality-analysis prompts:
+
+      - "Invalid \\escape": a lone backslash inside a string (Windows path / regex).
+      - "Expecting ',' delimiter": trailing commas before } or ].
+
+    Try a straight json.loads first (fast path, no mutation). On failure, isolate
+    the outermost {...}, fix invalid escapes, strip trailing commas, then retry.
+    Re-raise the original error if it still cannot be parsed so the caller can
+    surface a real failure rather than silently degrade.
+    """
+    import re as _re
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as first_err:
+        text = raw
+        start, end = text.find('{'), text.rfind('}') + 1
+        if start != -1 and end > start:
+            text = text[start:end]
+        text = _fix_invalid_json_escapes(text)
+        text = _re.sub(r',\s*([}\]])', r'\1', text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            raise first_err
+
+
 # Backwards-compatible alias: existing routes are decorated with @dev_jwt_required.
 # It now resolves the workspace too, so every route is tenant-scoped.
 dev_jwt_required = workspace_required
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _check_permission(permission: str):
+    """
+    Check workspace permission for the current user.
+    Returns (True, None) if allowed, (False, response) if denied.
+
+    Permissions: can_create_stories, can_generate_tests, can_edit_tests,
+                 can_delete_stories, can_manage_members
+    viewer role = read-only (can still record test runs)
+    """
+    from flask import g
+    role = getattr(g, 'workspace_role', None)
+    if not role:
+        return False, (jsonify({'error': 'Not authorized'}), 403)
+
+    # Role-based permission matrix
+    ROLE_PERMISSIONS = {
+        'owner':  {'can_create_stories', 'can_generate_tests', 'can_edit_tests', 'can_delete_stories', 'can_manage_members'},
+        'admin':  {'can_create_stories', 'can_generate_tests', 'can_edit_tests', 'can_delete_stories', 'can_manage_members'},
+        'editor': {'can_create_stories', 'can_generate_tests', 'can_edit_tests'},
+        'viewer': set(),
+    }
+
+    allowed = permission in ROLE_PERMISSIONS.get(role, set())
+    if not allowed:
+        return False, (jsonify({'error': f'Your role ({role}) does not have permission: {permission}'}), 403)
+    return True, None
+
 
 def serialize_datetime(obj):
     """Helper function to serialize datetime objects"""
@@ -60,20 +149,14 @@ def get_stories():
         sort_order = request.args.get('sort_order', 'desc')
         project_id = request.args.get('project_id')
 
-        # Sprint 1 Phase 3: optional server-side filters. All are additive — when a
+        # Sprint 1 Phase 3: optional server-side filters. All are additive - when a
         # filter is absent the query behaves exactly as before. Repeatable params
         # (?status=in_review&status=completed) are read with getlist.
         f_status = [s for s in request.args.getlist('status') if s in ('in_review', 'in_progress', 'completed')]
         f_impact = request.args.get('impact')  # 'detected' | 'none'
         f_assignee = request.args.get('assignee')  # user_id | 'me' | 'unassigned'
         f_priority = [p for p in request.args.getlist('priority') if p in ('High', 'Medium', 'Low')]
-
-        print("DEBUG:get_stories: Request received", {
-            'page': page,
-            'per_page': per_page,
-            'sort_order': sort_order,
-            'project_id': project_id
-        })
+        f_search = (request.args.get('q') or '').strip()[:200]  # full-text search on story_description
 
         # Validate sort_order
         if sort_order not in ['asc', 'desc']:
@@ -135,6 +218,13 @@ def get_stories():
                     AND sa.user_id = %s
                 )"""
                 filter_params.append(target)
+        if f_search:
+            filter_sql += """ AND (
+                story_description ILIKE %s
+                OR story_id ILIKE %s
+            )"""
+            like = f"%{f_search}%"
+            filter_params.extend([like, like])
 
         query += filter_sql
         params.extend(filter_params)
@@ -147,10 +237,6 @@ def get_stories():
         params.extend([per_page, (page - 1) * per_page])
 
         # Get embedding timestamps and doc_content_text from LanceDB
-        print("DEBUG:get_stories: Connecting to LanceDB", {
-            'lance_db_path': Config.LANCE_DB_PATH,
-            'table_name': Config.TABLE_NAME_LANCE
-        })
         db = lancedb.connect(Config.LANCE_DB_PATH)
         table = db.open_table(Config.TABLE_NAME_LANCE)
         lance_data = table.to_pandas()
@@ -161,17 +247,10 @@ def get_stories():
         doc_content_texts = dict(zip(lance_data['storyID'], lance_data['doc_content_text']))
 
         # Execute query
-        print("DEBUG:get_stories: Executing Postgres query", {
-            'query': query,
-            'params': params
-        })
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
                 cursor.execute(query, params)
                 stories = cursor.fetchall()
-                print("DEBUG:get_stories: Query returned stories", {
-                    'stories_count': len(stories)
-                })
 
                 # Get total count for pagination
                 count_query = """
@@ -186,9 +265,6 @@ def get_stories():
 
                 cursor.execute(count_query, count_params)
                 total = cursor.fetchone()[0]
-                print("DEBUG:get_stories: Total stories count", {
-                    'total': total
-                })
 
                 # Process results
                 result = {
@@ -213,7 +289,7 @@ def get_stories():
                     if isinstance(source, str):
                         try:
                             source = json.loads(source)
-                        except:
+                        except (json.JSONDecodeError, ValueError):
                             source = {'story': source, 'test_cases': source}
                     story_dict['source'] = source
 
@@ -239,10 +315,6 @@ def get_stories():
 
                     result['stories'].append(story_dict)
 
-                print("DEBUG:get_stories: Returning response", {
-                    'stories_returned': len(result['stories']),
-                    'pagination': result['pagination']
-                })
                 return jsonify(result), 200
 
     except Exception as e:
@@ -286,6 +358,8 @@ def delete_story(story_id):
     """
     try:
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_delete_stories')
+        if not ok: return err
         if not story_id:
             return jsonify({'error': 'Story ID is required'}), 400
         if not workspace_id:
@@ -303,7 +377,7 @@ def delete_story(story_id):
                 deleted_pg = cur.fetchone() is not None
                 conn.commit()
 
-        # 2. Delete the vector row from LanceDB (workspace-scoped). Best-effort —
+        # 2. Delete the vector row from LanceDB (workspace-scoped). Best-effort -
         #    a missing/empty table shouldn't fail the whole delete.
         try:
             db_service = get_db_service()
@@ -316,7 +390,7 @@ def delete_story(story_id):
             print(f"Warning: LanceDB delete failed for {story_id}: {lance_err}")
 
         if not deleted_pg:
-            # Nothing in Postgres for this workspace — either it never existed
+            # Nothing in Postgres for this workspace - either it never existed
             # here or belonged to another tenant. Treat as not found.
             return jsonify({'error': f'Story not found: {story_id}'}), 404
 
@@ -610,6 +684,251 @@ def trigger_reload():
         print(f"Error triggering scheduler: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@stories_bp.route('/improve-story', methods=['POST'])
+@dev_jwt_required
+def improve_story():
+    """
+    LLM-powered story improvement.
+    Takes the current story text + user instructions and returns an improved version.
+    Used by the 'Improve Story First' button in the Create Story wizard.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_edit_tests')
+        if not ok: return err
+        data = request.get_json() or {}
+        story_content = (data.get('story_content') or '').strip()
+        instructions = (data.get('instructions') or '').strip()
+        if instructions:
+            instructions = instructions[:500]
+            import re as _re
+            instructions = _re.sub(r'(?i)(ignore (all |previous |above |prior )?instructions?|system prompt|you are now|forget everything|disregard)', '[removed]', instructions)
+
+        if not story_content:
+            return jsonify({'error': 'story_content is required'}), 400
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="improve_story")
+        except OutOfCreditsException as e:
+            return jsonify({'error': str(e)}), 402
+        except Exception:
+            pass  # non-fatal
+
+        use_analysis = data.get('use_analysis', False)
+        analysis_data = data.get('analysis_data') or {}
+
+        if use_analysis and analysis_data:
+            issues = analysis_data.get('issues', [])
+            recommendations = analysis_data.get('recommendations', [])
+            missing_scenarios = analysis_data.get('missing_scenarios', []) or []
+            missing_validations = analysis_data.get('missing_validations', []) or []
+            missing_security = analysis_data.get('missing_security_requirements', []) or []
+            risk_areas = analysis_data.get('risk_areas', []) or []
+
+            completeness = analysis_data.get('completeness', 0)
+            clarity = analysis_data.get('clarity', 0)
+            testability = analysis_data.get('testability', 0)
+
+            analysis_context = f"\nScores: Completeness={completeness}/100, Clarity={clarity}/100, Testability={testability}/100\n"
+
+            if issues:
+                analysis_context += "\n=== QUALITY ISSUES TO FIX ===\n" + "\n".join(
+                    f"[{i.get('severity','?')}] {i.get('title','')}: {i.get('description','')}" for i in issues[:8]
+                )
+            if risk_areas:
+                analysis_context += "\n\n=== RISK AREAS ===\n" + "\n".join(
+                    f"[{r.get('severity','?')}] {r.get('area','')}: {r.get('description','')}" for r in risk_areas[:5]
+                )
+            if missing_scenarios:
+                analysis_context += "\n\n=== MISSING SCENARIOS TO ADD ===\n" + "\n".join(
+                    f"- {m}" for m in missing_scenarios[:8]
+                )
+            if missing_validations:
+                analysis_context += "\n\n=== MISSING VALIDATIONS TO ADD ===\n" + "\n".join(
+                    f"- {m}" for m in missing_validations[:8]
+                )
+            if missing_security:
+                analysis_context += "\n\n=== MISSING SECURITY REQUIREMENTS ===\n" + "\n".join(
+                    f"- {m}" for m in missing_security[:5]
+                )
+            if recommendations:
+                analysis_context += "\n\n=== RECOMMENDATIONS ===\n" + "\n".join(
+                    f"- {r}" for r in recommendations[:6]
+                )
+
+            prompt = f"""You are an expert QA-focused business analyst. Your task is to rewrite this user story so that when it is processed by TestSurge (an AI test case generator), it produces comprehensive, high-quality test cases.
+
+ORIGINAL STORY:
+{story_content}
+
+QUALITY ANALYSIS FINDINGS (generated by TestSurge's AI analyzer):
+{analysis_context}
+
+{"USER ADDITIONAL INSTRUCTIONS: " + instructions if instructions else ""}
+
+REWRITE INSTRUCTIONS:
+1. Fix EVERY quality issue listed above - address each one specifically
+2. Add EVERY missing scenario as a concrete acceptance criterion
+3. Add EVERY missing validation with exact values (field name, type, format, min/max)
+4. Add EVERY missing security requirement
+5. Format acceptance criteria as: "Given [context], When [action], Then [specific verifiable outcome]"
+6. Replace ALL vague words (appropriate, correct, proper, valid, reasonable) with exact specifications
+7. Add specific HTTP status codes for all API operations
+8. Add specific error messages for all error conditions
+9. Keep the same general structure and intent - only improve, never change the core requirement
+10. The result must be self-contained - a QA engineer should be able to write tests without asking any questions
+
+Return ONLY the improved story text. No explanation, no commentary, no markdown headers."""
+
+        else:
+            prompt = f"""You are a senior business analyst and QA expert. Improve the following user story to make it clearer, more complete, and more testable.
+
+ORIGINAL STORY:
+{story_content}
+
+{"USER INSTRUCTIONS: " + instructions if instructions else "Improve clarity, completeness, and testability. Add missing acceptance criteria if needed."}
+
+Return ONLY the improved story text, no explanation or commentary. Keep the same format as the original but improve it."""
+
+        response = Config.llm.invoke(prompt)
+        return jsonify({'improved_story': response.content.strip()}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/analyze-content', methods=['POST'])
+@dev_jwt_required
+def analyze_story_content():
+    """
+    Analyze raw story content for quality before it is uploaded/saved.
+    Used by Create Story step 3 to show real quality scores instead of mock data.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        story_content = (data.get('content') or '').strip()
+        if not story_content or len(story_content) < 30:
+            return jsonify({'error': 'Story content too short for analysis'}), 422
+
+        try:
+            from app.models.credits_model import CreditsModel, OutOfCreditsException
+            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="analyze_story")
+        except Exception:
+            pass  # non-fatal
+
+        # Same TestSurge-specific prompt as _compute_or_get_quality
+        prompt = f"""You are an expert QA Architect reviewing a user story that will be fed into TestSurge - an AI-powered test case generation system. Your analysis directly determines how many and how good the generated test cases will be.
+
+USER STORY:
+{story_content}
+
+Evaluate for test case generation quality:
+
+**Completeness (0-100)**: Will the AI generate test cases for ALL important scenarios?
+- Are acceptance criteria explicitly listed?
+- Are all user roles covered?
+- Are error/failure paths described?
+- Are edge cases mentioned?
+
+**Clarity (0-100)**: Can the AI generate unambiguous test steps with specific expected results?
+- Are field names, types, formats specified?
+- Are expected outcomes measurable and exact?
+- Are business rules stated explicitly?
+
+**Testability (0-100)**: Can every statement be written as a pass/fail test?
+- Every AC has a verifiable expected outcome?
+- Error conditions are specific enough to test?
+- No vague words like "appropriate", "correct", "proper"?
+
+Be specific - cite actual text from the story, not generic advice.
+
+Return ONLY this JSON:
+{{
+  "completeness": <0-100>,
+  "clarity": <0-100>,
+  "testability": <0-100>,
+  "issues": [
+    {{"title": "Concise issue name", "description": "Specific gap quoting story text - explain impact on test generation", "area": "Completeness|Clarity|Testability"}}
+  ],
+  "risk_areas": [
+    {{"area": "Risk name", "severity": "High|Medium|Low", "description": "What test cases cannot be generated, what defects could escape"}}
+  ],
+  "recommendations": ["Exact text that should be added to the story - not generic advice"]
+}}"""
+
+        response = Config.llm.invoke(prompt)
+        raw = response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        result = _robust_json_loads(raw[start:end])
+
+        completeness = int(result.get('completeness', 70))
+        clarity = int(result.get('clarity', 70))
+        testability = int(result.get('testability', 70))
+        overall = round((completeness + clarity + testability) / 3)
+
+        return jsonify({
+            'overall_score': overall,
+            'completeness': completeness,
+            'clarity': clarity,
+            'testability': testability,
+            'issues': result.get('issues', []),
+            'risk_areas': result.get('risk_areas', []),
+            'recommendations': result.get('recommendations', []),
+        }), 200
+
+    except Exception as e:
+        print(f"[analyze-content] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+
+@stories_bp.route('/copilot-chat', methods=['POST'])
+@dev_jwt_required
+def copilot_chat():
+    """Direct LLM chat with page context - no RAG retrieval."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        query = (data.get('query') or '').strip()
+        system_prompt = data.get('system_prompt', 'You are a helpful QA assistant.')
+        history = data.get('history', [])
+
+        if not query:
+            return jsonify({'error': 'query required'}), 400
+
+        messages = []
+        if system_prompt:
+            messages.append({'role': 'system', 'content': system_prompt})
+        for msg in history[-6:]:
+            messages.append({'role': msg.get('role', 'user'), 'content': msg.get('content', '')})
+        messages.append({'role': 'user', 'content': query})
+
+        # Build LangChain message list
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage as LCAIMessage
+        lc_messages = []
+        for m in messages:
+            if m['role'] == 'system':
+                lc_messages.append(SystemMessage(content=m['content']))
+            elif m['role'] == 'user':
+                lc_messages.append(HumanMessage(content=m['content']))
+            else:
+                lc_messages.append(LCAIMessage(content=m['content']))
+
+        response = Config.llm.invoke(lc_messages)
+        return jsonify({'response': response.content}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @stories_bp.route('/rag-chat', methods=['POST'])
 @dev_jwt_required
 def rag_chat():
@@ -727,17 +1046,118 @@ def get_projects():
         stories_table = db_service.lance_db.open_table(Config.TABLE_NAME_LANCE)
         lance_stories = stories_table.to_pandas()
 
-        # Filter by workspace_id if column exists
-        if 'workspace_id' in lance_stories.columns:
-            lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
+        # Always filter by workspace_id - if column missing, startup auto-migration should have added it
+        if 'workspace_id' not in lance_stories.columns:
+            print(f"[get_projects] WARNING: workspace_id column missing from LanceDB table - returning no projects for safety")
+            return jsonify({'projects': []})
+        lance_stories = lance_stories[lance_stories['workspace_id'] == workspace_id]
 
         # Get unique project IDs
         project_ids = lance_stories['project_id'].dropna().unique().tolist()
         project_ids = [pid for pid in project_ids if pid and pid.strip()]
 
-        return jsonify({
-            'projects': project_ids
-        })
+        return jsonify({'projects': project_ids})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/projects/<project_id>', methods=['PATCH'])
+@dev_jwt_required
+def rename_project(project_id):
+    """Rename a project or update its archived flag."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+
+        # Handle archive/unarchive flag (stored in test_cases.inputs JSONB)
+        if 'archived' in data:
+            archived = bool(data['archived'])
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE test_cases
+                        SET inputs = COALESCE(inputs, '{}'::jsonb) || %s::jsonb
+                        WHERE project_id = %s AND workspace_id = %s
+                    """, (json.dumps({'project_archived': archived}), project_id, workspace_id))
+                    conn.commit()
+            return jsonify({'project_id': project_id, 'archived': archived}), 200
+
+        new_id = (data.get('new_id') or '').strip().lower().replace(' ', '-')
+        if not new_id:
+            return jsonify({'error': 'new_id or archived required'}), 400
+        if new_id == project_id:
+            return jsonify({'project_id': new_id}), 200
+
+        # Update Postgres
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE test_cases SET project_id = %s
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (new_id, project_id, workspace_id))
+                conn.commit()
+
+        # Update LanceDB
+        try:
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            t = db.open_table(Config.TABLE_NAME_LANCE)
+            df = t.to_pandas()
+            if 'workspace_id' not in df.columns:
+                raise ValueError("workspace_id column missing from LanceDB - cannot safely rename")
+            mask = (df['project_id'] == project_id) & (df['workspace_id'] == workspace_id)
+            df.loc[mask, 'project_id'] = new_id
+            db.drop_table(Config.TABLE_NAME_LANCE)
+            db.create_table(Config.TABLE_NAME_LANCE, df)
+        except Exception as le:
+            print(f"[rename_project] LanceDB update failed: {le}")
+
+        return jsonify({'project_id': new_id}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/projects/<project_id>', methods=['DELETE'])
+@dev_jwt_required
+def delete_project(project_id):
+    """Delete all stories in a project."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        # Get story IDs in this project
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT story_id FROM test_cases
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (project_id, workspace_id))
+                story_ids = [r[0] for r in cur.fetchall()]
+
+                # Delete from Postgres
+                cur.execute("""
+                    DELETE FROM test_cases
+                    WHERE project_id = %s AND workspace_id = %s
+                """, (project_id, workspace_id))
+                conn.commit()
+
+        # Delete from LanceDB
+        try:
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            t = db.open_table(Config.TABLE_NAME_LANCE)
+            df = t.to_pandas()
+            if 'workspace_id' not in df.columns:
+                raise ValueError("workspace_id column missing from LanceDB - cannot safely delete")
+            mask = (df['project_id'] == project_id) & (df['workspace_id'] == workspace_id)
+            df = df[~mask]
+            db.drop_table(Config.TABLE_NAME_LANCE)
+            db.create_table(Config.TABLE_NAME_LANCE, df)
+        except Exception as le:
+            print(f"[delete_project] LanceDB update failed: {le}")
+
+        return jsonify({'deleted': project_id, 'stories_removed': len(story_ids)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -748,12 +1168,15 @@ def upload_story():
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_create_stories')
+        if not ok: return err
         # Get form data
         project_id = request.form.get('project_id')
         story_id = request.form.get('story_id')
         content = request.form.get('content')
         file = request.files.get('file')
         source = request.form.get('source', 'backend')
+        page_url = (request.form.get('page_url') or '').strip()
 
         # Validate required fields
         if not project_id or not story_id or (not content and not file):
@@ -874,7 +1297,7 @@ def upload_story():
             # Generate embedding
             embedding = get_embedding_model().encode(story_content).tolist()
 
-            # Add to LanceDB — storyDescription stores the short title for card display
+            # Add to LanceDB - storyDescription stores the short title for card display
             table.add([{
                 "workspace_id": workspace_id,
                 "user_id": user_id,
@@ -887,7 +1310,8 @@ def upload_story():
                 "original_path": file_path if file else None,
                 "doc_content_text": story_content,
                 "embedding_timestamp": datetime.now(),
-                "source": source
+                "source": source,
+                "page_url": page_url
             }])
 
         except Exception as e:
@@ -942,6 +1366,30 @@ def upload_story():
         thread.start()
         print(f"[Upload] Background pipeline started for story {story_id}")
 
+        # Log activity event
+        try:
+            from app.routes.activity import log_activity
+            log_activity(workspace_id, user_id, 'story_uploaded',
+                         f'Story uploaded: {short_title}',
+                         body=f'Test generation started for {story_id}',
+                         story_id=story_id)
+        except Exception: pass
+
+        # Broadcast notification to workspace members
+        try:
+            from app.models.notification_model import NotificationModel
+            NotificationModel.broadcast_to_workspace(
+                workspace_id=workspace_id,
+                event_type=NotificationModel.STORY_UPLOADED,
+                title='New story uploaded',
+                body=f'A new story was added to the workspace',
+                actor_id=user_id,
+                entity_id=story_id,
+                entity_type='story',
+                exclude_user_id=user_id,
+            )
+        except Exception: pass
+
         return jsonify({
             'message': 'Story uploaded. Test generation started in background.',
             'story_id': story_id,
@@ -978,9 +1426,11 @@ def get_project_impacts(project_id):
                         tci.impact_created_on,
                         tci.similarity_score,
                         tci.impact_analysis_json,
+                        tci.impact_status,
                         tc.story_description as original_story_description
                     FROM test_case_impacts tci
                     JOIN test_cases tc ON tc.story_id = tci.original_story_id
+                        AND tc.workspace_id = tci.workspace_id
                     WHERE tci.project_id = %s AND tci.workspace_id = %s
                     ORDER BY tci.impact_created_on DESC
                 """, (project_id, workspace_id))
@@ -1028,7 +1478,12 @@ def get_story_impacts(story_id):
 
                 for impact in impacts:
                     impact_dict = dict(impact)
-                    if impact['new_story_id'] == story_id:
+                    is_self_impact = impact['new_story_id'] == impact['original_story_id']
+                    if is_self_impact:
+                        # Self-impact (same story, new version changed existing TC)
+                        # Show in received_impacts so Impact tab displays it for review
+                        received_impacts.append(impact_dict)
+                    elif impact['new_story_id'] == story_id:
                         caused_impacts.append(impact_dict)
                     else:
                         received_impacts.append(impact_dict)
@@ -1765,56 +2220,95 @@ def _compute_or_get_quality(story_id, workspace_id, user_id, force_refresh=False
         if not story_text or len(story_text) < 30:
             return {'error': 'Story content too short for analysis'}, 422
 
-        # Build LLM prompt
-        prompt = f"""You are a senior QA analyst and business analyst expert. Analyze this user story and return a quality assessment.
+        # Build LLM prompt - TestSurge-specific quality analysis
+        prompt = f"""You are an expert QA Architect reviewing a user story that will be fed into TestSurge - an AI-powered test case generation system. Your analysis directly determines how many and how good the generated test cases will be.
+
+Your job is NOT a generic writing review. You are evaluating whether this story will produce HIGH-QUALITY, COMPREHENSIVE test cases when processed by an AI test case generator.
 
 USER STORY:
-{story_text[:3000]}
+{story_text}
 
-Evaluate the story on three dimensions (0-100 each):
-- Completeness: Are all scenarios, edge cases, and error states covered?
-- Clarity: Is the story unambiguous and clearly written?
-- Testability: Can acceptance criteria be turned directly into test cases?
+---
 
-Also identify:
-- Quality issues (things that would cause poor test generation)
-- Risk areas (potential defects or security concerns)
-- Recommendations (specific improvements)
-- Missing acceptance criteria: scenarios, validations, and security requirements this story does NOT cover but should
-- Which test areas this story needs: functional, security, performance, accessibility
+EVALUATION CRITERIA FOR TEST CASE GENERATION:
 
-Return ONLY this JSON, no other text:
+**Completeness (0-100)** - Will the AI be able to generate test cases for ALL the scenarios that matter?
+- Are there explicit acceptance criteria (Given/When/Then or bullet points)?
+- Are all user roles/personas covered (who uses this feature)?
+- Are all entry points documented (API, UI, batch, event-triggered)?
+- Are error states described (what happens when things go wrong)?
+- Are edge cases mentioned (empty states, max/min values, concurrent users)?
+- Are integrations with other systems described?
+- Penalise heavily: no AC at all (-30), only happy path described (-20), user roles missing (-10)
+
+**Clarity (0-100)** - Can the AI unambiguously generate test steps and expected results?
+- Are field names, values, and formats specified (e.g. "email field, max 255 chars, RFC 5321" not "valid email")?
+- Are expected outcomes measurable and specific (e.g. "returns HTTP 200 with JSON {id, token}" not "succeeds")?
+- Are business rules stated explicitly (e.g. "user can have max 3 active sessions" not "sessions are managed")?
+- Are UI states described (what does the user see, what changes on screen)?
+- Are data relationships clear (e.g. "only admins can delete, editors can archive")?
+- Penalise: vague verbs like "appropriate", "correct", "proper" (-5 each), missing expected values (-10 each)
+
+**Testability (0-100)** - Can a QA engineer write a pass/fail test for every statement?
+- Every acceptance criterion must have a verifiable expected outcome
+- Negative scenarios must be testable (e.g. "system rejects invalid token with 401" not "handles errors")
+- Performance requirements must be measurable (e.g. "loads in <2s on 3G" not "fast")
+- Authorisation rules must be specific enough to test (e.g. "viewers cannot edit" not "access control")
+- Penalise: statements that can't be verified (-15 each), missing HTTP status codes for APIs (-5 each)
+
+---
+
+WHAT GOOD LOOKS LIKE FOR TEST CASE GENERATION:
+- Completeness 90+: Story has AC, lists all user types, happy path + 3+ error paths, data validations
+- Clarity 90+: All fields have types/formats, all outcomes have exact values, no ambiguous words
+- Testability 90+: Every AC can be phrased as "Given X, When Y, Then Z" with specific Z
+
+---
+
+Be specific. Every issue must quote the exact sentence or gap in the story. Do not write generic advice.
+
+Return ONLY valid JSON:
 {{
   "completeness": <0-100>,
   "clarity": <0-100>,
   "testability": <0-100>,
+  "overall_score": <round(completeness*0.4 + clarity*0.3 + testability*0.3)>,
   "issues": [
-    {{"title": "Issue title", "description": "Specific explanation", "area": "Completeness|Clarity|Testability"}}
+    {{
+      "title": "Concise issue name (5-8 words)",
+      "description": "Specific gap - quote the missing/ambiguous text, explain why it hurts test generation",
+      "area": "Completeness|Clarity|Testability",
+      "severity": "Critical|High|Medium|Low"
+    }}
   ],
   "risk_areas": [
-    {{"area": "Risk area name", "severity": "High|Medium|Low", "description": "Why this is risky"}}
+    {{
+      "area": "Risk name",
+      "severity": "High|Medium|Low",
+      "description": "What test cases CANNOT be generated because of this gap, and what defects could escape"
+    }}
   ],
   "recommendations": [
-    "Specific actionable recommendation"
+    "Specific rewrite suggestion - provide exact text that should be added to the story"
   ],
   "missing_scenarios": [
-    "Specific missing scenario"
+    "Exact scenario: 'What happens when [specific condition]?' - be precise, not generic"
   ],
   "missing_validations": [
-    "Specific missing validation"
+    "Exact validation: 'Field/rule X has no [type/length/format/range] defined' - cite field name"
   ],
   "missing_security_requirements": [
-    "Specific missing security requirement"
+    "Specific security gap relevant to this story's domain"
   ],
   "suggested_test_areas": {{
-    "functional": <true|false>,
-    "security": <true|false>,
-    "performance": <true|false>,
-    "accessibility": <true|false>
+    "functional": true,
+    "negative": <true if error paths can be tested>,
+    "boundary": <true if any numeric/length/date fields exist>,
+    "security": <true if story involves auth, permissions, PII, or sensitive data>,
+    "performance": <true if story mentions volume, load, SLAs, or concurrency>,
+    "accessibility": <true if story has UI components>
   }}
-}}
-
-Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4, and each missing_* list to 0-3 (empty list if nothing is missing). Be specific to THIS story, not generic."""
+}}"""
 
         response = Config.llm.invoke(prompt)
         raw = response.content.strip()
@@ -1837,13 +2331,17 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4, and each missing_
         if start == -1 or end == 0:
             return {'error': 'LLM did not return valid JSON'}, 500
 
-        result = json.loads(raw[start:end])
+        result = _robust_json_loads(raw[start:end])
 
         # Compute overall score
         completeness = min(100, max(0, int(result.get('completeness', 70))))
         clarity = min(100, max(0, int(result.get('clarity', 70))))
         testability = min(100, max(0, int(result.get('testability', 70))))
-        overall = round(completeness * 0.35 + clarity * 0.35 + testability * 0.30)
+        # Use LLM's weighted overall if provided, otherwise calculate
+        if result.get('overall_score'):
+            overall = min(100, max(0, int(result['overall_score'])))
+        else:
+            overall = round(completeness * 0.4 + clarity * 0.3 + testability * 0.3)
 
         risk_areas = result.get('risk_areas', [])[:3]
         suggested_test_areas = result.get('suggested_test_areas') or {}
@@ -1855,9 +2353,11 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4, and each missing_
             'testability': testability,
             'issues': result.get('issues', [])[:4],
             'risk_areas': risk_areas,
-            'recommendations': result.get('recommendations', [])[:4],
-            'missing_scenarios': result.get('missing_scenarios', [])[:3],
-            'missing_validations': result.get('missing_validations', [])[:3],
+            'recommendations': result.get('recommendations', [])[:6],
+            'missing_scenarios': result.get('missing_scenarios', [])[:8],
+            'missing_scenarios_total': len(result.get('missing_scenarios', [])),
+            'missing_validations': result.get('missing_validations', [])[:8],
+            'missing_validations_total': len(result.get('missing_validations', [])),
             'missing_security_requirements': result.get('missing_security_requirements', [])[:3],
             'suggested_test_areas': {
                 'functional': bool(suggested_test_areas.get('functional', True)),
@@ -1871,6 +2371,7 @@ Keep issues to 2-4, risk_areas to 2-3, recommendations to 2-4, and each missing_
         try:
             with Config.get_postgres_connection() as conn:
                 with conn.cursor() as cur:
+                    quality['cached_at'] = datetime.utcnow().isoformat()
                     cur.execute("""
                         UPDATE test_cases
                         SET inputs = COALESCE(inputs, '{}'::jsonb) || %s::jsonb
@@ -1948,7 +2449,7 @@ def _build_intelligence_response(story_id, workspace_id, user_id, force_refresh=
 def get_story_intelligence(story_id):
     """AI Insights for the Story Detail Drawer: risk score, requirement quality,
     missing acceptance criteria, suggested test areas, impact summary. Reuses
-    the existing quality-analysis cache (test_cases.inputs.quality_analysis) —
+    the existing quality-analysis cache (test_cases.inputs.quality_analysis) -
     a cache hit costs zero LLM calls, identical to GET /<story_id>/quality."""
     try:
         user_id = get_current_user_id()
@@ -2018,6 +2519,7 @@ def refresh_story_intelligence(story_id):
 
 @stories_bp.route('/<story_id>/status', methods=['PATCH'])
 @dev_jwt_required
+@require_workspace_role(['owner', 'admin', 'editor'])
 def update_story_status(story_id):
     """Update the Kanban column for a story (in_review / in_progress / completed)."""
     try:
@@ -2234,6 +2736,468 @@ def get_story_versions(story_id):
         return jsonify({'error': str(e)}), 500
 
 
+@stories_bp.route('/<story_id>/versions/<int:version_number>/snapshot', methods=['GET'])
+@dev_jwt_required
+def get_version_snapshot(story_id, version_number):
+    """
+    Return a complete snapshot for a given version number:
+    - story content (from story_versions for historical, from LanceDB for current/latest)
+    - test cases filtered to version <= version_number
+    - version metadata (description, created_on)
+
+    Used by the version picker in the story workspace so the user can
+    browse any past version's story text and its test cases.
+    """
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # ── 1. Get max version so we know if this is "current" ──────────
+                cur.execute("""
+                    SELECT COALESCE(MAX(version_number), 0) FROM story_versions
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+                max_archived = cur.fetchone()[0]
+
+                # ── 2. Story content ──────────────────────────────────────────────
+                # Archived versions are in story_versions; the latest is in LanceDB.
+                # "latest" version number = max_archived + 1
+                latest_version = max_archived + 1
+                is_latest = version_number >= latest_version
+
+                if is_latest:
+                    # Fetch from LanceDB
+                    try:
+                        import lancedb as _ldb
+                        _db = _ldb.connect(Config.LANCE_DB_PATH)
+                        _table = _db.open_table(Config.TABLE_NAME_LANCE)
+                        _rows = _table.to_pandas()
+                        _mask = _rows['storyID'] == story_id
+                        if 'workspace_id' in _rows.columns:
+                            _mask = _mask & (_rows['workspace_id'] == workspace_id)
+                        _match = _rows[_mask]
+                        story_content = str(_match.iloc[0].get('doc_content_text', '')) if len(_match) > 0 else ''
+                        story_description = str(_match.iloc[0].get('storyDescription', '')) if len(_match) > 0 else ''
+                    except Exception as le:
+                        print(f"[VersionSnapshot] LanceDB read failed: {le}")
+                        story_content = ''
+                        story_description = ''
+                    version_created_on = None
+                else:
+                    # Fetch from story_versions
+                    cur.execute("""
+                        SELECT content, description, created_on
+                        FROM story_versions
+                        WHERE story_id = %s AND workspace_id = %s AND version_number = %s
+                    """, (story_id, workspace_id, version_number))
+                    row = cur.fetchone()
+                    if not row:
+                        return jsonify({'error': f'Version {version_number} not found'}), 404
+                    story_content = row['content'] or ''
+                    story_description = row['description'] or ''
+                    version_created_on = row['created_on'].isoformat() if row['created_on'] else None
+
+                    # Fallback: if content is empty (older stories archived before content was stored),
+                    # try to get it from test_cases.inputs which stores the original upload
+                    if not story_content.strip():
+                        cur.execute("""
+                            SELECT inputs FROM test_cases
+                            WHERE story_id = %s AND workspace_id = %s LIMIT 1
+                        """, (story_id, workspace_id))
+                        tc_row = cur.fetchone()
+                        if tc_row and tc_row['inputs']:
+                            import json as _json2
+                            inp = tc_row['inputs']
+                            if isinstance(inp, str):
+                                try: inp = _json2.loads(inp)
+                                except: inp = {}
+                            story_content = (
+                                inp.get('main_text') or
+                                inp.get('content') or
+                                inp.get('file_content') or
+                                ''
+                            )
+                        # Final fallback: try LanceDB current content
+                        if not story_content.strip():
+                            try:
+                                import lancedb as _ldb2
+                                _db2 = _ldb2.connect(Config.LANCE_DB_PATH)
+                                _t2 = _db2.open_table(Config.TABLE_NAME_LANCE)
+                                _r2 = _t2.to_pandas()
+                                _m2 = _r2['storyID'] == story_id
+                                if 'workspace_id' in _r2.columns:
+                                    _m2 = _m2 & (_r2['workspace_id'] == workspace_id)
+                                _match2 = _r2[_m2]
+                                if len(_match2) > 0:
+                                    story_content = str(_match2.iloc[0].get('doc_content_text', ''))
+                            except Exception:
+                                pass
+
+                # ── 3. Test cases for this version (version field <= version_number) ─
+                cur.execute("""
+                    SELECT test_case_json FROM test_cases
+                    WHERE story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+                tc_row = cur.fetchone()
+                all_tcs = []
+                if tc_row and tc_row['test_case_json']:
+                    import json as _json
+                    tc_data = tc_row['test_case_json']
+                    if isinstance(tc_data, str):
+                        tc_data = _json.loads(tc_data)
+                    all_tcs = tc_data.get('test_cases', [])
+
+                # Filter: TCs that existed when this version was current.
+                # When archiving vN, existing TCs get tagged version=N+1 (the next upload number).
+                # So "vN's TCs" = TCs with version <= N+1.
+                # TCs with no version field default to 1 (original upload).
+                tc_version_threshold = version_number + 1
+                filtered_tcs = [
+                    tc for tc in all_tcs
+                    if int(tc.get('version', 1)) <= tc_version_threshold
+                ]
+
+        return jsonify({
+            'story_id': story_id,
+            'version_number': version_number,
+            'is_latest': is_latest,
+            'story_content': story_content,
+            'story_description': story_description,
+            'created_on': version_created_on,
+            'test_cases': filtered_tcs,
+            'test_case_count': len(filtered_tcs),
+        }), 200
+
+    except Exception as e:
+        print(f"[VersionSnapshot] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/compare', methods=['POST'])
+@dev_jwt_required
+def compare_story_versions(story_id):
+    """Compare two versions of a story - returns a structured diff of content and test counts."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        v1 = data.get('version_a')  # version number (int) or 'current'
+        v2 = data.get('version_b')
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Get version content from story_versions table
+                def get_version_content(v):
+                    if v == 'current' or v is None:
+                        cur.execute("""
+                            SELECT tc.story_description as description,
+                                   jsonb_array_length(tc.test_case_json->'test_cases') as tc_count,
+                                   tc.test_case_json
+                            FROM test_cases tc
+                            WHERE tc.story_id = %s AND tc.workspace_id = %s
+                            ORDER BY tc.created_on DESC LIMIT 1
+                        """, (story_id, workspace_id))
+                        r = cur.fetchone()
+                        if not r: return None
+                        return {'label': 'Current', 'description': r['description'] or '', 'tc_count': r['tc_count'] or 0, 'test_cases': (r['test_case_json'] or {}).get('test_cases', [])}
+                    else:
+                        cur.execute("""
+                            SELECT version_number, description, content
+                            FROM story_versions
+                            WHERE story_id = %s AND workspace_id = %s AND version_number = %s
+                        """, (story_id, workspace_id, int(v)))
+                        r = cur.fetchone()
+                        if not r: return None
+                        return {'label': f'v{r["version_number"]}', 'description': r['description'] or '', 'tc_count': 0, 'test_cases': []}
+
+                va = get_version_content(v1)
+                vb = get_version_content(v2)
+
+        if not va or not vb:
+            return jsonify({'error': 'One or both versions not found'}), 404
+
+        # Simple text diff using difflib
+        import difflib
+        desc_a = (va['description'] or '').splitlines(keepends=True)
+        desc_b = (vb['description'] or '').splitlines(keepends=True)
+        diff_lines = list(difflib.unified_diff(desc_a, desc_b, fromfile=va['label'], tofile=vb['label'], lineterm=''))
+
+        # Test case diff - compare titles
+        titles_a = {tc.get('title', '') for tc in va['test_cases']}
+        titles_b = {tc.get('title', '') for tc in vb['test_cases']}
+        added_tests = list(titles_b - titles_a)
+        removed_tests = list(titles_a - titles_b)
+
+        return jsonify({
+            'version_a': {'label': va['label'], 'tc_count': va['tc_count']},
+            'version_b': {'label': vb['label'], 'tc_count': vb['tc_count']},
+            'content_diff': diff_lines[:200],  # cap at 200 lines
+            'tests_added': added_tests[:20],
+            'tests_removed': removed_tests[:20],
+            'tc_delta': vb['tc_count'] - va['tc_count'],
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/export-code', methods=['GET'])
+@dev_jwt_required
+def export_code(story_id):
+    """Generate framework-specific test code from a story's test cases using LLM."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        fmt = request.args.get('format', 'playwright').lower()
+        approved_only = request.args.get('approved_only', 'false').lower() == 'true'
+
+        SUPPORTED = {'playwright', 'cypress', 'pytest', 'bdd', 'selenium', 'postman'}
+        if fmt not in SUPPORTED:
+            return jsonify({'error': f'Unsupported format: {fmt}'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT tc.test_case_json, tc.story_description,
+                           tc.inputs->>'page_url' AS page_url,
+                           tc.inputs->'dom_snapshot' AS dom_snapshot
+                    FROM test_cases tc
+                    WHERE tc.story_id = %s AND tc.workspace_id = %s
+                    ORDER BY tc.created_on DESC LIMIT 1
+                """, (story_id, workspace_id))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'Story not found'}), 404
+                tc_json = row['test_case_json']
+                story_desc = row['story_description'] or story_id
+                if isinstance(tc_json, str):
+                    tc_json = json.loads(tc_json)
+
+        cases = tc_json.get('test_cases', [])
+        if approved_only:
+            cases = [tc for tc in cases if tc.get('status') == 'Approved']
+        if not cases:
+            return jsonify({'error': 'No test cases to export'}), 404
+
+        page_url = row.get('page_url') or ''
+        dom_snapshot = row.get('dom_snapshot') or {}
+        if isinstance(dom_snapshot, str):
+            try:
+                dom_snapshot = json.loads(dom_snapshot)
+            except Exception:
+                dom_snapshot = {}
+
+        dom_context = ""
+        if page_url and dom_snapshot and dom_snapshot.get("elements"):
+            elems = dom_snapshot["elements"][:30]
+            lines = []
+            for e in elems:
+                sel = e.get("selector") or "(no stable selector)"
+                txt = e.get("text", "")
+                tag = e.get("tag", "")
+                lines.append(f"  - <{tag}> text={repr(txt)} selector={sel}")
+            dom_context = f"""
+REAL PAGE STRUCTURE (live-crawled from {page_url}):
+Page title: {dom_snapshot.get("page_title", "")}
+Interactive elements discovered:
+{chr(10).join(lines)}
+
+Use these REAL selectors. For page.goto/cy.visit/driver.get use: {page_url}
+"""
+
+        # Build compact test case list for the LLM
+        tc_list = '\n'.join([
+            f"- [{tc.get('priority','M')}] {tc.get('title','')}:"
+            f" Steps: {'; '.join(tc.get('steps',[]))}"
+            f" | Expected: {tc.get('expected_result','')}"
+            for tc in cases[:30]  # cap at 30 to keep prompt manageable
+        ])
+
+        FRAMEWORK_INSTRUCTIONS = {
+            'playwright': "TypeScript Playwright tests using @playwright/test. Use test.describe blocks. Use async/await, page.goto, page.fill, page.click, expect().",
+            'cypress':    "JavaScript Cypress tests. Use describe/it blocks, cy.visit, cy.get, cy.type, cy.click, cy.should.",
+            'pytest':     "Python pytest tests. Use def test_ functions. Use assertions with assert. Add docstrings per test.",
+            'bdd':        "Gherkin feature file (BDD). Use Feature/Scenario/Given/When/Then format. One scenario per test case.",
+            'selenium':   "Python Selenium WebDriver tests using unittest.TestCase. Use driver.get, driver.find_element, driver.click.",
+            'postman':    "Postman Collection JSON v2.1. Include request items with pre-request scripts and test scripts.",
+        }
+
+        prompt = f"""Convert these test cases to {fmt.upper()} code.
+
+Story: {story_desc}
+{dom_context}
+Test cases:
+{tc_list}
+
+Instructions: {FRAMEWORK_INSTRUCTIONS[fmt]}
+
+Generate complete, runnable {fmt} test code. Return ONLY the code, no explanation."""
+
+        response = Config.llm.invoke(prompt)
+        code = response.content.strip()
+        if code.startswith('```'):
+            code = code.split('\n', 1)[1] if '\n' in code else code
+            code = code.rsplit('```', 1)[0].strip()
+
+        return jsonify({'format': fmt, 'code': code, 'test_count': len(cases)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/crawl', methods=['POST'])
+@dev_jwt_required
+def crawl_story_url(story_id):
+    """Crawl the story page URL to extract real DOM selectors."""
+    import re
+    from datetime import datetime, timezone
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s ORDER BY created_on DESC LIMIT 1",
+                    (story_id, workspace_id)
+                )
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({"error": "Story not found"}), 404
+                inputs = row["inputs"] or {}
+                if isinstance(inputs, str):
+                    inputs = json.loads(inputs)
+
+        page_url = inputs.get("page_url", "").strip()
+        if not page_url:
+            return jsonify({"error": "No URL set for this story. Add a URL when uploading."}), 400
+
+        blocked = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "192.168.", "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.3"]
+        url_lower = page_url.lower()
+        if not url_lower.startswith(("http://", "https://")):
+            return jsonify({"error": "URL must start with http:// or https://"}), 400
+        for b in blocked:
+            if b in url_lower:
+                return jsonify({"error": "URL must be publicly accessible. localhost and private IPs cannot be crawled."}), 400
+
+        existing_snapshot = inputs.get("dom_snapshot", {})
+        if existing_snapshot and existing_snapshot.get("crawled_at"):
+            try:
+                crawled_dt = datetime.fromisoformat(existing_snapshot["crawled_at"].replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - crawled_dt).total_seconds() / 3600
+                if age_hours < 24:
+                    return jsonify({
+                        "cached": True,
+                        "page_title": existing_snapshot.get("page_title", ""),
+                        "element_count": len(existing_snapshot.get("elements", [])),
+                        "elements": existing_snapshot.get("elements", []),
+                        "crawled_at": existing_snapshot["crawled_at"],
+                    }), 200
+            except Exception:
+                pass
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            return jsonify({"error": "Playwright not available. Contact support."}), 500
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"])
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (compatible; TestSurge/1.0; +https://testsurge.kynetropo.com)",
+                    viewport={"width": 1280, "height": 800}
+                )
+                pg = context.new_page()
+                pg.set_default_timeout(15000)
+                try:
+                    pg.goto(page_url, wait_until="networkidle", timeout=20000)
+                except Exception as nav_err:
+                    browser.close()
+                    return jsonify({"error": f"Could not reach {page_url}: {str(nav_err)[:200]}"}), 400
+
+                page_title = pg.title() or page_url
+
+                extract_js = """() => {
+                    var results = [];
+                    var seen = {};
+                    var tags = ['button','input','select','textarea','a[href]','[role="button"]','[data-testid]','[aria-label]','form'];
+                    tags.forEach(function(sel) {
+                        try {
+                            document.querySelectorAll(sel).forEach(function(el) {
+                                var selector = null;
+                                // Priority: id > data-testid > name > aria-label > type > autocomplete > href
+                                if (el.id && el.id.length < 50 && !/^ember|^__/.test(el.id))
+                                    selector = '#' + el.id;
+                                else if (el.getAttribute('data-testid'))
+                                    selector = '[data-testid="' + el.getAttribute('data-testid') + '"]';
+                                else if (el.name)
+                                    selector = '[name="' + el.name + '"]';
+                                else if (el.getAttribute('aria-label'))
+                                    selector = '[aria-label="' + el.getAttribute('aria-label') + '"]';
+                                else if (el.type && el.type !== 'text' && el.tagName === 'INPUT')
+                                    selector = 'input[type="' + el.type + '"]';
+                                else if (el.getAttribute('autocomplete'))
+                                    selector = '[autocomplete="' + el.getAttribute('autocomplete') + '"]';
+                                else if (el.getAttribute('href') && el.tagName === 'A')
+                                    selector = 'a[href="' + el.getAttribute('href') + '"]';
+                                else if (el.type === 'submit' || el.getAttribute('type') === 'submit')
+                                    selector = '[type="submit"]';
+                                var text = (el.textContent || el.placeholder || el.getAttribute('aria-label') || el.name || el.id || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
+                                var key = selector || (el.tagName + ':' + text);
+                                if (!seen[key] && (text || selector)) {
+                                    seen[key] = 1;
+                                    results.push({
+                                        tag: el.tagName.toLowerCase(),
+                                        type: el.type || null,
+                                        text: text,
+                                        selector: selector,
+                                        href: el.getAttribute('href') || null
+                                    });
+                                }
+                            });
+                        } catch(e) {}
+                    });
+                    return results.slice(0, 60);
+                }"""
+
+                elements = pg.evaluate(extract_js)
+                browser.close()
+
+        except Exception as play_err:
+            return jsonify({"error": f"Browser error: {str(play_err)[:300]}"}), 500
+
+        snapshot = {
+            "page_title": page_title,
+            "elements": elements,
+            "element_count": len(elements),
+            "crawled_at": datetime.now(timezone.utc).isoformat(),
+            "url": page_url,
+        }
+
+        try:
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    inputs["dom_snapshot"] = snapshot
+                    cur.execute(
+                        "UPDATE test_cases SET inputs = %s::jsonb WHERE story_id = %s AND workspace_id = %s",
+                        (json.dumps(inputs), story_id, workspace_id)
+                    )
+                    conn.commit()
+        except Exception as db_err:
+            print(f"[crawl] Cache write failed (non-fatal): {db_err}")
+
+        return jsonify({
+            "cached": False,
+            "page_title": page_title,
+            "element_count": len(elements),
+            "elements": elements,
+            "crawled_at": snapshot["crawled_at"],
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @stories_bp.route('/<story_id>/regenerate', methods=['POST'])
 @dev_jwt_required
 def regenerate_tests(story_id):
@@ -2241,6 +3205,8 @@ def regenerate_tests(story_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_generate_tests')
+        if not ok: return err
 
         # Fetch existing story content from LanceDB
         db_service = get_db_service()
@@ -2269,6 +3235,36 @@ def regenerate_tests(story_id):
         except Exception as e:
             return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
+        # Fetch cached quality analysis BEFORE deleting (so the hints survive the DELETE)
+        _quality_hints = ""
+        try:
+            with Config.get_postgres_connection() as _qconn:
+                with _qconn.cursor(cursor_factory=psycopg2.extras.DictCursor) as _qcur:
+                    _qcur.execute(
+                        "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s LIMIT 1",
+                        (story_id, workspace_id)
+                    )
+                    _qrow = _qcur.fetchone()
+            if _qrow and _qrow['inputs']:
+                _inputs = _qrow['inputs'] if isinstance(_qrow['inputs'], dict) else json.loads(_qrow['inputs'])
+                _qa = _inputs.get('quality_analysis', {})
+                missing = _qa.get('missing_scenarios', []) + _qa.get('missing_validations', [])
+                risks = [r.get('area', '') + ': ' + r.get('description', '') for r in _qa.get('risk_areas', []) if r.get('severity') in ('High', 'Medium')]
+                recs = _qa.get('recommendations', [])
+                if missing or risks or recs:
+                    _quality_hints = "=== QUALITY ANALYSIS: GAPS TO COVER ===\n"
+                    if missing:
+                        _quality_hints += "Missing scenarios (MUST generate test cases for these):\n"
+                        _quality_hints += "\n".join(f"- {m}" for m in missing[:5]) + "\n"
+                    if risks:
+                        _quality_hints += "Risk areas needing test coverage:\n"
+                        _quality_hints += "\n".join(f"- {r}" for r in risks[:5]) + "\n"
+                    if recs:
+                        _quality_hints += "Recommendations:\n"
+                        _quality_hints += "\n".join(f"- {r}" for r in recs[:3]) + "\n"
+        except Exception as _qe:
+            print(f"[regen] Quality hints non-fatal: {_qe}")
+
         # Delete existing test cases so generation creates fresh ones
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
@@ -2281,13 +3277,27 @@ def regenerate_tests(story_id):
         # Re-generate
         from app.LLM.Test_case_generator import generate_test_case_for_story
         import threading
+
         def run_regen():
-            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id, quality_hints=_quality_hints)
             from app.LLM.impact_analyzer import analyze_test_case_impacts
             try:
                 analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
             except Exception as e:
                 print(f"[Regen] Impact analysis failed: {e}")
+            try:
+                from app.models.notification_model import NotificationModel
+                NotificationModel.broadcast_to_workspace(
+                    workspace_id=workspace_id,
+                    event_type=NotificationModel.TESTS_GENERATED,
+                    title='Test cases generated',
+                    body=f'Test cases were generated for a story',
+                    actor_id=user_id,
+                    entity_id=story_id,
+                    entity_type='story',
+                    exclude_user_id=user_id,
+                )
+            except Exception: pass
 
         threading.Thread(target=run_regen, daemon=True).start()
 
@@ -2310,6 +3320,8 @@ def update_test_case_status(story_id, test_case_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_edit_tests')
+        if not ok: return err
         data = request.get_json()
         new_status = data.get('status')
         if new_status not in ('Approved', 'Pending', 'Rejected'):
@@ -2343,6 +3355,15 @@ def update_test_case_status(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
+                # Log activity
+                try:
+                    from app.routes.activity import log_activity
+                    log_activity(workspace_id, user_id, 'tests_generated',
+                                 f'Test case {new_status.lower()}',
+                                 body=f'{test_case_id} status changed to {new_status}',
+                                 story_id=story_id)
+                except Exception: pass
 
         return jsonify({'test_case_id': test_case_id, 'status': new_status}), 200
     except Exception as e:
@@ -2619,6 +3640,7 @@ def update_test_case(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'test_case_id': test_case_id, 'updated': True}), 200
     except Exception as e:
@@ -2632,6 +3654,8 @@ def delete_test_case(story_id, test_case_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_edit_tests')
+        if not ok: return err
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -2658,6 +3682,7 @@ def delete_test_case(story_id, test_case_id):
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'deleted': test_case_id, 'remaining': len(cases)}), 200
     except Exception as e:
@@ -2671,6 +3696,8 @@ def regenerate_single_test_case(story_id, test_case_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_edit_tests')
+        if not ok: return err
 
         # Accept multipart (file attachment) or JSON
         if request.content_type and 'multipart/form-data' in request.content_type:
@@ -2735,6 +3762,12 @@ def regenerate_single_test_case(story_id, test_case_id):
             pass
 
         # Build prompt to regenerate this specific test case
+        # Sanitize: strip prompt injection attempts (limit length, remove system-like directives)
+        if instructions:
+            instructions = instructions[:500]  # hard cap
+            # Remove common injection patterns
+            import re as _re
+            instructions = _re.sub(r'(?i)(ignore (all |previous |above |prior )?instructions?|system prompt|you are now|forget everything|disregard)', '[removed]', instructions)
         instructions_section = f"\n\nUser instructions for improvement:\n{instructions}" if instructions else ""
         extra_context_section = f"\n\nAdditional context from attached document:\n{extra_context[:2000]}" if extra_context else ""
 
@@ -2761,7 +3794,7 @@ def regenerate_single_test_case(story_id, test_case_id):
         prompt = f"""You are an expert QA engineer. Given the following user story, rewrite and improve this specific test case.
 
 User Story:
-{story_content[:3000]}
+{story_content}
 
 Existing test case to improve:
 - Title: {target_tc.get('title', '')}
@@ -2804,6 +3837,7 @@ Return ONLY valid JSON, no other text:
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         updated_tc = next((tc for tc in cases if tc.get('id') == test_case_id), {})
         return jsonify({'test_case_id': test_case_id, 'test_case': updated_tc}), 200
@@ -2819,6 +3853,8 @@ def bulk_regenerate_test_cases(story_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_edit_tests')
+        if not ok: return err
 
         # Accept multipart (file) or JSON
         if request.content_type and 'multipart/form-data' in request.content_type:
@@ -2842,6 +3878,15 @@ def bulk_regenerate_test_cases(story_id):
             instructions = data.get('instructions', '').strip()
             test_case_ids = data.get('test_case_ids', [])
             extra_context = data.get('extra_context', '').strip()
+
+        if instructions:
+            instructions = instructions[:500]
+            import re as _re_bulk
+            instructions = _re_bulk.sub(
+                r'(?i)(ignore (all |previous |above |prior )?instructions?|system prompt|you are now|forget everything|disregard)',
+                '[removed]',
+                instructions
+            )
 
         if not test_case_ids:
             return jsonify({'error': 'test_case_ids required'}), 400
@@ -2933,9 +3978,11 @@ Return ONLY valid JSON, no other text:
                 tc['expected_result'] = improved.get('expected_result', tc.get('expected_result', ''))
                 tc['priority'] = improved.get('priority', tc.get('priority', 'Medium'))
                 tc['status'] = 'Pending'
+                tc['_regen_success'] = True
                 updated.append(tc)
             except Exception as e:
                 print(f"[bulk_regen] TC {tc.get('id')} failed: {e}")
+                tc['_regen_success'] = False
                 updated.append(tc)  # keep original on failure
 
         # Persist
@@ -2946,8 +3993,13 @@ Return ONLY valid JSON, no other text:
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
-        return jsonify({'updated': [tc.get('id') for tc in updated], 'test_cases': updated}), 200
+        return jsonify({
+            'updated': [tc.get('id') for tc in updated if tc.get('_regen_success')],
+            'failed': [tc.get('id') for tc in updated if not tc.get('_regen_success')],
+            'test_cases': [{k: v for k, v in tc.items() if k != '_regen_success'} for tc in updated]
+        }), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2956,7 +4008,7 @@ Return ONLY valid JSON, no other text:
 @stories_bp.route('/<story_id>/testcases/<test_case_id>/refine', methods=['POST'])
 @dev_jwt_required
 def refine_test_case(story_id, test_case_id):
-    """Iterative refinement — user reviews regenerated result and asks for more changes."""
+    """Iterative refinement - user reviews regenerated result and asks for more changes."""
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
@@ -3076,6 +4128,7 @@ def regroup_test_cases(story_id):
                     tc_json = json.loads(tc_json)
 
                 cases = tc_json.get('test_cases', [])
+                grouping_prompt = (request.get_json(silent=True) or {}).get('grouping_prompt', '')
 
                 try:
                     from app.models.credits_model import CreditsModel, OutOfCreditsException
@@ -3086,17 +4139,426 @@ def regroup_test_cases(story_id):
                     return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
                 from app.LLM.Test_case_generator import assign_groups
-                assign_groups(cases, story_desc)
+                assign_groups(cases, story_desc, grouping_prompt=grouping_prompt)
                 tc_json['test_cases'] = cases
 
                 cur.execute("""
                     UPDATE test_cases SET test_case_json = %s
                     WHERE story_id = %s AND workspace_id = %s
                 """, (json.dumps(tc_json), story_id, workspace_id))
+                conn.commit()
 
         return jsonify({'story_id': story_id, 'groups': list({tc.get('group','General') for tc in cases})}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ── Test Case Execution Runs (Pass/Fail/Skip) ─────────────────────────────────
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/run', methods=['POST'])
+@dev_jwt_required
+def record_test_run(story_id, test_case_id):
+    """Record a Pass/Fail/Skip execution result for a test case with optional comment."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        run_status = data.get('run_status', '').lower()
+        comment = (data.get('comment') or '').strip() or None
+
+        if run_status not in ('pass', 'fail', 'skip'):
+            return jsonify({'error': 'run_status must be pass, fail, or skip'}), 400
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO test_case_runs
+                        (workspace_id, story_id, test_case_id, run_status, comment, run_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, run_status, comment, run_at
+                """, (workspace_id, story_id, test_case_id, run_status, comment, user_id))
+                row = dict(cur.fetchone())
+                row['run_at'] = row['run_at'].isoformat() if row.get('run_at') else None
+                conn.commit()
+                # Log activity
+                try:
+                    from app.routes.activity import log_activity
+                    log_activity(workspace_id, user_id, 'tests_generated',
+                                 f'Test run recorded: {run_status}',
+                                 body=comment or f'{run_status} on {test_case_id}',
+                                 story_id=story_id)
+                except Exception: pass
+
+        return jsonify({'run': row}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/testcases/<test_case_id>/runs', methods=['GET'])
+@dev_jwt_required
+def get_test_runs(story_id, test_case_id):
+    """Get execution run history for a test case (most recent first)."""
+    try:
+        user_id = get_current_user_id()
+        workspace_id = get_current_workspace_id()
+
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT r.id, r.run_status, r.comment, r.run_at,
+                           u.email as run_by_email,
+                           COALESCE(u.display_name, u.full_name, u.email) as run_by_name
+                    FROM test_case_runs r
+                    JOIN users u ON r.run_by = u.user_id
+                    WHERE r.workspace_id = %s AND r.story_id = %s AND r.test_case_id = %s
+                    ORDER BY r.run_at DESC
+                    LIMIT 20
+                """, (workspace_id, story_id, test_case_id))
+                runs = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    if d.get('run_at'):
+                        d['run_at'] = d['run_at'].isoformat()
+                    runs.append(d)
+
+        # Latest run status
+        latest = runs[0] if runs else None
+        return jsonify({'runs': runs, 'latest': latest}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _smart_version_pipeline(story_id, project_id, user_id, workspace_id, old_doc, new_doc, version_number):
+    """
+    Smart versioned test case pipeline for upload-new-version.
+
+    Strategy:
+    1. LLM diff old_doc vs new_doc → find NEW and CHANGED requirements
+    2. For NEW requirements → generate new test cases, append with version tag
+    3. For CHANGED requirements → create impact records so user can Accept/Reject
+    4. Never delete existing test cases (they carry version=prev tag)
+    """
+    import json as _json
+
+    # ── Step 0: Tag all existing test cases with their current version ─────────
+    with Config.get_postgres_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(
+                "SELECT test_case_json FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                (story_id, workspace_id)
+            )
+            row = cur.fetchone()
+            existing_tc_json = row['test_case_json'] if row else {}
+            if isinstance(existing_tc_json, str):
+                existing_tc_json = _json.loads(existing_tc_json)
+
+    existing_cases = existing_tc_json.get('test_cases', [])
+    prev_version = version_number - 1 if version_number > 1 else 1
+
+    # Tag each existing TC with its version if not already tagged
+    modified = False
+    for tc in existing_cases:
+        if 'version' not in tc:
+            tc['version'] = prev_version
+            modified = True
+
+    if modified and existing_cases:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                existing_tc_json['test_cases'] = existing_cases
+                cur.execute(
+                    "UPDATE test_cases SET test_case_json = %s WHERE story_id = %s AND workspace_id = %s",
+                    (_json.dumps(existing_tc_json), story_id, workspace_id)
+                )
+                conn.commit()
+
+    # ── Step 1: LLM diff - find new and changed requirements ──────────────────
+    # If old_doc is empty (first upload had no stored content) fall back to full regen
+    if not old_doc or not old_doc.strip():
+        print(f"[SmartVersion] No old doc available for {story_id}, running full regen")
+        from app.LLM.Test_case_generator import generate_test_case_for_story
+        generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+        return
+
+    existing_titles = [tc.get('title', '') for tc in existing_cases]
+    existing_summary = '\n'.join(f"- {t}" for t in existing_titles[:30]) if existing_titles else "(none yet)"
+
+    diff_prompt = f"""You are a requirements analyst. Compare an OLD and NEW version of a user story document.
+
+OLD DOCUMENT:
+{old_doc[:3000]}
+
+NEW DOCUMENT:
+{new_doc[:3000]}
+
+EXISTING TEST CASES (already generated, do NOT re-generate these):
+{existing_summary}
+
+Identify:
+1. "new_requirements" - requirements that exist only in the NEW doc (not in OLD)
+2. "changed_requirements" - requirements present in both docs but with meaningful scope/behavior change
+
+Return ONLY valid JSON with this exact structure:
+{{
+  "new_requirements": [
+    "Requirement text 1",
+    "Requirement text 2"
+  ],
+  "changed_requirements": [
+    {{
+      "old_text": "old requirement wording",
+      "new_text": "new requirement wording",
+      "change_summary": "brief description of what changed"
+    }}
+  ]
+}}
+
+Return empty arrays if nothing changed. Do not include minor wording changes."""
+
+    try:
+        diff_response = Config.llm.invoke(diff_prompt)
+        raw = diff_response.content.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].strip()
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        diff_result = _json.loads(raw[start:end])
+    except Exception as e:
+        print(f"[SmartVersion] Diff LLM failed: {e}, running full regen")
+        from app.LLM.Test_case_generator import generate_test_case_for_story
+        generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+        return
+
+    new_reqs = diff_result.get('new_requirements', [])
+    changed_reqs = diff_result.get('changed_requirements', [])
+
+    print(f"[SmartVersion] {story_id}: {len(new_reqs)} new reqs, {len(changed_reqs)} changed reqs")
+
+    # ── Step 2: Generate test cases for new requirements only ─────────────────
+    if new_reqs:
+        new_req_text = '\n'.join(f"- {r}" for r in new_reqs)
+        gen_prompt = f"""You are a QA engineer. Generate test cases for ONLY these NEW requirements.
+
+Story context (full document for reference):
+{new_doc[:2000]}
+
+NEW REQUIREMENTS to generate tests for:
+{new_req_text}
+
+Existing test cases (DO NOT duplicate):
+{existing_summary}
+
+Generate comprehensive test cases covering positive, negative, boundary, and security scenarios.
+Return ONLY valid JSON:
+{{
+  "test_cases": [
+    {{
+      "id": "TC-NEW-1",
+      "title": "test case title",
+      "steps": ["step 1", "step 2", "step 3"],
+      "expected_result": "expected outcome",
+      "priority": "High",
+      "type": "Functional"
+    }}
+  ]
+}}"""
+
+        try:
+            gen_response = Config.llm.invoke(gen_prompt)
+            raw = gen_response.content.strip()
+            if '```json' in raw:
+                raw = raw.split('```json')[1].split('```')[0].strip()
+            elif '```' in raw:
+                raw = raw.split('```')[1].strip()
+            start, end = raw.find('{'), raw.rfind('}') + 1
+            new_tc_result = _json.loads(raw[start:end])
+            new_test_cases = new_tc_result.get('test_cases', [])
+        except Exception as e:
+            print(f"[SmartVersion] New TC generation failed: {e}")
+            new_test_cases = []
+
+        if new_test_cases:
+            # Tag each new TC with the current version number and stable IDs
+            for i, tc in enumerate(new_test_cases):
+                tc['version'] = version_number
+                tc['id'] = f"{story_id}-v{version_number}-{i+1}"
+                tc.setdefault('status', 'Pending')
+
+            # Append to existing test cases
+            all_cases = existing_cases + new_test_cases
+
+            # Re-run AI grouping on ALL test cases so v2 TCs are grouped
+            # alongside v1 TCs (not dumped into "General")
+            try:
+                from app.LLM.Test_case_generator import assign_groups
+                story_desc_for_group = existing_tc_json.get('storyDescription', new_doc[:200])
+                assign_groups(all_cases, story_desc_for_group)
+                print(f"[SmartVersion] Re-grouped {len(all_cases)} TCs after v{version_number} append")
+            except Exception as ge:
+                print(f"[SmartVersion] Group assignment failed (non-fatal): {ge}")
+                # Fallback: assign group based on type
+                for tc in new_test_cases:
+                    tc.setdefault('group', tc.get('type', 'General'))
+
+            updated_json = dict(existing_tc_json)
+            updated_json['test_cases'] = all_cases
+
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE test_cases SET test_case_json = %s, total_test_cases = %s WHERE story_id = %s AND workspace_id = %s",
+                        (_json.dumps(updated_json), len(all_cases), story_id, workspace_id)
+                    )
+                    conn.commit()
+            print(f"[SmartVersion] Appended {len(new_test_cases)} new TCs for v{version_number}")
+        else:
+            print(f"[SmartVersion] No new requirements for {story_id}")
+
+    # ── Step 3: Create impact records for changed requirements ─────────────────
+    if changed_reqs and existing_cases:
+        for change in changed_reqs:
+            old_text = change.get('old_text', '')
+            new_text = change.get('new_text', '')
+            change_summary = change.get('change_summary', 'Requirement changed in new version')
+
+            # Find the most relevant existing test case for this changed requirement
+            # Use normalized overlap (Jaccard + coverage) instead of raw word count
+            import re as _re_match
+            def _normalize(text):
+                stopwords = {'a','an','the','is','are','was','were','with','for','and','or','to','of','in','on','be','not','this','that','should','must','can','will','would','when','if','as','at','by','it','its'}
+                words = set(_re_match.sub(r'[^a-z0-9 ]', '', text.lower()).split())
+                return words - stopwords
+
+            best_tc = None
+            best_score = 0
+            req_words = _normalize(old_text)
+            for tc in existing_cases:
+                title_words = _normalize(tc.get('title', ''))
+                steps_words = _normalize(' '.join(tc.get('steps', [])))
+                all_tc_words = title_words | steps_words
+
+                if not req_words or not all_tc_words:
+                    continue
+
+                intersection = req_words & all_tc_words
+                # Jaccard similarity
+                union = req_words | all_tc_words
+                jaccard = len(intersection) / len(union) if union else 0
+                # Coverage: what % of requirement words appear in the TC
+                coverage = len(intersection) / len(req_words) if req_words else 0
+
+                combined_score = jaccard * 0.5 + coverage * 0.5
+                if combined_score > best_score:
+                    best_score = combined_score
+                    best_tc = tc
+
+            # Require at least 20% semantic overlap (much better than raw 2-word count)
+            if not best_tc or best_score < 0.20:
+                # No close match - skip impact, the new TC generation covers it
+                continue
+
+            # Generate a modified version of the matched test case
+            impact_prompt = f"""A requirement has changed. Update this test case to reflect the change.
+
+ORIGINAL TEST CASE:
+Title: {best_tc.get('title', '')}
+Steps: {_json.dumps(best_tc.get('steps', []))}
+Expected Result: {best_tc.get('expected_result', '')}
+
+REQUIREMENT CHANGE:
+Old: {old_text}
+New: {new_text}
+Summary: {change_summary}
+
+Return ONLY valid JSON with the updated test case:
+{{
+  "title": "updated title",
+  "steps": ["updated step 1", "updated step 2"],
+  "expected_result": "updated expected result",
+  "priority": "{best_tc.get('priority', 'Medium')}"
+}}"""
+
+            try:
+                impact_response = Config.llm.invoke(impact_prompt)
+                raw = impact_response.content.strip()
+                if '```json' in raw:
+                    raw = raw.split('```json')[1].split('```')[0].strip()
+                elif '```' in raw:
+                    raw = raw.split('```')[1].strip()
+                start, end = raw.find('{'), raw.rfind('}') + 1
+                updated_tc = _json.loads(raw[start:end])
+            except Exception as e:
+                print(f"[SmartVersion] Impact TC generation failed: {e}")
+                continue
+
+            # Insert impact record into test_case_impacts
+            try:
+                impact_analysis = {
+                    "modified_test_case": {
+                        "id": f"{best_tc['id']}-mod-v{version_number}",
+                        "title": updated_tc.get('title', best_tc.get('title', '')),
+                        "steps": updated_tc.get('steps', best_tc.get('steps', [])),
+                        "expected_result": updated_tc.get('expected_result', best_tc.get('expected_result', '')),
+                        "priority": updated_tc.get('priority', best_tc.get('priority', 'Medium')),
+                    },
+                    "modification_reason": change_summary,
+                    "modifiedTestCase": {
+                        "title": updated_tc.get('title', ''),
+                        "steps": updated_tc.get('steps', []),
+                        "expected_result": updated_tc.get('expected_result', ''),
+                    },
+                    "impactingStoryDescription": f"New version v{version_number} uploaded",
+                    "impactingStoryId": story_id,
+                }
+
+                with Config.get_postgres_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT run_id FROM test_cases WHERE story_id = %s AND workspace_id = %s LIMIT 1",
+                            (story_id, workspace_id)
+                        )
+                        run_row = cur.fetchone()
+                        if not run_row:
+                            continue
+
+                        new_impact_id = str(uuid.uuid4())
+                        cur.execute("""
+                            INSERT INTO test_case_impacts (
+                                impact_id, new_story_id, original_story_id,
+                                original_test_case_id, modified_test_case_id,
+                                project_id, user_id, workspace_id,
+                                impact_severity, impact_priority,
+                                impact_details, impact_status, impact_analysis_json,
+                                impacting_story_description
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            new_impact_id,
+                            story_id,       # new_story_id = same story (self-impact from new version)
+                            story_id,       # original_story_id
+                            best_tc['id'],  # original_test_case_id
+                            f"{best_tc['id']}-mod-v{version_number}",
+                            project_id,
+                            user_id,
+                            workspace_id,
+                            'medium',
+                            3,
+                            _json.dumps({'modificationReason': change_summary, 'reviewed_by': None}),
+                            'active',
+                            _json.dumps(impact_analysis),
+                            f"Version {version_number} upload - {change_summary[:100]}",
+                        ))
+                        conn.commit()
+                print(f"[SmartVersion] Created impact for TC {best_tc['id']} → v{version_number} change")
+            except Exception as e:
+                print(f"[SmartVersion] Failed to insert impact record: {e}")
+
+    # Run cross-story impact analysis for the updated story (non-blocking already in thread)
+    try:
+        from app.LLM.impact_analyzer import analyze_test_case_impacts
+        analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
+    except Exception as e:
+        print(f"[SmartVersion] Cross-story impact analysis failed: {e}")
 
 
 @stories_bp.route('/<story_id>/upload-version', methods=['POST'])
@@ -3106,6 +4568,8 @@ def upload_new_version(story_id):
     try:
         user_id = get_current_user_id()
         workspace_id = get_current_workspace_id()
+        ok, err = _check_permission('can_create_stories')
+        if not ok: return err
         db_service = get_db_service()
 
         # Story must exist in this workspace
@@ -3167,13 +4631,35 @@ def upload_new_version(story_id):
                 existing_run = cur.fetchone()
                 current_run_id = existing_run[0] if existing_run else None
 
+                # Get the current story content to archive.
+                # Priority: LanceDB doc_content_text -> test_cases.inputs (main_text/content) -> empty
+                archive_content = existing_story.get('document_content', '') or ''
+                if not archive_content.strip():
+                    cur.execute(
+                        "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s LIMIT 1",
+                        (story_id, workspace_id)
+                    )
+                    inp_row = cur.fetchone()
+                    if inp_row and inp_row[0]:
+                        import json as _j
+                        inp = inp_row[0]
+                        if isinstance(inp, str):
+                            try: inp = _j.loads(inp)
+                            except: inp = {}
+                        archive_content = (
+                            inp.get('main_text') or
+                            inp.get('content') or
+                            inp.get('file_content') or
+                            ''
+                        )
+
                 # Archive current version
                 cur.execute("""
                     INSERT INTO story_versions (story_id, user_id, workspace_id, version_number, content, description, file_name, run_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (story_id, user_id, version_number) DO NOTHING
+                    ON CONFLICT (story_id, user_id, version_number) DO UPDATE SET content = EXCLUDED.content
                 """, (story_id, user_id, workspace_id, next_version - 1 if next_version > 1 else 1,
-                      existing_story.get('document_content', ''),
+                      archive_content,
                       existing_story.get('description', ''),
                       None, current_run_id))
                 conn.commit()
@@ -3226,23 +4712,46 @@ def upload_new_version(story_id):
         except Exception as e:
             return jsonify({'error': f'Vector store update failed: {str(e)}'}), 500
 
-        # Delete old test cases and regenerate
-        with Config.get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s", (story_id, workspace_id))
-                conn.commit()
+        # ── Smart versioned regeneration ─────────────────────────────────────────
+        # Instead of deleting all test cases, we:
+        # 1. LLM-diff old doc vs new doc to find new + changed requirements
+        # 2. Generate test cases ONLY for new requirements (appended, tagged version N)
+        # 3. Create impact records for changed requirements (shows in Impact tab)
+        # 4. Never delete existing approved test cases
+
+        old_content = existing_story.get('document_content', '') or ''
 
         import threading
-        def run_regen_version():
-            from app.LLM.Test_case_generator import generate_test_case_for_story
-            generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
-            from app.LLM.impact_analyzer import analyze_test_case_impacts
+        def run_smart_version(old_doc, new_doc, ver_num):
             try:
-                analyze_test_case_impacts(story_id, project_id, user_id=user_id, workspace_id=workspace_id)
+                _smart_version_pipeline(
+                    story_id=story_id,
+                    project_id=project_id,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    old_doc=old_doc,
+                    new_doc=new_doc,
+                    version_number=ver_num,
+                )
             except Exception as e:
-                print(f"[UploadVersion] Impact analysis failed: {e}")
+                print(f"[UploadVersion] Smart pipeline failed, falling back to full regen: {e}")
+                # Fallback: delete and regenerate everything
+                try:
+                    with Config.get_postgres_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s",
+                                        (story_id, workspace_id))
+                            conn.commit()
+                    from app.LLM.Test_case_generator import generate_test_case_for_story
+                    generate_test_case_for_story(story_id, user_id=user_id, workspace_id=workspace_id)
+                except Exception as fe:
+                    print(f"[UploadVersion] Fallback regen also failed: {fe}")
 
-        threading.Thread(target=run_regen_version, daemon=True).start()
+        threading.Thread(
+            target=run_smart_version,
+            args=(old_content, story_content, next_version),
+            daemon=True
+        ).start()
 
         return jsonify({
             'message': 'New version uploaded. Test regeneration started.',
@@ -3385,7 +4894,7 @@ def review_impact(impact_id):
         return jsonify({
             'impact_id': impact_id,
             'new_status': new_status,
-            'message': 'Impact accepted — test case updated in story' if new_status == 'accepted' else 'Impact rejected'
+            'message': 'Impact accepted - test case updated in story' if new_status == 'accepted' else 'Impact rejected'
         }), 200
 
     except Exception as e:
@@ -3411,7 +4920,7 @@ def batch_review_impacts():
         accepted = rejected = edited = 0
 
         with Config.get_postgres_connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 for review in reviews:
                     iid = review.get('impact_id')
                     action = review.get('action')
@@ -3420,6 +4929,19 @@ def batch_review_impacts():
 
                     new_status = 'accepted' if action in ('accept', 'edit') else 'rejected'
                     edited_tc = review.get('edited_test_case')
+
+                    # Fetch impact + original test_case_json in one query
+                    cur.execute("""
+                        SELECT tci.impact_id, tci.original_story_id, tci.original_test_case_id,
+                               tci.impact_analysis_json,
+                               tc.test_case_json
+                        FROM test_case_impacts tci
+                        LEFT JOIN test_cases tc ON tc.story_id = tci.original_story_id AND tc.workspace_id = tci.workspace_id
+                        WHERE tci.impact_id = %s AND tci.workspace_id = %s
+                    """, (iid, workspace_id))
+                    impact = cur.fetchone()
+                    if not impact:
+                        continue
 
                     cur.execute("""
                         UPDATE test_case_impacts
@@ -3442,6 +4964,49 @@ def batch_review_impacts():
                             (history_id, impact_id, user_id, workspace_id, changed_by, previous_status, new_status, change_reason)
                         VALUES (%s, %s, %s, %s, %s, 'active', %s, 'batch_review')
                     """, (str(uuid.uuid4()), iid, user_id, workspace_id, user_id, new_status))
+
+                    # If accepted: apply the modified test case to test_case_json
+                    if new_status == 'accepted':
+                        original_tc_id = impact['original_test_case_id']
+                        original_story_id = impact['original_story_id']
+                        tc_json = impact['test_case_json']
+
+                        if edited_tc:
+                            replacement = edited_tc
+                        else:
+                            analysis = impact['impact_analysis_json']
+                            if isinstance(analysis, str):
+                                try:
+                                    analysis = json.loads(analysis)
+                                except Exception:
+                                    analysis = {}
+                            replacement = (analysis or {}).get('modified_test_case') or (analysis or {}).get('modifiedTestCase')
+
+                        if replacement and tc_json:
+                            if isinstance(tc_json, str):
+                                try:
+                                    tc_json = json.loads(tc_json)
+                                except Exception:
+                                    tc_json = {}
+                            test_cases = tc_json.get('test_cases', [])
+                            new_cases = []
+                            for tc in test_cases:
+                                tc_id = tc.get('id') or tc.get('test_case_id', '')
+                                if tc_id == original_tc_id:
+                                    new_cases.append({**tc, **{
+                                        'title': replacement.get('title', tc.get('title', '')),
+                                        'steps': replacement.get('steps', tc.get('steps', [])),
+                                        'expected_result': replacement.get('expected_result', tc.get('expected_result', '')),
+                                        'priority': replacement.get('priority', tc.get('priority', 'Medium')),
+                                        'id': tc_id,
+                                    }})
+                                else:
+                                    new_cases.append(tc)
+                            tc_json['test_cases'] = new_cases
+                            cur.execute("""
+                                UPDATE test_cases SET test_case_json = %s
+                                WHERE story_id = %s AND workspace_id = %s
+                            """, (json.dumps(tc_json), original_story_id, workspace_id))
 
                     if action == 'accept': accepted += 1
                     elif action == 'reject': rejected += 1
@@ -3469,7 +5034,7 @@ def batch_review_impacts():
 @dev_jwt_required
 def get_changes():
     """
-    List change requests — grouped impacts by new_story_id.
+    List change requests - grouped impacts by new_story_id.
     A change request = all impacts that a new story caused on existing stories.
     Query params: project_id, status (pending|approved|rejected|all), page, per_page
     """
@@ -3492,7 +5057,7 @@ def get_changes():
 
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                # Build query — group impacts by new_story_id
+                # Build query - group impacts by new_story_id
                 base_query = """
                     SELECT
                         tci.new_story_id                                      AS change_id,
