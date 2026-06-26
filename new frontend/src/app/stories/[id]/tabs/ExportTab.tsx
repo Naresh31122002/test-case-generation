@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Copy, Download, Loader2, RefreshCw } from "lucide-react";
+import { Copy, Download, Loader2, RefreshCw, Globe, CheckCircle2, AlertTriangle } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { motion } from "framer-motion";
@@ -22,6 +22,33 @@ export function ExportTab({ story, testCount }: { story: Story; testCount: numbe
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Crawl state
+  const [crawling, setCrawling] = useState(false);
+  const [crawlError, setCrawlError] = useState<string | null>(null);
+  const [domSnapshot, setDomSnapshot] = useState<{ elementCount: number } | null>(null);
+
+  async function handleCrawl() {
+    setCrawling(true);
+    setCrawlError(null);
+    try {
+      const res = await fetch(`/api/stories/${story.id}/crawl`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Crawl failed");
+      setDomSnapshot({ elementCount: data.element_count ?? data.elementCount ?? 0 });
+      // Re-generate code now that selectors are available
+      generate(selected, approvedOnly);
+    } catch (e: any) {
+      setCrawlError(e.message);
+    } finally {
+      setCrawling(false);
+    }
+  }
 
   async function generate(fmt: string, approved: boolean) {
     setLoading(true); setError(null); setCode("");
@@ -60,6 +87,55 @@ export function ExportTab({ story, testCount }: { story: Story; testCount: numbe
         <h2 className="text-[24px] font-bold text-navy mb-1">Export Tests</h2>
         <p className="text-sm text-muted">AI-generated automation-ready scripts from your test cases.</p>
       </motion.div>
+
+      {/* Crawl banner — shown only when the story has a pageUrl */}
+      {story.pageUrl && (
+        <motion.div variants={fadeInUp}>
+          {domSnapshot ? (
+            /* Green: page crawled */
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-card border border-green-200 bg-green-50">
+              <div className="flex items-center gap-2 text-sm text-green-800">
+                <CheckCircle2 size={16} className="text-green-600 flex-shrink-0" />
+                <span className="font-medium">Page crawled</span>
+                <span className="text-green-600">— {domSnapshot.elementCount} interactive elements found. Export code uses real selectors.</span>
+              </div>
+              <button
+                onClick={handleCrawl}
+                disabled={crawling}
+                className="flex items-center gap-1.5 text-xs font-medium text-green-700 hover:text-green-900 transition-colors disabled:opacity-50 flex-shrink-0"
+              >
+                <RefreshCw size={12} className={crawling ? "animate-spin" : ""} />
+                Re-crawl
+              </button>
+            </div>
+          ) : (
+            /* Amber: not yet crawled */
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-card border border-amber-200 bg-amber-50">
+              <div className="flex items-center gap-2 text-sm text-amber-800">
+                <Globe size={16} className="text-amber-500 flex-shrink-0" />
+                <span>
+                  <span className="font-medium">Crawl page for real selectors</span>
+                  <span className="text-amber-600"> — export code will use generic placeholders until the page is crawled.</span>
+                </span>
+              </div>
+              <button
+                onClick={handleCrawl}
+                disabled={crawling}
+                className="h-8 px-3 text-xs font-semibold bg-amber-500 text-white rounded-btn hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-1.5 flex-shrink-0"
+              >
+                {crawling ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} />}
+                {crawling ? "Crawling…" : "Crawl page"}
+              </button>
+            </div>
+          )}
+          {crawlError && (
+            <div className="flex items-center gap-2 mt-2 text-xs text-red-600">
+              <AlertTriangle size={12} />
+              {crawlError}
+            </div>
+          )}
+        </motion.div>
+      )}
 
       <motion.div variants={fadeInUp} className="grid grid-cols-2 gap-3">
         {FORMATS.map((fmt) => (

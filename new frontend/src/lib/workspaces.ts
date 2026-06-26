@@ -14,15 +14,26 @@ export interface Workspace {
 }
 
 const ACTIVE_KEY = 'activeWorkspaceId'
+const ACTIVE_NAME_KEY = 'activeWorkspaceName'
 
 export function getActiveWorkspaceId(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(ACTIVE_KEY)
 }
 
+export function getActiveWorkspaceName(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(ACTIVE_NAME_KEY)
+}
+
 export function setActiveWorkspaceId(id: string): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(ACTIVE_KEY, id)
+}
+
+export function setActiveWorkspaceName(name: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(ACTIVE_NAME_KEY, name)
 }
 
 function normalizeWorkspace(raw: any): Workspace {
@@ -50,7 +61,13 @@ export async function createWorkspace(name: string): Promise<Workspace> {
   return normalizeWorkspace(data?.workspace ?? data)
 }
 
-export async function switchWorkspace(workspaceId: string): Promise<void> {
+export async function switchWorkspace(workspaceId: string, workspaceName?: string): Promise<void> {
   await post('/api/workspaces/switch', { workspace_id: workspaceId })
   setActiveWorkspaceId(workspaceId)
+  if (workspaceName) {
+    setActiveWorkspaceName(workspaceName)
+  }
+  // Full page reload resets all React context (ProjectContext, storiesStore)
+  // so the new workspace's data loads fresh without stale state.
+  window.location.href = '/stories';
 }

@@ -8,17 +8,31 @@ stripe_bp = Blueprint('stripe', __name__)
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-# Hardcoded or Env based price mapping
+# Price IDs must be set via env vars — no mock fallbacks (they cause Stripe API errors).
+# If a price is not configured the plan is simply unavailable.
 PLAN_TO_PRICE = {
-    "starter": os.getenv("STRIPE_PRICE_STARTER", "price_starter_mock"),
-    "pro": os.getenv("STRIPE_PRICE_PRO", "price_pro_mock"),
-    "team": os.getenv("STRIPE_PRICE_TEAM", "price_team_mock"),
-    "enterprise": os.getenv("STRIPE_PRICE_ENTERPRISE", "price_enterprise_mock")
+    plan: os.getenv(env)
+    for plan, env in [
+        ("starter",    "STRIPE_PRICE_STARTER"),
+        ("pro",        "STRIPE_PRICE_PRO"),
+        ("team",       "STRIPE_PRICE_TEAM"),
+        ("enterprise", "STRIPE_PRICE_ENTERPRISE"),
+    ]
+    if os.getenv(env)
 }
+
+
+def _stripe_configured() -> bool:
+    """Return True only when a real Stripe secret key is present."""
+    key = os.getenv("STRIPE_SECRET_KEY", "")
+    # Stripe test keys start with sk_test_, live keys with sk_live_
+    return bool(key and key.startswith("sk_"))
 
 @stripe_bp.route("/checkout", methods=["POST"])
 @workspace_required
 def create_checkout_session():
+    if not _stripe_configured():
+        return jsonify({'error': 'Billing is not configured on this server'}), 503
     ws_id = get_current_workspace_id()
     data = request.get_json()
     
@@ -70,6 +84,8 @@ def create_checkout_session():
 @stripe_bp.route("/portal", methods=["POST"])
 @workspace_required
 def create_portal_session():
+    if not _stripe_configured():
+        return jsonify({'error': 'Billing is not configured on this server'}), 503
     ws_id = get_current_workspace_id()
     ws = WorkspaceModel.get_by_id(ws_id)
     
@@ -100,7 +116,8 @@ def stripe_webhook():
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
     
     if not webhook_secret:
-        return jsonify({'error': 'Webhook secret not configured'}), 500
+        # Return 200 so Stripe does not retry indefinitely when billing is intentionally disabled
+        return jsonify({'status': 'billing not configured'}), 200
 
     try:
         event = stripe.Webhook.construct_event(

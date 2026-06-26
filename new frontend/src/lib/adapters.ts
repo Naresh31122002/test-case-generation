@@ -76,5 +76,6 @@ export function domainStoryToSeed(story: DomainStory): Story {
     aiRecommendations: [],
     lastUpdated: story.testCaseCreatedTime || story.embeddingTimestamp || "",
     version: "v1",
+    pageUrl: story.page_url ?? undefined,
   };
 }

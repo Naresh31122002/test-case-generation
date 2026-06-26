@@ -10,6 +10,14 @@ try:
 except ImportError:
     JIRA_AVAILABLE = False
 
+# SCHEDULER_WORKSPACE_ID must be set to a real workspace UUID in production.
+# The nil UUID is a safe sentinel — integrations that query the DB by workspace_id
+# will find zero rows and skip gracefully, rather than processing the wrong tenant's data.
+SCHEDULER_WORKSPACE_ID = os.getenv(
+    "SCHEDULER_WORKSPACE_ID",
+    "00000000-0000-0000-0000-000000000000"
+)
+
 def get_jira_config():
     """Get Jira configuration from environment variables"""
     jira_sync_enabled = os.getenv('JIRA_SYNC_ENABLED', 'false').lower() == 'true'
@@ -36,13 +44,13 @@ async def sync_jira_stories():
         integration = JiraIntegration()
         if jira_config['sync_all_projects']:
             await integration.sync_all_available_projects(
-                workspace_id="00000000-0000-0000-0000-000000000000",
+                workspace_id=SCHEDULER_WORKSPACE_ID,
                 statuses=[JiraStatus.SELECTED_FOR_DEV, JiraStatus.IN_PROGRESS],
                 issue_types=[JiraIssueType.STORY]
             )
         elif jira_config['project_keys']:
             await integration.sync_stories_from_multiple_projects(
-                workspace_id="00000000-0000-0000-0000-000000000000",
+                workspace_id=SCHEDULER_WORKSPACE_ID,
                 project_keys=jira_config['project_keys'],
                 statuses=[JiraStatus.SELECTED_FOR_DEV, JiraStatus.IN_PROGRESS],
                 issue_types=[JiraIssueType.STORY]
@@ -64,7 +72,7 @@ def run_pipeline():
         
         # Step 1: Process project folders and generate embeddings
         from app.datapipeline.embedding_generator import generate_embeddings
-        generate_embeddings(workspace_id="00000000-0000-0000-0000-000000000000")
+        generate_embeddings(workspace_id=SCHEDULER_WORKSPACE_ID)
         
         # Step 2: Generate test cases for all stories
         from app.LLM.Test_case_generator import generate_test_cases_for_all_stories

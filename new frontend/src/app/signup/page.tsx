@@ -21,6 +21,14 @@ function SignupForm() {
   const params = useSearchParams();
   const { setUser } = useAuth();
 
+  // In production Next.js adds a /app basePath. window.location.href bypasses
+  // the Next router so we must add the prefix ourselves when navigating.
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  function navigate(path: string) {
+    const prefixed = path.startsWith(basePath) ? path : `${basePath}${path}`;
+    window.location.href = prefixed;
+  }
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -61,7 +69,8 @@ function SignupForm() {
       const { user, hasWorkspace } = await loginWithGoogle(credential);
       setUser(user);
       const next = params.get("next");
-      window.location.href = hasWorkspace ? (next ?? "/stories") : "/onboarding/workspace";
+      const isFirstLogin = !user.onboardingCompleted;
+      navigate(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? (next ?? "/stories") : "/onboarding/workspace"));
     } catch (err: any) {
       setError(err?.message ?? "Could not sign up with Google");
       setLoading(false);

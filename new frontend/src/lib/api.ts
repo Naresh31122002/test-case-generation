@@ -294,6 +294,7 @@ function normalizeStory(raw: RawStory): Story {
     // ALWAYS computed — never sourced from raw.download_link (broken backend route).
     downloadUrl: '/api/stories/testcases/download/' + String(raw.id),
     storyStatus: (raw.story_status as any) ?? 'in_review',
+    page_url: raw.page_url ?? (raw.inputs && raw.inputs.page_url) ?? null,
   }
 }
 
@@ -322,6 +323,12 @@ function normalizeTestCase(raw: RawTestCase): TestCase {
     tcStatus:
       raw.tc_status === 'in_progress' || raw.tc_status === 'done' ? raw.tc_status : 'todo',
     automationReady: Boolean(raw.automation_ready),
+    preconditions: Array.isArray(raw.preconditions) ? raw.preconditions : [],
+    test_data: raw.test_data ?? {},
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    automation_feasibility: raw.automation_feasibility,
+    estimated_duration_minutes: raw.estimated_duration_minutes,
+    category: raw.category,
   }
 }
 
@@ -637,8 +644,18 @@ export const api = {
     return { testCases: raw.map((tc) => normalizeTestCase(tc as RawTestCase)) }
   },
 
-  async improveStory(storyContent: string, instructions?: string): Promise<{ improved_story: string }> {
-    return post(`/api/stories/improve-story`, { story_content: storyContent, instructions: instructions || '' })
+  async improveStory(
+    storyContent: string,
+    instructions?: string,
+    useAnalysis?: boolean,
+    analysisData?: object,
+  ): Promise<{ improved_story: string }> {
+    return post(`/api/stories/improve-story`, {
+      story_content: storyContent,
+      instructions: instructions || '',
+      use_analysis: useAnalysis ?? false,
+      analysis_data: analysisData ?? {},
+    })
   },
 
   async analyzeStoryContent(content: string): Promise<{
@@ -793,6 +810,14 @@ export const api = {
     members: Array<{ user_id: string; email: string; role: string; joined_at: string }>;
   }> {
     return get(`/api/workspaces/members`)
+  },
+
+  async acceptInvite(token: string): Promise<{ workspace: any; role: string }> {
+    return post(`/api/workspaces/invites/accept`, { token });
+  },
+
+  async crawlStory(storyId: string): Promise<{ element_count: number; elementCount?: number }> {
+    return post("/api/stories/" + storyId + "/crawl", {});
   },
 
   async getStoryComments(storyId: string): Promise<{

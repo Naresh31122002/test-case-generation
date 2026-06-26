@@ -2,6 +2,7 @@ import { type StoryStatus } from "@/lib/seed";
 
 interface StatusChipProps {
   status: StoryStatus;
+  title?: string;
 }
 
 const statusStyles: Record<StoryStatus, string> = {
@@ -11,9 +12,10 @@ const statusStyles: Record<StoryStatus, string> = {
   "Impact Detected": "bg-brand-primary-light text-brand-primary border-brand-primary",
 };
 
-export function StatusChip({ status }: StatusChipProps) {
+export function StatusChip({ status, title }: StatusChipProps) {
   return (
     <span
+      title={title}
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusStyles[status]}`}
     >
       {status === "Analyzing" && (

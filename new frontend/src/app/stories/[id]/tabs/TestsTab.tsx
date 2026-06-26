@@ -13,6 +13,7 @@ import { fadeInUp, duration, easeStandard } from "@/lib/motion";
 import { AIConfidenceBadge, confidenceLevel } from "@/components/ui/AIConfidenceBadge";
 import { api } from "@/lib/api";
 import { invalidateStories } from "@/lib/storiesStore";
+import { useCanDo } from "@/contexts/RBACContext";
 
 function testConfidence(test: TestCase): number {
   let score = 55;
@@ -59,6 +60,11 @@ const RUN_COLORS = {
 } as const;
 
 const RUN_LABELS = { pass: '✓ Pass', fail: '✗ Fail', skip: '⟳ Skip' } as const;
+const RUN_TITLES = {
+  pass: 'Mark as executed and passed — adds to test run history',
+  fail: 'Mark as executed and failed — flags for investigation',
+  skip: 'Mark as skipped this cycle — not executed',
+} as const;
 
 function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: string }) {
   const [runs, setRuns] = useState<any[]>([]);
@@ -113,6 +119,7 @@ function ExecutionPanel({ storyId, testCaseId }: { storyId: string; testCaseId: 
       <div className="flex gap-2">
         {(['pass', 'fail', 'skip'] as const).map(s => (
           <button key={s} onClick={() => record(s)} disabled={!!submitting}
+            title={RUN_TITLES[s]}
             className={`flex-1 h-8 text-xs font-semibold rounded-btn border transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60 ${RUN_COLORS[s]}`}>
             {submitting === s ? <Loader2 size={11} className="animate-spin" /> : null}
             {RUN_LABELS[s]}
@@ -180,6 +187,8 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [regenIds, setRegenIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const canEdit = useCanDo("can_edit_tests");
+  const canGenerate = useCanDo("can_generate_tests");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [regrouping, setRegrouping] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
@@ -1108,8 +1117,9 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                 className="h-8 pl-3 pr-7 text-xs font-medium border border-border rounded-btn bg-white text-navy appearance-none cursor-pointer focus:outline-none focus:border-pink transition-colors"
               >
                 <option value="">All Status</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
+                <option value="Pending" title="Awaiting review — not yet accepted or rejected">Pending</option>
+                <option value="Approved" title="Reviewed and accepted — ready for execution">Approved</option>
+                <option value="Rejected" title="Needs revision — flagged during review">Rejected</option>
               </select>
               <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
                 <ChevronDown size={12} className="text-muted" />
@@ -1120,7 +1130,7 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <input
-                type="text" placeholder="Search tests…" value={search}
+                type="text" placeholder="Search test cases…" value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full h-8 pl-3 pr-8 text-xs border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors"
               />
@@ -1152,12 +1162,12 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
             <button
               onClick={() => setRegroupModalOpen(true)}
               disabled={regrouping}
-              title="Let AI group test cases by theme"
+              title="Automatically group test cases by feature area using AI"
               className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-surface-pink hover:border-pink hover:text-pink transition-colors flex items-center gap-1.5 disabled:opacity-60 flex-shrink-0"
             >
               {regrouping
                 ? <><Loader2 size={11} className="animate-spin" /> Grouping…</>
-                : <><Sparkles size={11} /> AI Group</>
+                : <><Sparkles size={11} /> AI Group Tests</>
               }
             </button>
           </div>
@@ -1198,22 +1208,12 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
             >
               <div className="px-3 py-2 bg-surface-pink border-b border-border flex items-center gap-2">
                 <span className="text-xs font-semibold text-navy">{checked.size} selected</span>
-                {bulkLoading ? <Loader2 size={12} className="animate-spin text-muted" /> : (
-                  <>
-                    <button onClick={handleBulkApprove} className="text-xs text-success hover:underline font-medium">Approve all</button>
-                    <button
-                      onClick={() => { setRegenBulkMode(true); setRegenInstructions(""); setRegenFile(null); setRegenModalId("bulk"); }}
-                      className="text-xs text-pink hover:underline font-medium"
-                    >Regenerate all</button>
-                    <button onClick={handleBulkDelete} className="text-xs text-error hover:underline font-medium">Delete all</button>
-                    <button
-                      onClick={() => setExportModalOpen(true)}
-                      className="text-xs text-navy hover:underline font-medium flex items-center gap-1"
-                    >
-                      <FileText size={11} /> Export
-                    </button>
-                  </>
-                )}
+                <button
+                  onClick={() => setExportModalOpen(true)}
+                  className="text-xs text-navy hover:underline font-medium flex items-center gap-1"
+                >
+                  <FileText size={11} /> Export
+                </button>
                 <button onClick={() => setChecked(new Set())} className="ml-auto text-muted hover:text-navy"><X size={13} /></button>
               </div>
             </motion.div>
@@ -1277,6 +1277,18 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
               </div>
             );
           })}
+          {filtered.length === 0 && tests.length > 0 && (
+            <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+              <p className="text-sm font-medium text-navy mb-1">No test cases match your filters</p>
+              <p className="text-xs text-muted">Try clearing the filters to see all {tests.length} test cases</p>
+              <button
+                onClick={() => { setFilter("All"); setPriorityFilter(""); setStatusFilter(""); setSearch(""); }}
+                className="mt-3 text-xs text-pink hover:underline"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1310,6 +1322,24 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                       </span>
                     )}
                     <AIConfidenceBadge level={confidenceLevel(testConfidence(selectedTest))} score={testConfidence(selectedTest)} />
+                    {selectedTest.severity && (selectedTest.severity as string) !== (selectedTest.priority as string) && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        selectedTest.severity === 'Critical' ? 'bg-red-50 text-red-700 border-red-200' :
+                        selectedTest.severity === 'High' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                        selectedTest.severity === 'Medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                        'bg-gray-50 text-muted border-border'
+                      }`}>
+                        {selectedTest.severity}
+                      </span>
+                    )}
+                    {selectedTest.automation_feasibility && (
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E40AF] border border-[#BFDBFE]">
+                        Auto: {selectedTest.automation_feasibility}
+                      </span>
+                    )}
+                    {selectedTest.estimated_duration_minutes && (
+                      <span className="text-[10px] text-muted">~{selectedTest.estimated_duration_minutes}m</span>
+                    )}
                     {selectedTest.status === "Approved" ? (
                       <span className="text-[11px] font-semibold text-success flex items-center gap-1">
                         <Check size={12} /> Approved
@@ -1328,6 +1358,15 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                       </span>
                     )}
                   </div>
+                  {selectedTest.tags && selectedTest.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {selectedTest.tags.map((tag, i) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-muted font-medium">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
                   {readOnly ? (
@@ -1341,16 +1380,18 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                     <button
                       onClick={() => handleApprove(selectedTest.id)}
                       disabled={approvingIds.has(selectedTest.id)}
+                      title="Mark this test case as reviewed and accepted"
                       className="h-8 px-3 text-xs font-medium rounded-btn border bg-success/10 text-success border-success/30 hover:bg-success/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                     >
                       {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                       Approve
                     </button>
                   )}
-                  {selectedTest.status !== 'Rejected' && (
+                  {canEdit && selectedTest.status !== 'Rejected' && (
                     <button
                       onClick={() => handleReject(selectedTest.id)}
                       disabled={approvingIds.has(selectedTest.id)}
+                      title="Mark this test case as needing revision"
                       className="h-8 px-3 text-xs font-medium rounded-btn border bg-error/10 text-error border-error/30 hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                     >
                       {approvingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
@@ -1358,34 +1399,52 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                     </button>
                   )}
                   {/* Regenerate */}
-                  <button
+                  {canEdit && <button
                     onClick={() => handleRegenerate(selectedTest.id)}
                     disabled={regenIds.has(selectedTest.id)}
+                    title="Ask AI to rewrite this test case with better steps"
                     className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                   >
                     {regenIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                     Regenerate
-                  </button>
+                  </button>}
                   {/* Edit */}
-                  <button
+                  {canEdit && <button
                     onClick={() => openEdit(selectedTest)}
+                    title="Manually edit the test case content"
                     className="h-8 px-3 text-xs font-medium border border-border rounded-btn text-navy bg-white hover:bg-gray-50 transition-colors flex items-center gap-1.5"
                   >
                     <Pencil size={12} /> Edit
-                  </button>
+                  </button>}
                   {/* Delete */}
-                  <button
+                  {canEdit && <button
                     onClick={() => handleDelete(selectedTest.id)}
                     disabled={deletingIds.has(selectedTest.id)}
+                    title="Permanently remove this test case"
                     className="h-8 px-3 text-xs font-medium bg-error/10 text-error border border-error/30 rounded-btn hover:bg-error/20 transition-colors flex items-center gap-1.5 disabled:opacity-60"
                   >
                     {deletingIds.has(selectedTest.id) ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                     Delete
-                  </button>
+                  </button>}
                   </>
                   )}
                 </div>
               </div>
+
+              {/* Preconditions */}
+              {selectedTest.preconditions && selectedTest.preconditions.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Preconditions</p>
+                  <ul className="space-y-1.5">
+                    {selectedTest.preconditions.map((pre, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="mt-1 w-1.5 h-1.5 rounded-full bg-cyan flex-shrink-0" />
+                        <span className="text-sm text-navy">{pre}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Steps */}
               <div>
@@ -1400,11 +1459,60 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                 </ol>
               </div>
 
+              {/* Test Data */}
+              {selectedTest.test_data && (
+                (() => {
+                  const td = selectedTest.test_data as any;
+                  const values = td.values || (typeof td === 'object' && !td.values && !td.description ? td : null);
+                  const entries = values ? Object.entries(values) : [];
+                  if (entries.length === 0 && !td.description) return null;
+                  return (
+                    <div className="mb-4">
+                      <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Test Data</p>
+                      {td.description && <p className="text-xs text-muted mb-2">{td.description}</p>}
+                      {entries.length > 0 && (
+                        <div className="rounded-lg border border-border overflow-hidden">
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {entries.map(([key, val], i) => (
+                                <tr key={i} className={i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                                  <td className="px-3 py-1.5 font-medium text-muted w-1/3">{key}</td>
+                                  <td className="px-3 py-1.5 text-navy font-mono">{String(val)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+
               {/* Expected result */}
               <div>
                 <p className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-2">Expected Result</p>
                 <p className="text-sm text-navy leading-relaxed">{selectedTest.expectedResult}</p>
               </div>
+
+              {/* Traceability — shown only when the fields exist */}
+              {(selectedTest.rationale || selectedTest.requirement_ref) && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Traceability</p>
+                  {selectedTest.rationale && (
+                    <div className="flex gap-2 mb-2">
+                      <span className="text-[11px] font-medium text-muted w-28 flex-shrink-0">Rationale:</span>
+                      <span className="text-[12px] text-navy">{selectedTest.rationale}</span>
+                    </div>
+                  )}
+                  {selectedTest.requirement_ref && selectedTest.requirement_ref !== 'General' && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-medium text-muted w-28 flex-shrink-0">Requirement:</span>
+                      <span className="text-[12px] text-navy italic">"{selectedTest.requirement_ref}"</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* AI review */}
               {selectedTest.aiReview && (

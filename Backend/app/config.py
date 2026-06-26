@@ -18,7 +18,7 @@ def get_llm():
         # llama-3.3-70b-versatile: higher quality + higher TPM limit than 8b-instant
         _llm = ChatGroq(
             model="llama-3.3-70b-versatile",
-            temperature=0.3,
+            temperature=0.4,
             groq_api_key=os.environ["GROQ_API_KEY"]
         )
     return _llm
@@ -27,10 +27,10 @@ def get_llm_impact():
     global _llm_impact
     if _llm_impact is None:
         from langchain_groq import ChatGroq
-        # Use the faster 8b model for impact analysis (more calls, smaller prompts)
+        # Use the 70b model for impact analysis — multi-document reasoning requires higher accuracy
         _llm_impact = ChatGroq(
-            model="llama-3.1-8b-instant",
-            temperature=0.3,
+            model="llama-3.3-70b-versatile",
+            temperature=0.1,
             groq_api_key=os.environ.get("GROQ_API_KEY_IMPACT", os.environ["GROQ_API_KEY"])
         )
     return _llm_impact

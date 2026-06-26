@@ -21,6 +21,16 @@ function LoginForm() {
   const { setUser } = useAuth();
   const nextPath = params.get("next") || "/stories";
 
+  // In production Next.js adds a /app basePath. window.location.href bypasses
+  // the Next router so we must add the prefix ourselves when navigating.
+  // process.env.NEXT_PUBLIC_BASE_PATH is set to "/app" in production builds.
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  function navigate(path: string) {
+    // path may already include the basePath (e.g. when coming from ?next=)
+    const prefixed = path.startsWith(basePath) ? path : `${basePath}${path}`;
+    window.location.href = prefixed;
+  }
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +52,8 @@ function LoginForm() {
       const { user, hasWorkspace } = await login(email, password);
       setUser(user);
       // Full reload so middleware re-runs with the new cookie and lets the user through.
-      window.location.href = hasWorkspace ? nextPath : "/onboarding/workspace";
+      const isFirstLogin = !user.onboardingCompleted;
+      navigate(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? nextPath : "/onboarding/workspace"));
     } catch (err: any) {
       if (err instanceof AuthApiError && err.code === "EMAIL_NOT_VERIFIED") {
         setNeedsVerification(true);
@@ -75,7 +86,8 @@ function LoginForm() {
     try {
       const { user, hasWorkspace } = await loginWithGoogle(credential);
       setUser(user);
-      window.location.href = hasWorkspace ? nextPath : "/onboarding/workspace";
+      const isFirstLogin = !user.onboardingCompleted;
+      navigate(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? nextPath : "/onboarding/workspace"));
     } catch (err: any) {
       setError(err?.message ?? "Could not sign in with Google");
       setLoading(false);

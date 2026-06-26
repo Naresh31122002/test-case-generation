@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeftRight, ArrowRightLeft, Loader2 } from "lucide-react";
+import { ArrowLeftRight, ArrowRightLeft, Loader2, GitCompare } from "lucide-react";
+import { FeatureIntroCard } from "@/components/ui/FeatureIntroCard";
 import { fadeInUp, staggerContainer, duration, easeOut } from "@/lib/motion";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
@@ -107,6 +108,12 @@ export default function ComparePage() {
       <PageHeader title="Compare" actions={<PageActions fullscreen />} />
       <PageBody>
         <div className="space-y-8">
+          <FeatureIntroCard
+            storageKey="compare"
+            icon={GitCompare}
+            title="Story Comparison"
+            description="Compare two versions of a story side-by-side to see exactly what changed. Understand which requirement changes require test updates before you regenerate."
+          />
           {/* Story selectors */}
           <div className="flex items-center gap-4">
             <div className="flex-1">

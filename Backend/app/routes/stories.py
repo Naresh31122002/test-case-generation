@@ -1116,6 +1116,7 @@ def upload_story():
         content = request.form.get('content')
         file = request.files.get('file')
         source = request.form.get('source', 'backend')
+        page_url = (request.form.get('page_url') or '').strip()
 
         # Validate required fields
         if not project_id or not story_id or (not content and not file):
@@ -1249,7 +1250,8 @@ def upload_story():
                 "original_path": file_path if file else None,
                 "doc_content_text": story_content,
                 "embedding_timestamp": datetime.now(),
-                "source": source
+                "source": source,
+                "page_url": page_url
             }])
 
         except Exception as e:
@@ -2897,7 +2899,9 @@ def export_code(story_id):
         with Config.get_postgres_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute("""
-                    SELECT tc.test_case_json, tc.story_description
+                    SELECT tc.test_case_json, tc.story_description,
+                           tc.inputs->>'page_url' AS page_url,
+                           tc.inputs->'dom_snapshot' AS dom_snapshot
                     FROM test_cases tc
                     WHERE tc.story_id = %s AND tc.workspace_id = %s
                     ORDER BY tc.created_on DESC LIMIT 1
@@ -2916,12 +2920,38 @@ def export_code(story_id):
         if not cases:
             return jsonify({'error': 'No test cases to export'}), 404
 
+        page_url = row.get('page_url') or ''
+        dom_snapshot = row.get('dom_snapshot') or {}
+        if isinstance(dom_snapshot, str):
+            try:
+                dom_snapshot = json.loads(dom_snapshot)
+            except Exception:
+                dom_snapshot = {}
+
+        dom_context = ""
+        if page_url and dom_snapshot and dom_snapshot.get("elements"):
+            elems = dom_snapshot["elements"][:30]
+            lines = []
+            for e in elems:
+                sel = e.get("selector") or "(no stable selector)"
+                txt = e.get("text", "")
+                tag = e.get("tag", "")
+                lines.append(f"  - <{tag}> text={repr(txt)} selector={sel}")
+            dom_context = f"""
+REAL PAGE STRUCTURE (live-crawled from {page_url}):
+Page title: {dom_snapshot.get("page_title", "")}
+Interactive elements discovered:
+{chr(10).join(lines)}
+
+Use these REAL selectors. For page.goto/cy.visit/driver.get use: {page_url}
+"""
+
         # Build compact test case list for the LLM
         tc_list = '\n'.join([
             f"- [{tc.get('priority','M')}] {tc.get('title','')}:"
             f" Steps: {'; '.join(tc.get('steps',[]))}"
             f" | Expected: {tc.get('expected_result','')}"
-            for tc in cases[:15]  # cap at 15 to keep prompt manageable
+            for tc in cases[:30]  # cap at 30 to keep prompt manageable
         ])
 
         FRAMEWORK_INSTRUCTIONS = {
@@ -2936,7 +2966,7 @@ def export_code(story_id):
         prompt = f"""Convert these test cases to {fmt.upper()} code.
 
 Story: {story_desc}
-
+{dom_context}
 Test cases:
 {tc_list}
 
@@ -2953,6 +2983,159 @@ Generate complete, runnable {fmt} test code. Return ONLY the code, no explanatio
         return jsonify({'format': fmt, 'code': code, 'test_count': len(cases)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@stories_bp.route('/<story_id>/crawl', methods=['POST'])
+@dev_jwt_required
+def crawl_story_url(story_id):
+    """Crawl the story page URL to extract real DOM selectors."""
+    import re
+    from datetime import datetime, timezone
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT inputs FROM test_cases WHERE story_id = %s AND workspace_id = %s ORDER BY created_on DESC LIMIT 1",
+                    (story_id, workspace_id)
+                )
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({"error": "Story not found"}), 404
+                inputs = row["inputs"] or {}
+                if isinstance(inputs, str):
+                    inputs = json.loads(inputs)
+
+        page_url = inputs.get("page_url", "").strip()
+        if not page_url:
+            return jsonify({"error": "No URL set for this story. Add a URL when uploading."}), 400
+
+        blocked = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "192.168.", "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.3"]
+        url_lower = page_url.lower()
+        if not url_lower.startswith(("http://", "https://")):
+            return jsonify({"error": "URL must start with http:// or https://"}), 400
+        for b in blocked:
+            if b in url_lower:
+                return jsonify({"error": "URL must be publicly accessible. localhost and private IPs cannot be crawled."}), 400
+
+        existing_snapshot = inputs.get("dom_snapshot", {})
+        if existing_snapshot and existing_snapshot.get("crawled_at"):
+            try:
+                crawled_dt = datetime.fromisoformat(existing_snapshot["crawled_at"].replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - crawled_dt).total_seconds() / 3600
+                if age_hours < 24:
+                    return jsonify({
+                        "cached": True,
+                        "page_title": existing_snapshot.get("page_title", ""),
+                        "element_count": len(existing_snapshot.get("elements", [])),
+                        "elements": existing_snapshot.get("elements", []),
+                        "crawled_at": existing_snapshot["crawled_at"],
+                    }), 200
+            except Exception:
+                pass
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            return jsonify({"error": "Playwright not available. Contact support."}), 500
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"])
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (compatible; TestSurge/1.0; +https://testsurge.kynetropo.com)",
+                    viewport={"width": 1280, "height": 800}
+                )
+                pg = context.new_page()
+                pg.set_default_timeout(15000)
+                try:
+                    pg.goto(page_url, wait_until="networkidle", timeout=20000)
+                except Exception as nav_err:
+                    browser.close()
+                    return jsonify({"error": f"Could not reach {page_url}: {str(nav_err)[:200]}"}), 400
+
+                page_title = pg.title() or page_url
+
+                extract_js = """() => {
+                    var results = [];
+                    var seen = {};
+                    var tags = ['button','input','select','textarea','a[href]','[role="button"]','[data-testid]','[aria-label]','form'];
+                    tags.forEach(function(sel) {
+                        try {
+                            document.querySelectorAll(sel).forEach(function(el) {
+                                var selector = null;
+                                // Priority: id > data-testid > name > aria-label > type > autocomplete > href
+                                if (el.id && el.id.length < 50 && !/^ember|^__/.test(el.id))
+                                    selector = '#' + el.id;
+                                else if (el.getAttribute('data-testid'))
+                                    selector = '[data-testid="' + el.getAttribute('data-testid') + '"]';
+                                else if (el.name)
+                                    selector = '[name="' + el.name + '"]';
+                                else if (el.getAttribute('aria-label'))
+                                    selector = '[aria-label="' + el.getAttribute('aria-label') + '"]';
+                                else if (el.type && el.type !== 'text' && el.tagName === 'INPUT')
+                                    selector = 'input[type="' + el.type + '"]';
+                                else if (el.getAttribute('autocomplete'))
+                                    selector = '[autocomplete="' + el.getAttribute('autocomplete') + '"]';
+                                else if (el.getAttribute('href') && el.tagName === 'A')
+                                    selector = 'a[href="' + el.getAttribute('href') + '"]';
+                                else if (el.type === 'submit' || el.getAttribute('type') === 'submit')
+                                    selector = '[type="submit"]';
+                                var text = (el.textContent || el.placeholder || el.getAttribute('aria-label') || el.name || el.id || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
+                                var key = selector || (el.tagName + ':' + text);
+                                if (!seen[key] && (text || selector)) {
+                                    seen[key] = 1;
+                                    results.push({
+                                        tag: el.tagName.toLowerCase(),
+                                        type: el.type || null,
+                                        text: text,
+                                        selector: selector,
+                                        href: el.getAttribute('href') || null
+                                    });
+                                }
+                            });
+                        } catch(e) {}
+                    });
+                    return results.slice(0, 60);
+                }"""
+
+                elements = pg.evaluate(extract_js)
+                browser.close()
+
+        except Exception as play_err:
+            return jsonify({"error": f"Browser error: {str(play_err)[:300]}"}), 500
+
+        snapshot = {
+            "page_title": page_title,
+            "elements": elements,
+            "element_count": len(elements),
+            "crawled_at": datetime.now(timezone.utc).isoformat(),
+            "url": page_url,
+        }
+
+        try:
+            with Config.get_postgres_connection() as conn:
+                with conn.cursor() as cur:
+                    inputs["dom_snapshot"] = snapshot
+                    cur.execute(
+                        "UPDATE test_cases SET inputs = %s::jsonb WHERE story_id = %s AND workspace_id = %s",
+                        (json.dumps(inputs), story_id, workspace_id)
+                    )
+                    conn.commit()
+        except Exception as db_err:
+            print(f"[crawl] Cache write failed (non-fatal): {db_err}")
+
+        return jsonify({
+            "cached": False,
+            "page_title": page_title,
+            "element_count": len(elements),
+            "elements": elements,
+            "crawled_at": snapshot["crawled_at"],
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @stories_bp.route('/<story_id>/regenerate', methods=['POST'])

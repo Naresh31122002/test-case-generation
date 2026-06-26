@@ -161,7 +161,7 @@ def update_me():
     """Update the current user's profile (display_name, avatar_url, full_name)."""
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
-    allowed = {k: v for k, v in data.items() if k in ('display_name', 'avatar_url', 'full_name')}
+    allowed = {k: v for k, v in data.items() if k in ('display_name', 'avatar_url', 'full_name', 'onboarding_completed')}
     if not allowed:
         return jsonify({"error": "No valid fields to update"}), 400
     try:
@@ -470,9 +470,26 @@ def google_signin():
             created = UserModel.create_google_user(email, google_id)
             user = UserModel.get_user_by_id(created["user_id"])
             is_new = True
+            # Send welcome email for new signups only
+            try:
+                from app.utils.mailer import send_welcome_google_email
+                name = claims.get("name") or claims.get("given_name") or email.split('@')[0]
+                send_welcome_google_email(email, name)
+            except Exception as we:
+                print(f"[auth/google] welcome email failed (non-fatal): {we}")
 
     WorkspaceModel.ensure_personal_workspace(user["user_id"], user["email"])
-    UserModel.update_last_login(user["user_id"])
+    # Update last login timestamp and increment login counter (both new and existing users).
+    # This replaces the separate UserModel.update_last_login call to avoid a double write.
+    try:
+        with Config.get_postgres_connection() as _conn:
+            with _conn.cursor() as _cur:
+                _cur.execute(
+                    "UPDATE users SET last_login_at = NOW(), login_count = COALESCE(login_count,0)+1 WHERE user_id = %s",
+                    (user["user_id"],)
+                )
+                _conn.commit()
+    except Exception: pass
     access_token, current_workspace = _issue_access_token(user["user_id"])
     refresh_token = create_refresh_token(identity=user["user_id"])
 
@@ -480,7 +497,9 @@ def google_signin():
 
     response = make_response(jsonify({
         "user": {
-            "user_id": user["user_id"], "email": user["email"],
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "display_name": user.get("display_name") or claims.get("name") or email.split("@")[0],
             "email_verified": user.get("email_verified", True),
             "onboarding_completed": user.get("onboarding_completed", False),
         },

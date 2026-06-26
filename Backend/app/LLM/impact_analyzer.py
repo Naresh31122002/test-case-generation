@@ -21,7 +21,9 @@ logger.setLevel(logging.INFO)
 
 # Create handlers
 console_handler = logging.StreamHandler()
-file_handler = logging.FileHandler('impact_analysis.log')
+import os as _os_log
+_log_path = _os_log.environ.get('LOG_DIR', '/tmp')
+file_handler = logging.FileHandler(_os_log.path.join(_log_path, 'impact_analysis.log'))
 
 # Create formatters and add it to handlers
 log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,7 +35,9 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 # Load the LLM prompt for impact analysis
-with open("app/LLM/impact_analysis_prompt.txt", "r", encoding="utf-8") as f:
+import os as _os
+_impact_prompt_path = _os.path.join(_os.path.dirname(__file__), "impact_analysis_prompt.txt")
+with open(_impact_prompt_path, "r", encoding="utf-8") as f:
     IMPACT_INSTRUCTIONS = f.read()
 
 # Constants for rate limiting and retries
@@ -151,7 +155,7 @@ Just return the raw JSON object.
             log_token_usage(
                 action="impact_analysis",
                 provider="groq",
-                model="llama-3.1-8b-instant",
+                model="llama-3.3-70b-versatile",
                 input_tokens=inp,
                 output_tokens=out,
             )
@@ -273,6 +277,24 @@ Just return the raw JSON object.
                     if modified.get("priority") not in ["High", "Medium", "Low"]:
                         raise ValueError("priority must be High, Medium, or Low")
             
+            # Normalize new fields from updated prompt (non-fatal — old prompts won't have them)
+            if "confidence" not in result:
+                result["confidence"] = 0.7  # default when field absent
+            else:
+                try:
+                    result["confidence"] = max(0.0, min(1.0, float(result["confidence"])))
+                except (TypeError, ValueError):
+                    result["confidence"] = 0.7
+
+            if "analysis_summary" not in result:
+                result["analysis_summary"] = ""
+
+            # Normalize recommended_new_test_cases list
+            recs = result.get("recommended_new_test_cases", [])
+            if not isinstance(recs, list):
+                recs = []
+            result["recommended_new_test_cases"] = recs
+
             # Final normalization: ensure has_impact and impact_type are correct types
             result["has_impact"] = bool(result["has_impact"])
             return result
@@ -613,12 +635,58 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                 raise StoryNotFoundError(f"Existing story {existing_story_id} not found")
             stories_to_analyze = [existing_story]
         else:
-            # Get all stories with test cases from the same project (excluding the new story)
-            stories_to_analyze = [
-                {"id": story_id} 
-                for story_id in generated_stories.keys() 
-                if story_id != new_story_id
-            ]
+            # Vector-filter: only analyze the top-N most semantically similar stories
+            # This prevents O(n) LLM calls for large projects
+            MAX_IMPACT_CANDIDATES = 5
+            all_candidate_ids = [sid for sid in generated_stories.keys() if sid != new_story_id]
+
+            if len(all_candidate_ids) <= MAX_IMPACT_CANDIDATES:
+                # Small project — analyze all
+                stories_to_analyze = [{"id": sid} for sid in all_candidate_ids]
+            else:
+                # Use vector search to find most similar stories
+                try:
+                    db_vec = lancedb.connect(Config.LANCE_DB_PATH)
+                    vec_table = db_vec.open_table(Config.TABLE_NAME_LANCE)
+
+                    # Get the new story's vector
+                    all_vec_rows = vec_table.to_pandas()
+                    new_story_rows = all_vec_rows[all_vec_rows['storyID'] == new_story_id]
+                    if workspace_id and 'workspace_id' in new_story_rows.columns:
+                        ws_rows = new_story_rows[new_story_rows['workspace_id'] == workspace_id]
+                        if not ws_rows.empty:
+                            new_story_rows = ws_rows
+
+                    if not new_story_rows.empty:
+                        new_story_text = str(new_story_rows.iloc[0].get('doc_content_text') or '')[:500]
+                        if not new_story_text:
+                            new_story_text = str(new_story_rows.iloc[0].get('storyDescription') or '')
+
+                        if new_story_text:
+                            query_vec = Config.EMBEDDING_MODEL.encode(new_story_text).tolist()
+                            candidates = (
+                                vec_table.search(query_vec)
+                                .metric("cosine")
+                                .limit(MAX_IMPACT_CANDIDATES * 4)
+                                .to_list()
+                            )
+                            # Filter to project stories only
+                            candidate_set = set(all_candidate_ids)
+                            filtered_candidates = [
+                                c for c in candidates
+                                if c.get('storyID') in candidate_set
+                                and (not workspace_id or c.get('workspace_id') == workspace_id)
+                            ][:MAX_IMPACT_CANDIDATES]
+
+                            stories_to_analyze = [{"id": c['storyID']} for c in filtered_candidates]
+                            logger.info(f"[impact] Vector-filtered to {len(stories_to_analyze)} similar stories from {len(all_candidate_ids)} candidates")
+                        else:
+                            stories_to_analyze = [{"id": sid} for sid in all_candidate_ids[:MAX_IMPACT_CANDIDATES]]
+                    else:
+                        stories_to_analyze = [{"id": sid} for sid in all_candidate_ids[:MAX_IMPACT_CANDIDATES]]
+                except Exception as vec_err:
+                    logger.warning(f"[impact] Vector filter failed, using first {MAX_IMPACT_CANDIDATES}: {vec_err}")
+                    stories_to_analyze = [{"id": sid} for sid in all_candidate_ids[:MAX_IMPACT_CANDIDATES]]
             
         logger.info(f"Analyzing impacts for {new_story_id} against {len(stories_to_analyze)} stories from project {project_id}")
         
@@ -701,13 +769,13 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                 {IMPACT_INSTRUCTIONS}
                 
                 ORIGINAL STORY ({existing_story['id']} - Project: {project_id}):
-                {existing_story.get('description', 'No description available')[:500]}
-                
+                {existing_story.get('description', 'No description available')[:1500]}
+
                 ORIGINAL TEST CASES (summary, max {MAX_TCS_FOR_PROMPT}):
                 {json.dumps(compact_existing, indent=2)}
-                
+
                 NEW STORY ({new_story_id} - Project: {project_id}):
-                {new_story.get('description', 'No description available')[:500]}
+                {new_story.get('description', 'No description available')[:1500]}
                 
                 NEW TEST CASES (summary, max {MAX_TCS_FOR_PROMPT}):
                 {json.dumps(compact_new, indent=2)}
@@ -729,6 +797,12 @@ def analyze_test_case_impacts(new_story_id: str, project_id: str, existing_story
                     )
                     
                     logger.info(f"Stored {impacts_stored} impacts for {existing_story['id']}")
+                else:
+                    # Log no-impact determination for audit trail
+                    logger.info(
+                        f"[impact] No impact detected: new={new_story_id} vs existing={existing_story['id']} "
+                        f"(analyzed with {len(compact_new)} new TCs vs {len(compact_existing)} existing TCs)"
+                    )
                     
             except Exception as e:
                 logger.error(f"Error analyzing impacts between {new_story_id} and {existing_story['id']}: {str(e)}")

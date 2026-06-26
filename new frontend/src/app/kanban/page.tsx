@@ -19,6 +19,8 @@ import { NoProjects } from "@/components/projects/EmptyState";
 export default function KanbanPage() {
   const { selectedProject, hasProjects, ready } = useProject();
   const [subMode, setSubMode] = useState<"story" | "testcase">("story");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
 
   const activeProjectId = useMemo(() => {
     if (!ready) return null;
@@ -31,6 +33,17 @@ export default function KanbanPage() {
     activeProjectId === null ? false : true,
   );
 
+  const filteredStories = useMemo(() => {
+    return stories.filter(s => {
+      if (statusFilter && (s as any).status !== statusFilter) return false;
+      if (priorityFilter) {
+        const hasPriority = (s as any).testCases?.some((tc: any) => tc.priority === priorityFilter);
+        if (!hasPriority) return false;
+      }
+      return true;
+    });
+  }, [stories, statusFilter, priorityFilter]);
+
   return (
     <PageLayout>
       <PageHeader
@@ -39,10 +52,36 @@ export default function KanbanPage() {
         actions={<PageActions />}
       />
       <PageBody className="overflow-x-auto">
-        {ready && !hasProjects ? (
+        {!ready || loading ? (
+          <div className="flex h-full items-center justify-center py-20">
+            <Loader2 size={28} className="animate-spin text-muted" />
+          </div>
+        ) : ready && !hasProjects ? (
           <NoProjects />
         ) : (
           <>
+            {/* Filter bar */}
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                className="h-8 px-3 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan">
+                <option value="">All Status</option>
+                <option value="in_review">In Review</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}
+                className="h-8 px-3 text-xs border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan">
+                <option value="">All Priority</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              {(statusFilter || priorityFilter) && (
+                <button onClick={() => { setStatusFilter(""); setPriorityFilter(""); }}
+                  className="text-xs text-pink hover:underline">Clear filters</button>
+              )}
+            </div>
+
             {/* Stories / Test Cases sub-mode toggle (same as Stories page). */}
             <div className="flex items-center gap-2 mb-6">
               <button
@@ -72,9 +111,9 @@ export default function KanbanPage() {
                 <Loader2 size={16} className="animate-spin" /> Loading board…
               </div>
             ) : subMode === "story" ? (
-              <StoryKanban stories={stories} />
+              <StoryKanban stories={filteredStories} />
             ) : (
-              <TestCaseKanban stories={stories} />
+              <TestCaseKanban stories={filteredStories} />
             )}
           </>
         )}

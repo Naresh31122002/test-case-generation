@@ -12,6 +12,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # because Next inlines NEXT_PUBLIC_* into the client bundle during `npm run build`.
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID=""
 ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+# basePath used in production — must match the basePath in next.config.mjs
+ARG NEXT_PUBLIC_BASE_PATH="/app"
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

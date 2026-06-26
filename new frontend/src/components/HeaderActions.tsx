@@ -579,7 +579,10 @@ function CreditsIndicator() {
       onMouseLeave={() => setShow(false)}
     >
       {/* Full credits (≥1200px) */}
-      <div className="hidden min-[1200px]:flex items-center gap-2 h-9 px-3 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap">
+      <div
+        className="hidden min-[1200px]:flex items-center gap-2 h-9 px-3 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap"
+        title="Credits are used for AI operations: generating tests (1 credit), regenerating (0.5), quality analysis (0.5). Credits reset monthly."
+      >
         <Zap size={15} className="text-pink flex-shrink-0" />
         <span className="tabular-nums">
           {creditsUsed}
@@ -588,7 +591,10 @@ function CreditsIndicator() {
         <span className="text-muted text-xs">Credits</span>
       </div>
       {/* Compact badge (&lt;1200px) */}
-      <div className="flex min-[1200px]:hidden items-center gap-1.5 h-9 px-2.5 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap">
+      <div
+        className="flex min-[1200px]:hidden items-center gap-1.5 h-9 px-2.5 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap"
+        title="Credits are used for AI operations: generating tests (1 credit), regenerating (0.5), quality analysis (0.5). Credits reset monthly."
+      >
         <Zap size={15} className="text-pink flex-shrink-0" />
         <span className="tabular-nums">{creditsUsed}</span>
       </div>
@@ -637,6 +643,24 @@ function NotificationBell() {
     setOpen(false);
     setShowClearConfirm(false);
   });
+
+  // Poll unread count from notifications endpoint every 30 seconds
+  useEffect(() => {
+    async function fetchUnread() {
+      try {
+        const res = await fetch('/api/workspaces/notifications?unread_only=true', {
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.unread_count ?? 0);
+        }
+      } catch {}
+    }
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Load real activity from backend
   useEffect(() => {
@@ -714,11 +738,12 @@ function NotificationBell() {
         onClick={() => { setOpen((v) => !v); setShowClearConfirm(false); }}
         className="relative w-9 h-9 rounded-btn border border-border bg-white text-muted hover:text-navy hover:bg-gray-50 flex items-center justify-center transition-colors"
         title="Notifications"
+        aria-label="Notifications"
       >
         <Bell size={17} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-pink text-white text-[10px] font-bold flex items-center justify-center">
-            {unreadCount}
+          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF0A78] text-white text-[9px] font-bold flex items-center justify-center">
+            {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>

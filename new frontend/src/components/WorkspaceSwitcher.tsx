@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronsUpDown, Check, Building2 } from "lucide-react";
+import { ChevronsUpDown, Check, Building2, Plus } from "lucide-react";
 import {
   listWorkspaces,
   switchWorkspace,
   getActiveWorkspaceId,
+  getActiveWorkspaceName,
   setActiveWorkspaceId,
+  setActiveWorkspaceName,
   type Workspace,
 } from "@/lib/workspaces";
 
@@ -36,10 +38,17 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
           ? stored
           : ws[0]?.id ?? null;
         if (resolvedId && resolvedId !== stored) {
-          // Workspace changed — update localStorage AND the server cookie
+          // Active workspace changed (e.g. first load with no stored ID) —
+          // update localStorage, server cookie, and reload. switchWorkspace now
+          // performs a full page reload so no separate router.refresh() needed.
+          const resolvedWs = ws.find((w) => w.id === resolvedId);
           setActiveWorkspaceId(resolvedId);
-          switchWorkspace(resolvedId).catch(() => {});
-          router.refresh();
+          if (resolvedWs) setActiveWorkspaceName(resolvedWs.name);
+          switchWorkspace(resolvedId, resolvedWs?.name).catch(() => {});
+        } else if (resolvedId) {
+          // Refresh cached name in case it changed (e.g. after onboarding rename)
+          const resolvedWs = ws.find((w) => w.id === resolvedId);
+          if (resolvedWs) setActiveWorkspaceName(resolvedWs.name);
         }
         setActiveId(resolvedId);
       })
@@ -58,15 +67,19 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   }, []);
 
   const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+  // Use cached name from localStorage as a fallback while workspaces haven't
+  // loaded yet (e.g. right after onboarding workspace rename) so the switcher
+  // shows the correct name immediately instead of the old stale value.
+  const displayName = active?.name ?? getActiveWorkspaceName() ?? "Workspace";
 
   async function choose(ws: Workspace) {
     setOpen(false);
     if (ws.id === activeId || busy) return;
     setBusy(true);
     try {
-      await switchWorkspace(ws.id);
-      setActiveId(ws.id);
-      router.refresh(); // reload all server/client data for the new tenant
+      await switchWorkspace(ws.id, ws.name);
+      // switchWorkspace does window.location.href — code below this line
+      // will not execute. setBusy(false) in finally runs before the reload.
     } catch {
       /* keep current workspace on failure */
     } finally {
@@ -99,7 +112,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={active?.name ?? "Workspace"}
+        title={displayName}
         className="w-full flex items-center gap-2 px-2 h-9 rounded-lg border border-border bg-white hover:bg-gray-50 transition-colors text-left"
       >
         <span className="w-6 h-6 rounded bg-pink/10 text-pink flex items-center justify-center flex-shrink-0">
@@ -108,7 +121,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         {!collapsed && (
           <>
             <span className="flex-1 min-w-0 truncate text-sm font-medium text-navy">
-              {active?.name ?? "Workspace"}
+              {displayName}
             </span>
             <ChevronsUpDown size={14} className="text-muted flex-shrink-0" />
           </>
@@ -128,6 +141,16 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
               {ws.id === activeId && <Check size={14} className="text-pink flex-shrink-0" />}
             </button>
           ))}
+          <div className="border-t border-border mt-1 pt-1">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); router.push("/onboarding/workspace"); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-pink hover:bg-pink/5 transition-colors"
+            >
+              <Plus size={14} className="flex-shrink-0" />
+              <span>New workspace</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

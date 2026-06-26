@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Download, Loader2, FileText, TestTube2, AlertCircle } from "lucide-react";
+import { Download, Loader2, FileText, TestTube2, AlertCircle, Zap, Target } from "lucide-react";
+import { FeatureIntroCard } from "@/components/ui/FeatureIntroCard";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { useProject } from "@/contexts/ProjectContext";
 import { api } from "@/lib/api";
@@ -215,6 +216,17 @@ export default function ExportsPage() {
 
         {/* Right panel — format + options + download */}
         <div className="flex-1 overflow-y-auto px-8 py-8">
+          <FeatureIntroCard
+            storageKey="exports"
+            icon={Download}
+            title="Export Test Cases"
+            description="Export your test cases to Excel for test management tools, or generate Playwright/Cypress/PyTest automation code ready to run in your CI pipeline."
+            learnMoreItems={[
+              { icon: FileText, label: "Excel / CSV", desc: "For TestRail, Zephyr, Jira, or any spreadsheet-based workflow" },
+              { icon: Zap, label: "Playwright / Cypress", desc: "Ready-to-run browser automation test scripts" },
+              { icon: Target, label: "PyTest / BDD", desc: "Python test files and Gherkin feature files" },
+            ]}
+          />
           <motion.div
             variants={staggerContainer}
             initial="initial"

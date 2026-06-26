@@ -6,6 +6,7 @@ import { AlertCircle, PieChart, Sparkles, Info, Loader2, XCircle, AlertTriangle,
 import { type Story, type CoverageGap, type TestType } from "@/lib/seed";
 import type { TestCase as DomainTestCase } from "@/types/domain";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { InlineTooltip } from "@/components/ui/InlineTooltip";
 import { staggerContainer, fadeInUp, duration, easeOut } from "@/lib/motion";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { api } from "@/lib/api";
@@ -252,7 +253,10 @@ function CoverageDonut({ coverage }: { coverage: number }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-[40px] font-bold text-navy leading-none">{coverage}%</span>
-        <span className="text-sm text-muted mt-1">Coverage</span>
+        <span className="text-sm text-muted mt-1 flex items-center gap-1">
+          Coverage
+          <InlineTooltip content="Coverage = percentage of your story's requirements that have at least one test case. Higher is better. Gaps show requirements with no test coverage." />
+        </span>
       </div>
     </div>
   );

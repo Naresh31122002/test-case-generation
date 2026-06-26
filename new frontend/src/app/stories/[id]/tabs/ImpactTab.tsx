@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, CheckCircle2, XCircle, Pencil, Sparkles, GitCompare, Loader2 } from "lucide-react";
 import { DiffViewer } from "@/components/ui/DiffViewer";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
+import { InlineTooltip } from "@/components/ui/InlineTooltip";
 import { staggerContainer, fadeInUp, duration, easeStandard, spring } from "@/lib/motion";
 import { api } from "@/lib/api";
 import type { StoryTestCaseImpacts, ImpactEvent } from "@/types/domain";
@@ -112,7 +113,9 @@ export function ImpactTab({ storyId, projectId, versionFilter }: { storyId: stri
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <GitCompare size={48} className="text-muted mb-4" />
       <h2 className="text-h2 text-navy mb-2">No impact detected</h2>
-      <p className="text-sm text-muted">Upload a new version of this story to see impact analysis.</p>
+      <p className="text-sm text-muted max-w-sm">
+        No impact detected — this story&apos;s requirements don&apos;t overlap with test cases in other stories. This is normal for new or isolated features.
+      </p>
     </div>
   );
 
@@ -125,7 +128,10 @@ export function ImpactTab({ storyId, projectId, versionFilter }: { storyId: stri
         </div>
       )}
       {/* Metric cards */}
-      <h2 className="text-h2 text-navy font-semibold">Impact Analysis</h2>
+      <h2 className="text-h2 text-navy font-semibold flex items-center gap-1.5">
+        Impact Analysis
+        <InlineTooltip content="Impact shows which of your OTHER stories' test cases may need updating because of this story. When requirements overlap, changing one story can break tests for another." />
+      </h2>
       <div className="grid grid-cols-3 gap-4">
         <MetricCard label="Modified" value={data.impactedTestCasesCount} color="warning" />
         <MetricCard label="High Severity" value={data.severitySummary.high} color="error" />

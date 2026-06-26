@@ -11,6 +11,7 @@ activity_bp = Blueprint('activity', __name__)
 
 def log_activity(workspace_id: str, user_id: str, event_type: str, title: str, body: str = None, story_id: str = None):
     """Fire-and-forget activity event logger. Call from any route after a significant event."""
+    conn = None
     try:
         conn = Config.get_postgres_connection()
         with conn.cursor() as cur:
@@ -19,9 +20,11 @@ def log_activity(workspace_id: str, user_id: str, event_type: str, title: str, b
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (workspace_id, user_id, event_type, title, body, story_id))
         conn.commit()
-        conn.close()
     except Exception as e:
         print(f"[activity] log failed: {e}")
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @activity_bp.route('/', methods=['GET'])

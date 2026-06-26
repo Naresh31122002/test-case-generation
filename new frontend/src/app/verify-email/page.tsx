@@ -28,7 +28,8 @@ function VerifyEmailInner() {
         const { user, hasWorkspace } = await verifyEmail(token);
         setUser(user);
         setStatus("success");
-        setTimeout(() => router.push(hasWorkspace ? "/stories" : "/onboarding/workspace"), 1200);
+        const isFirstLogin = !user.onboardingCompleted;
+        setTimeout(() => router.push(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? "/stories" : "/onboarding/workspace")), 1200);
       } catch {
         setStatus("error");
       }

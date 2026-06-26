@@ -55,18 +55,30 @@ def build_rag_context(
     try:
         db = lancedb.connect(Config.LANCE_DB_PATH)
         table = db.open_table(Config.TABLE_NAME_LANCE)
-        df = table.to_pandas()
 
-        story_rows = df[df["storyID"] == story_id]
-        if workspace_id and "workspace_id" in story_rows.columns:
-            ws_rows = story_rows[story_rows["workspace_id"] == workspace_id]
-            if not ws_rows.empty:
-                story_rows = ws_rows
-
-        if not story_rows.empty:
-            row = story_rows.iloc[0]
-            result["story_content"] = str(row.get("doc_content_text") or "")
-            result["story_description"] = str(row.get("storyDescription") or "")
+        # Use .where() to filter in LanceDB instead of loading all rows into Pandas
+        try:
+            # LanceDB SQL filter — avoids full table scan
+            filter_expr = f"storyID = '{story_id}'"
+            if workspace_id:
+                safe_ws = str(workspace_id).replace("'", "''")
+                filter_expr += f" AND workspace_id = '{safe_ws}'"
+            rows = table.search().where(filter_expr).limit(1).to_list()
+            if rows:
+                result["story_content"] = str(rows[0].get("doc_content_text") or "")
+                result["story_description"] = str(rows[0].get("storyDescription") or "")
+        except Exception:
+            # Fallback to pandas if .where() fails (older LanceDB version)
+            df = table.to_pandas()
+            story_rows = df[df["storyID"] == story_id]
+            if workspace_id and "workspace_id" in story_rows.columns:
+                ws_rows = story_rows[story_rows["workspace_id"] == workspace_id]
+                if not ws_rows.empty:
+                    story_rows = ws_rows
+            if not story_rows.empty:
+                row = story_rows.iloc[0]
+                result["story_content"] = str(row.get("doc_content_text") or "")
+                result["story_description"] = str(row.get("storyDescription") or "")
     except Exception as e:
         print(f"[rag_context] LanceDB story fetch failed: {e}")
 
@@ -91,7 +103,12 @@ def build_rag_context(
 
     # ── 3. Vector search for similar stories ─────────────────────────────────
     if not query_text.strip():
-        query_text = result["story_description"] or result["story_content"][:500]
+        # Use first 500 chars of full content for better semantic matching
+        query_text = result["story_content"][:500] or result["story_description"]
+
+    # Always prefer full content over description for embedding quality
+    if len(query_text) < 100 and result["story_content"]:
+        query_text = result["story_content"][:500]
 
     if not query_text.strip():
         return result
@@ -170,26 +187,51 @@ def format_rag_context_for_prompt(ctx: dict, max_examples: int = 2) -> str:
     """
     Formats the RAG context into a prompt section.
     Returns empty string if nothing useful found.
+
+    Improvements over original:
+    - Shows acceptance criteria from similar stories (for format guidance)
+    - Shows NEGATIVE examples (what similar stories had that failed / were edge cases)
+    - Shows expected_result not just titles/steps
+    - Marks gaps: "Story X covered Y — consider covering Z for completeness"
     """
     parts = []
 
     examples = [e for e in ctx.get("similar_examples", []) if e.get("test_cases")][:max_examples]
     if examples:
-        parts.append("SIMILAR STORIES FROM YOUR WORKSPACE (use as style/format reference):")
+        parts.append("=== SIMILAR STORIES FROM YOUR WORKSPACE ===")
+        parts.append("Use these as context for coverage — identify what they tested and what gaps might exist for YOUR story.\n")
         for i, ex in enumerate(examples, 1):
-            parts.append(f"\nExample {i} — {ex['story_description'][:120]}:")
-            for tc in ex["test_cases"][:3]:
-                parts.append(f"  • {tc.get('title', '')}")
-                steps = tc.get("steps", [])
-                if steps:
-                    parts.append(f"    Steps: {'; '.join(steps[:3])}")
-                if tc.get("expected_result"):
-                    parts.append(f"    Expected: {tc['expected_result'][:100]}")
+            sim_pct = int((1 - ex.get('similarity_score', 0)) * 100)
+            parts.append(f"[Similar Story {i} — {sim_pct}% match] {ex['story_description'][:150]}")
+
+            tcs = ex.get("test_cases", [])
+            # Group by type if available
+            positives = [tc for tc in tcs if 'positive' in tc.get('group','').lower() or 'functional' in tc.get('group','').lower()][:2]
+            negatives = [tc for tc in tcs if 'negative' in tc.get('group','').lower() or 'error' in tc.get('group','').lower()][:2]
+            security = [tc for tc in tcs if 'security' in tc.get('group','').lower() or 'auth' in tc.get('group','').lower()][:1]
+            other = [tc for tc in tcs if tc not in positives and tc not in negatives and tc not in security][:1]
+
+            sample_tcs = (positives + negatives + security + other)[:4]
+            if not sample_tcs:
+                sample_tcs = tcs[:4]
+
+            for tc in sample_tcs:
+                priority = tc.get('priority', 'M')
+                title = tc.get('title', '')
+                expected = tc.get('expected_result', '')[:120]
+                rationale = tc.get('rationale', '')
+                parts.append(f"  [{priority}] {title}")
+                if expected:
+                    parts.append(f"       → Expected: {expected}")
+                if rationale:
+                    parts.append(f"       → Covers: {rationale}")
+            parts.append("")
 
     existing = ctx.get("all_existing_tcs", [])
     if existing:
-        parts.append(f"\nEXISTING TEST CASES FOR THIS STORY (maintain consistency — do not duplicate):")
-        for tc in existing[:5]:
-            parts.append(f"  • [{tc.get('priority','?')}] {tc.get('title','')}")
+        parts.append("=== EXISTING TEST CASES FOR THIS STORY (DO NOT DUPLICATE) ===")
+        for tc in existing[:8]:
+            parts.append(f"  [{tc.get('priority','?')}] {tc.get('title','')} (ID: {tc.get('id','')})")
+        parts.append("Generate test cases that ADD COVERAGE — do not repeat any of the above.\n")
 
     return "\n".join(parts) if parts else ""

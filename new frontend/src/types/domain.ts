@@ -55,6 +55,10 @@ export interface RawStory {
   impacted_test_cases_count?: number | string;
   /** Kanban column status from backend */
   story_status?: 'in_review' | 'in_progress' | 'completed';
+  /** URL of the page under test submitted with the story. */
+  page_url?: string | null;
+  /** Arbitrary inputs dict that may also carry page_url. */
+  inputs?: Record<string, any> | null;
 }
 
 /**
@@ -81,6 +85,18 @@ export interface RawTestCase {
   automation_ready?: boolean;
   /** Version number when this TC was introduced (1=original, 2=v2 upload, etc.) */
   version?: number;
+  /** Pre-conditions that must be met before the test can run. */
+  preconditions?: string[];
+  /** Input data required for the test; may carry a nested "values" dict. */
+  test_data?: Record<string, unknown> | null;
+  /** Comma-separated labels / categories attached to the test case. */
+  tags?: string[];
+  /** LLM-assigned automation feasibility label e.g. "High" | "Medium" | "Low". */
+  automation_feasibility?: string;
+  /** Estimated execution time in minutes. */
+  estimated_duration_minutes?: number | string;
+  /** Feature/module category the test case belongs to. */
+  category?: string;
 }
 
 /** Raw impact row from the test_case_impacts table. */
@@ -211,6 +227,8 @@ export interface Story {
   downloadUrl: string;
   /** Kanban column: in_review | in_progress | completed. Default: in_review */
   storyStatus: 'in_review' | 'in_progress' | 'completed';
+  /** URL of the page under test — used for DOM crawl and smart export. */
+  page_url?: string | null;
 }
 
 /**
@@ -245,6 +263,18 @@ export interface TestCase {
   automationReady?: boolean;
   /** Version number when this TC was introduced (1=original, 2=v2 upload, etc.) */
   version?: number;
+  /** Pre-conditions that must be met before the test can run. */
+  preconditions?: string[];
+  /** Input data required for the test. */
+  test_data?: Record<string, unknown> | null;
+  /** Labels / categories attached to the test case. */
+  tags?: string[];
+  /** LLM-assigned automation feasibility label e.g. "High" | "Medium" | "Low". */
+  automation_feasibility?: string;
+  /** Estimated execution time in minutes. */
+  estimated_duration_minutes?: number | string;
+  /** Feature/module category the test case belongs to. */
+  category?: string;
 }
 
 /** Response shape for the test cases list endpoint (normalized). */

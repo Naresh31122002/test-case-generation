@@ -17,6 +17,7 @@ def log_token_usage(
     story_id: str = None,
 ):
     """Fire-and-forget token usage log. Never raises — best effort only."""
+    conn = None
     try:
         conn = Config.get_postgres_connection()
         with conn.cursor() as cur:
@@ -36,9 +37,14 @@ def log_token_usage(
                 story_id or None,
             ))
         conn.commit()
-        conn.close()
     except Exception as e:
         print(f"[token_usage] Failed to log: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def extract_groq_tokens(response) -> tuple[int, int]:

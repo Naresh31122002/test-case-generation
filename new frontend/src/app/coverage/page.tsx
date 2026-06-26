@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Sparkles, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Sparkles, Loader2, BarChart3, FileText, Zap, Target } from "lucide-react";
 import { CoverageRing } from "@/components/ui/CoverageRing";
+import { FeatureIntroCard } from "@/components/ui/FeatureIntroCard";
 import { staggerContainer, fadeInUp, duration, easeOut } from "@/lib/motion";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
@@ -110,6 +111,17 @@ export default function CoveragePage() {
       <PageHeader title="Coverage" actions={<PageActions />} />
 
       <PageBody>
+        <FeatureIntroCard
+          storageKey="coverage"
+          icon={BarChart3}
+          title="Test Coverage Analysis"
+          description="Coverage shows what percentage of your story's requirements are covered by generated test cases. 100% means every acceptance criterion has at least one test case. Gaps highlight requirements that need more test coverage."
+          learnMoreItems={[
+            { icon: Target, label: "Coverage %", desc: "Ratio of requirements with test cases vs total requirements" },
+            { icon: FileText, label: "Gaps", desc: "Requirements or AC items with no corresponding test case" },
+            { icon: Zap, label: "Improving coverage", desc: "Generate more tests or regenerate with specific focus areas" },
+          ]}
+        />
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 size={32} className="animate-spin text-cyan" />

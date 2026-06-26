@@ -45,6 +45,8 @@ export interface Story {
   downloadUrl?: string;
   /** Kanban column status — in_review | in_progress | completed */
   kanbanStatus?: 'in_review' | 'in_progress' | 'completed';
+  /** URL of the page under test — used for DOM crawl and smart export. */
+  pageUrl?: string;
 }
 
 export interface TestCase {
@@ -62,6 +64,22 @@ export interface TestCase {
   group?: string;
   /** Version number when this test case was introduced (1 = original, 2 = added in v2 upload, etc.) */
   version?: number;
+  /** Why this test case exists — LLM-generated rationale */
+  rationale?: string;
+  /** Which acceptance-criteria item this test covers */
+  requirement_ref?: string;
+  /** Specific test data values to use */
+  test_data?: Record<string, string> | { description?: string; values?: Record<string, string> };
+  /** Severity level: Critical > High > Medium > Low */
+  severity?: "Critical" | "High" | "Medium" | "Low";
+  /** Classification tags like smoke, regression, security */
+  tags?: string[];
+  /** How feasible is automation: High=easy to automate, Low=needs manual judgment */
+  automation_feasibility?: "High" | "Medium" | "Low";
+  /** Estimated execution time in minutes */
+  estimated_duration_minutes?: number;
+  /** Test category set during generation: positive, negative, boundary, security, performance */
+  category?: string;
 }
 
 export interface CoverageGap {

@@ -11,6 +11,8 @@ Workspace management API.
                                   JWT claim and X-Workspace-Id header stay aligned
 """
 
+import os
+
 from flask import Blueprint, jsonify, request, make_response
 from flask_jwt_extended import (
     jwt_required,
@@ -191,6 +193,24 @@ def switch_workspace():
         set_access_cookies(response, access_token)
     return response
 
+@workspaces_bp.route('/my-role', methods=['GET'])
+@workspace_required
+def get_my_role():
+    """Return the current user's role and permissions in the active workspace."""
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    try:
+        from app.models.workspace_model import WorkspaceModel
+        perms = WorkspaceModel.get_member_permissions(workspace_id, user_id)
+        return jsonify({
+            'role': perms.get('role', 'viewer'),
+            'permissions': perms,
+            'workspace_id': workspace_id,
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # --- Members ---
 
 @workspaces_bp.route("/members", methods=["GET"])
@@ -233,6 +253,39 @@ def remove_member(user_id):
         
     return jsonify({"message": "Member removed successfully"}), 200
 
+# --- Notifications ---
+
+@workspaces_bp.route('/notifications', methods=['GET'])
+@workspace_required
+def get_notifications():
+    """Get notifications for current user in current workspace."""
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+    try:
+        from app.models.notification_model import NotificationModel
+        notifs = NotificationModel.get_for_user(user_id, workspace_id, unread_only=unread_only)
+        count = NotificationModel.get_unread_count(user_id, workspace_id)
+        return jsonify({'notifications': notifs, 'unread_count': count}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@workspaces_bp.route('/notifications/read', methods=['POST'])
+@workspace_required
+def mark_notifications_read():
+    """Mark notifications as read."""
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json() or {}
+    ids = data.get('ids')  # optional list of specific IDs
+    try:
+        from app.models.notification_model import NotificationModel
+        NotificationModel.mark_read(user_id, notification_ids=ids, workspace_id=workspace_id if not ids else None)
+        return jsonify({'ok': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # --- Invites ---
 
 @workspaces_bp.route("/invites", methods=["GET"])
@@ -263,7 +316,53 @@ def create_invite():
     if current_role == "admin" and role == "admin":
         return jsonify({"error": "Admins cannot invite other admins"}), 403
         
-    invite = WorkspaceInvitesModel.create_invite(ws_id, email, role, user_id)
+    # Check if user is already a member
+    existing_member = WorkspaceModel.get_role(ws_id, None)  # skip — check by email below
+    try:
+        import psycopg2
+        from app.config import Config
+        with Config.get_postgres_connection() as _conn:
+            with _conn.cursor() as _cur:
+                _cur.execute(
+                    "SELECT user_id FROM users WHERE email = %s", (email.lower().strip(),)
+                )
+                _existing_user = _cur.fetchone()
+                if _existing_user:
+                    _cur.execute(
+                        "SELECT role FROM workspace_members WHERE workspace_id = %s AND user_id = %s",
+                        (ws_id, _existing_user[0])
+                    )
+                    if _cur.fetchone():
+                        return jsonify({"error": f"{email} is already a member of this workspace"}), 409
+    except Exception:
+        pass
+
+    try:
+        invite = WorkspaceInvitesModel.create_invite(ws_id, email, role, user_id)
+    except Exception as e:
+        err_str = str(e).lower()
+        if "unique" in err_str or "duplicate" in err_str or "uq_ws_invite" in err_str:
+            return jsonify({"error": f"An invitation for {email} is already pending. Check your pending invites."}), 409
+        return jsonify({"error": str(e)}), 500
+    # Send invite email
+    try:
+        from app.utils.mailer import send_workspace_invite_email
+        from app.models.user_model import UserModel
+        workspace = WorkspaceModel.get_by_id(ws_id) or {}
+        inviter = UserModel.get_user_by_id(user_id) or {}
+        inviter_name = inviter.get('display_name') or inviter.get('full_name') or inviter.get('email', 'A teammate')
+        ws_name = workspace.get('name', 'a workspace')
+        frontend_base = os.environ.get('FRONTEND_URL', 'https://kynetropo.com/app')
+        invite_link = f"{frontend_base}/invite/accept?token={invite['token']}"
+        send_workspace_invite_email(
+            to_email=email,
+            inviter_name=inviter_name,
+            workspace_name=ws_name,
+            role=role,
+            invite_link=invite_link,
+        )
+    except Exception as email_err:
+        print(f"[invite] Email send failed (non-fatal): {email_err}")
     return jsonify({"invite": invite, "message": "Invite created successfully"}), 201
 
 @workspaces_bp.route("/invites/<invite_id>", methods=["DELETE"])
@@ -304,4 +403,25 @@ def accept_invite():
     WorkspaceModel.add_member(invite["workspace_id"], user_id, invite["role"])
     WorkspaceInvitesModel.delete_invite(invite["id"], invite["workspace_id"])
 
-    return jsonify({"message": "Invite accepted successfully", "workspace_id": invite["workspace_id"]}), 200
+    workspace = WorkspaceModel.get_by_id(invite["workspace_id"])
+
+    # Notify workspace members that someone joined
+    accepting_user_id = user_id
+    try:
+        from app.models.notification_model import NotificationModel
+        from app.models.user_model import UserModel as _UserModel
+        accepting_user = _UserModel.get_user_by_id(accepting_user_id) or {}
+        joining_name = accepting_user.get('display_name') or accepting_user.get('email', 'A new member')
+        ws_name = (workspace or {}).get('name', '')
+        NotificationModel.broadcast_to_workspace(
+            workspace_id=invite.get('workspace_id'),
+            event_type=NotificationModel.MEMBER_JOINED,
+            title=f"{joining_name} joined the workspace",
+            body=f"{joining_name} accepted an invitation and joined {ws_name}",
+            actor_id=accepting_user_id,
+            exclude_user_id=accepting_user_id,
+        )
+    except Exception as ne:
+        print(f"[invite] Notification failed (non-fatal): {ne}")
+
+    return jsonify({"workspace": workspace, "role": invite["role"]}), 200

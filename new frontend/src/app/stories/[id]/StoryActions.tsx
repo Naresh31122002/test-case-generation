@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { Story } from "@/lib/seed";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
+import { useCanDo } from "@/contexts/RBACContext";
 import { api } from "@/lib/api";
 import { BASE_URL, post, get } from "@/lib/apiClient";
 
@@ -626,6 +627,7 @@ type ActiveModal = "upload" | "compare" | null;
 export function StoryActions({ story, onVersionUploaded }: { story: Story; onVersionUploaded?: (versionNumber?: number) => void }) {
   const [active, setActive] = useState<ActiveModal>(null);
   const { runAIAction } = useAIAction();
+  const canCreate = useCanDo("can_create_stories");
   const close = () => setActive(null);
 
   // Generate Tests — calls real backend regenerate endpoint
@@ -638,7 +640,7 @@ export function StoryActions({ story, onVersionUploaded }: { story: Story; onVer
     });
 
   const buttons: { id: string; label: string; icon: LucideIcon; onClick: () => void }[] = [
-    { id: "upload",  label: "Upload New Version", icon: Upload,     onClick: () => setActive("upload") },
+    ...(canCreate ? [{ id: "upload",  label: "Upload New Version", icon: Upload,     onClick: () => setActive("upload") }] : []),
     { id: "compare", label: "Compare",            icon: GitCompare, onClick: () => setActive("compare") },
   ];
 

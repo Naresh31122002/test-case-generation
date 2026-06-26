@@ -366,3 +366,35 @@ class WorkspaceModel:
         finally:
             cursor.close()
             conn.close()
+
+    @classmethod
+    def get_member_permissions(cls, workspace_id: str, user_id: str) -> dict:
+        """Return a dict of permission flags for a user in a workspace."""
+        import psycopg2.extras
+        try:
+            conn = Config.get_postgres_connection()
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT role, can_create_stories, can_generate_tests, can_edit_tests,
+                           can_delete_stories, can_manage_members
+                    FROM workspace_members
+                    WHERE workspace_id = %s AND user_id = %s
+                """, (workspace_id, user_id))
+                row = cur.fetchone()
+            conn.close()
+            if not row:
+                return {}
+            d = dict(row)
+            role = d.get('role', 'viewer')
+            # Derive permissions from role if columns are NULL (pre-migration rows)
+            return {
+                'role': role,
+                'can_create_stories': d.get('can_create_stories') if d.get('can_create_stories') is not None else role in ('owner','admin','editor'),
+                'can_generate_tests': d.get('can_generate_tests') if d.get('can_generate_tests') is not None else role in ('owner','admin','editor'),
+                'can_edit_tests':     d.get('can_edit_tests') if d.get('can_edit_tests') is not None else role in ('owner','admin','editor'),
+                'can_delete_stories': d.get('can_delete_stories') if d.get('can_delete_stories') is not None else role in ('owner','admin'),
+                'can_manage_members': d.get('can_manage_members') if d.get('can_manage_members') is not None else role in ('owner','admin'),
+            }
+        except Exception as e:
+            print(f"[permissions] Error: {e}")
+            return {}

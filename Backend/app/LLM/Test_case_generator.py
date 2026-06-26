@@ -27,10 +27,6 @@ MAX_MAIN_TEXT_CHARS = 5000
 BATCH_SIZE = 10  # Increased batch size for more efficient generation
 MAX_RETRIES = 3
 
-# Load prompt
-with open("app/LLM/test_case_prompt.txt", "r", encoding="utf-8") as f:
-    INSTRUCTIONS = f.read()
-
 class JSONResponseHandler:
     @staticmethod
     def extract_json_from_text(text: str) -> str:
@@ -98,7 +94,31 @@ class JSONResponseHandler:
         # Validate priority
         if test_case["priority"] not in ["High", "Medium", "Low"]:
             test_case["priority"] = "Medium"
-            
+
+        # Preserve optional enrichment fields
+        if 'rationale' not in test_case:
+            test_case['rationale'] = ''
+        if 'requirement_ref' not in test_case:
+            test_case['requirement_ref'] = ''
+
+        # Ensure new QA fields exist with proper defaults
+        if 'preconditions' not in test_case or not isinstance(test_case.get('preconditions'), list):
+            test_case['preconditions'] = []
+        if 'test_data' not in test_case or not isinstance(test_case.get('test_data'), dict):
+            test_case['test_data'] = {}
+        if 'severity' not in test_case or test_case['severity'] not in ['Critical', 'High', 'Medium', 'Low']:
+            # Derive from priority if missing
+            p = test_case.get('priority', 'Medium')
+            test_case['severity'] = {'High': 'High', 'Medium': 'Medium', 'Low': 'Low'}.get(p, 'Medium')
+        if 'tags' not in test_case or not isinstance(test_case.get('tags'), list):
+            test_case['tags'] = []
+        if 'automation_feasibility' not in test_case or test_case['automation_feasibility'] not in ['High', 'Medium', 'Low']:
+            test_case['automation_feasibility'] = 'Medium'
+        if 'estimated_duration_minutes' not in test_case:
+            test_case['estimated_duration_minutes'] = 5
+        if 'category' not in test_case:
+            test_case['category'] = 'functional'
+
         return test_case
 
     @staticmethod
@@ -142,6 +162,57 @@ class JSONResponseHandler:
         except Exception as e:
             print(f"Error in response parsing: {str(e)}")
             raise
+
+def _deduplicate_test_cases(test_cases: List[Dict]) -> List[Dict]:
+    """
+    Remove near-duplicate test cases using title similarity.
+    Two test cases are considered duplicates if their titles share >80% of words
+    (after normalization) or if they have identical first steps.
+
+    Keeps the FIRST occurrence (highest priority batch categories come first).
+    """
+    if not test_cases:
+        return test_cases
+
+    seen_title_tokens: List[set] = []
+    seen_first_steps: List[str] = []
+    unique: List[Dict] = []
+
+    for tc in test_cases:
+        title = tc.get('title', '').lower()
+        # Normalize: remove punctuation, split to words, remove stop words
+        import re as _re
+        words = set(_re.sub(r'[^a-z0-9 ]', '', title).split()) - {'the', 'a', 'an', 'with', 'for', 'and', 'or', 'to', 'of', 'in', 'on', 'is', 'are', 'that', 'this', 'when', 'be', 'not'}
+
+        first_step = (tc.get('steps') or [''])[0].lower()[:80]
+
+        # Check for near-duplicate title
+        is_dup = False
+        for seen_words in seen_title_tokens:
+            if not seen_words or not words:
+                continue
+            intersection = seen_words & words
+            union = seen_words | words
+            jaccard = len(intersection) / len(union) if union else 0
+            if jaccard >= 0.75:  # 75% word overlap = duplicate
+                is_dup = True
+                break
+
+        # Also check identical first step (catches same test, different title phrasing)
+        if not is_dup and first_step in seen_first_steps:
+            is_dup = True
+
+        if not is_dup:
+            seen_title_tokens.append(words)
+            if first_step:
+                seen_first_steps.append(first_step)
+            unique.append(tc)
+
+    removed = len(test_cases) - len(unique)
+    if removed > 0:
+        print(f"[dedup] Removed {removed} duplicate test cases, {len(unique)} remain")
+    return unique
+
 
 class TestCaseGenerator:
     def __init__(self):
@@ -234,7 +305,7 @@ class TestCaseGenerator:
             for category, count in counts.items()
         }
 
-    def generate_test_cases(self, story_id: str, story_description: str, rag_context_section: str = "") -> Dict:
+    def generate_test_cases(self, story_id: str, story_description: str, main_text: str = "", rag_context_section: str = "") -> Dict:
         """Generate test cases for a given user story"""
         try:
             # Initialize the final result
@@ -247,7 +318,7 @@ class TestCaseGenerator:
             }
             
             # Get story complexity and determine test case counts
-            complexity = self.get_story_complexity(story_description, story_description)
+            complexity = self.get_story_complexity(story_description, main_text or story_description)
             category_counts = self.get_category_counts(complexity)
             
             # Define test case categories with dynamic counts
@@ -291,16 +362,27 @@ class TestCaseGenerator:
                         category["focus"],
                         len(final_test_cases["test_cases"]),
                         batch_count,
+                        main_text=main_text or story_description,
                         rag_context_section=rag_context_section,
                     )
                     
                     if "test_cases" in batch:
+                        # Tag each TC with its category before extending
+                        for tc in batch["test_cases"]:
+                            if not tc.get("category"):
+                                tc["category"] = category["type"]
                         final_test_cases["test_cases"].extend(batch["test_cases"])
                         remaining -= len(batch["test_cases"])
                     else:
                         print(f"Warning: No test cases generated for {category['type']} batch")
                         break
             
+            # Remove near-duplicate test cases across batches
+            final_test_cases["test_cases"] = _deduplicate_test_cases(final_test_cases["test_cases"])
+            # Re-sequence IDs after deduplication
+            for i, tc in enumerate(final_test_cases["test_cases"]):
+                tc["id"] = f"{story_id}-TC{i + 1}"
+
             # Update total count
             final_test_cases["total_test_cases"] = len(final_test_cases["test_cases"])
 
@@ -316,7 +398,7 @@ class TestCaseGenerator:
             print(f"Error generating test cases: {e}")
             raise
 
-    def generate_test_cases_batch(self, story_id: str, story_description: str, test_type: str, focus_areas: List[str], current_count: int, batch_size: int, rag_context_section: str = "") -> Dict:
+    def generate_test_cases_batch(self, story_id: str, story_description: str, test_type: str, focus_areas: List[str], current_count: int, batch_size: int, main_text: str = "", rag_context_section: str = "") -> Dict:
         """Generate a batch of test cases for a given category"""
         for attempt in range(MAX_RETRIES):
             try:
@@ -324,67 +406,80 @@ class TestCaseGenerator:
 
                 rag_block = f"\n\n{rag_context_section}" if rag_context_section else ""
 
-                batch_prompt = f"""You are a Senior QA Architect with 15+ years of experience in enterprise software testing.
-Your task is to generate exactly {actual_batch_size} {test_type} test cases for this user story.
+                story_context = main_text if main_text else story_description
+                already_generated_titles = ""
+                # Note: we don't have the full list here, just current_count used for IDs
 
-Story ID: {story_id}
-Description: {story_description}{rag_block}
+                batch_prompt = f"""You are a Senior QA Architect with 15+ years of enterprise testing experience.
+Generate exactly {actual_batch_size} {test_type} test cases for the user story below.
 
-Focus Areas for this batch:
+STORY ID: {story_id}
+STORY SUMMARY: {story_description}
+
+FULL STORY CONTENT:
+{story_context}
+{rag_block}
+
+FOCUS AREAS FOR THIS BATCH ({test_type.upper()}):
 {chr(10).join(f"- {area}" for area in focus_areas)}
 
-Requirements:
-1. Generate ONLY {test_type} test cases
-2. Each test case must be unique and detailed
-3. Focus on the areas listed above
-4. Include specific validation points
-5. Consider error scenarios and edge cases
+INSTRUCTIONS:
+1. Generate ONLY {test_type} test cases — no other types
+2. Ground every test case in the actual story content above — no invented scenarios
+3. Steps must reference specific data, fields, values, or conditions from the story
+4. Expected results must be specific and verifiable (mention specific messages, codes, states)
+5. Each test case must be unique — do not repeat scenarios already implied by the story
+6. For boundary tests: specify exact threshold values from the story (e.g. "51 characters when max is 50")
+7. For security tests: tie to the specific auth/permission model described in the story
+8. For performance tests: reference specific load numbers or SLAs from the story if present
+9. Add a "rationale" field: one sentence explaining which requirement this test case covers
+10. Add a "requirement_ref" field: quote the specific sentence or AC item from the story this covers (or "General" if none)
+11. preconditions: List specific system state required (user roles, data records, feature flags, env vars)
+12. test_data: Specific field→value mappings (not "valid email" — actual value like "testuser@example.com")
+13. severity: Critical=system unusable, High=major feature broken, Medium=degraded experience, Low=cosmetic
+14. tags: Choose from: smoke, regression, boundary, security, performance, accessibility, api, ui, integration
+15. automation_feasibility: High=pure UI/API steps, Medium=requires test data setup, Low=needs manual judgment
+16. estimated_duration_minutes: Realistic estimate (1-60 minutes)
+17. category MUST be exactly "{test_type}" (already set in the prompt variable)
 
-CRITICAL: Your response MUST be a valid JSON object with this exact structure:
+Return ONLY valid JSON, no markdown, no explanation:
 {{
     "test_cases": [
         {{
             "id": "{story_id}-TC{current_count + 1}",
-            "title": "Detailed description of what is being tested",
-            "steps": [
-                "Step 1: Detailed step with specific actions",
-                "Step 2: Detailed step with validation points"
+            "title": "Specific, unambiguous description of what is being tested",
+            "preconditions": [
+                "System state or data that must exist before test starts",
+                "e.g., User account exists with role Admin",
+                "e.g., Database has 3 existing records"
             ],
-            "expected_result": "Comprehensive description of expected outcomes",
-            "priority": "High" | "Medium" | "Low"
+            "test_data": {{
+                "description": "Specific values to use in this test",
+                "values": {{
+                    "field_name": "exact_value"
+                }}
+            }},
+            "steps": [
+                "Step 1: [specific action] using [specific data value]",
+                "Step 2: [specific validation] — verify [exact expected value]"
+            ],
+            "expected_result": "Specific, verifiable outcome with exact system response, error message, redirect, or data state",
+            "priority": "High|Medium|Low",
+            "category": "{test_type}",
+            "severity": "Critical|High|Medium|Low",
+            "tags": ["smoke", "regression", "boundary", "security", "api", "ui"],
+            "automation_feasibility": "High|Medium|Low",
+            "estimated_duration_minutes": 5,
+            "rationale": "One sentence: which requirement this test covers",
+            "requirement_ref": "Quoted sentence from story or AC item, or General"
         }}
     ]
-}}
-
-Remember:
-- Be extremely detailed and specific
-- Include all necessary validation points
-- Make steps clear and actionable
-- Include specific test data
-- Return ONLY the JSON object, no other text
-- Do not use markdown code blocks"""
+}}"""
 
                 # Call LLM
                 response = Config.llm.invoke(batch_prompt)
                 response_text = response.content.strip()
 
-                # Track token usage
-                try:
-                    from app.utils.token_tracker import log_token_usage, extract_groq_tokens
-                    inp, out = extract_groq_tokens(response)
-                    log_token_usage(
-                        action="generate_test_cases",
-                        provider="groq",
-                        model="llama-3.3-70b-versatile",
-                        input_tokens=inp,
-                        output_tokens=out,
-                        workspace_id=workspace_id,
-                        user_id=user_id,
-                        story_id=story_id,
-                    )
-                except Exception:
-                    pass
-                
                 # Use the new JSON handler to parse and validate the response
                 batch_test_cases = JSONResponseHandler.parse_and_validate_response(
                     response_text,
@@ -425,13 +520,13 @@ Remember:
         
         return formatted
 
-def generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None):
+def generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = ""):
     """Synchronous wrapper for async function"""
     if llm_ref is None:
         llm_ref = Config.llm
-    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id, workspace_id=workspace_id))
+    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id, workspace_id=workspace_id, quality_hints=quality_hints))
 
-async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None):
+async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = ""):
     """Async implementation of test case generation"""
     if llm_ref is None:
         llm_ref = Config.llm
@@ -488,7 +583,10 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, wo
             print(f"[rag] Context fetch failed (non-fatal): {rag_err}")
 
         # Use the dynamic test case generation
-        test_cases = generator.generate_test_cases(story_id, story_description, rag_context_section=rag_context_section)
+        combined_context = rag_context_section
+        if quality_hints:
+            combined_context = combined_context + "\n\n" + quality_hints if combined_context else quality_hints
+        test_cases = generator.generate_test_cases(story_id, story_description, main_text=main_text, rag_context_section=combined_context)
 
         if test_cases and test_cases.get("test_cases"):
             # Insert test cases into database
@@ -501,7 +599,8 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, wo
                 inputs={
                     "story_description": story_description,
                     "main_text": main_text,
-                    "project_id": project_id
+                    "project_id": project_id,
+                    "page_url": row.get("page_url", "")
                 },
                 user_id=resolved_user_id,
                 workspace_id=resolved_workspace_id

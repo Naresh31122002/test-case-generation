@@ -12,10 +12,12 @@ import {
   PieChart,
   type LucideIcon,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import type { Story as SeedStory, TestCase as SeedTestCase, CoverageGap, ImpactedTest } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
 import { StatusChip } from "@/components/ui/StatusChip";
+import { InlineTooltip } from "@/components/ui/InlineTooltip";
 import { duration, easeStandard } from "@/lib/motion";
 import { useProject } from "@/contexts/ProjectContext";
 import { PageLayout, PageHeader, PageActions } from "@/components/layout/PageLayout";
@@ -43,11 +45,11 @@ const ImpactTab = dynamic(() => import("./tabs/ImpactTab").then((m) => m.ImpactT
 
 type Tab = "overview" | "tests" | "coverage" | "impact";
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "overview", label: "Overview", icon: FileText },
-  { id: "tests",    label: "Tests",    icon: TestTube2 },
-  { id: "coverage", label: "Coverage", icon: PieChart },
-  { id: "impact",   label: "Impact",   icon: Zap },
+const TABS: { id: Tab; label: string; icon: LucideIcon; description: string }[] = [
+  { id: "overview", label: "Overview", icon: FileText,  description: "Story content, quality analysis, and AI insights" },
+  { id: "tests",    label: "Tests",    icon: TestTube2,  description: "View, approve, and manage generated test cases" },
+  { id: "coverage", label: "Coverage", icon: PieChart,   description: "See which requirements have test coverage" },
+  { id: "impact",   label: "Impact",   icon: Zap,        description: "Detect how this story affects other tests" },
 ];
 
 /* ─── Secondary contextual sidebar (Story navigation) ─── */
@@ -86,7 +88,7 @@ function StorySidebar({
               <button
                 type="button"
                 onClick={() => onSelect(tab.id)}
-                title={tab.label}
+                title={tab.description}
                 className={`relative w-full flex items-center gap-3 px-3 h-10 rounded-lg text-sm font-medium transition-colors duration-100 ${
                   isActive ? "text-navy" : "text-muted hover:bg-gray-50 hover:text-navy"
                 }`}
@@ -399,6 +401,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             <div className="flex items-center gap-2">
               <CoverageRing coverage={story.coverage} size={40} strokeWidth={4} />
               <span className="text-sm font-semibold text-navy">{story.coverage}% Coverage</span>
+              <InlineTooltip content="What % of this story's requirements have test cases. Click the Coverage tab to see which requirements are missing coverage." />
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-1.5 text-sm text-muted">
@@ -416,7 +419,23 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
             <div className={`flex items-center gap-1.5 text-sm font-medium ${story.impactCount > 0 ? "text-pink" : "text-muted"}`}>
               <Zap size={14} />
               <span>Impact: {story.impactCount}</span>
+              <InlineTooltip content="Number of test cases in OTHER stories that may need updating because of this story. 0 means no cross-story impact detected." />
             </div>
+            {story.pageUrl && (
+              <>
+                <span className="text-border">|</span>
+                <a
+                  href={story.pageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-sm text-cyan hover:text-cyan/80 transition-colors"
+                  title={story.pageUrl}
+                >
+                  <ExternalLink size={14} />
+                  <span className="max-w-[180px] truncate">{story.pageUrl.replace(/^https?:\/\//, '')}</span>
+                </a>
+              </>
+            )}
             <span className="text-border">|</span>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted">Updated {story.lastUpdated}</span>
@@ -426,6 +445,12 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                   : story.impactCount > 0
                   ? "Impact Detected"
                   : "Ready"
+              } title={
+                (story.testCount === 0 || isAnalyzing)
+                  ? "AI is generating test cases — this takes 30-60 seconds"
+                  : story.impactCount > 0
+                  ? "Impact detected — test cases in other stories may need updating"
+                  : "Test cases have been generated and are ready to review"
               } />
             </div>
           </div>
@@ -526,6 +551,7 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                       key={tab.id}
                       type="button"
                       onClick={() => setActiveTab(tab.id)}
+                      title={tab.description}
                       className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-btn text-sm font-medium transition-colors ${
                         isActive ? "bg-surface-pink text-pink" : "text-muted hover:text-navy hover:bg-gray-50"
                       }`}

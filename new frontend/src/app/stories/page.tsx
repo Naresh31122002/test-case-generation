@@ -30,9 +30,10 @@ import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { useProject } from "@/contexts/ProjectContext";
 import { NoProjects } from "@/components/projects/EmptyState";
+import { useCanDo } from "@/contexts/RBACContext";
 import { api } from "@/lib/api";
 import { domainStoryToSeed } from "@/lib/adapters";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, FileText } from "lucide-react";
 import { useStoriesStore, invalidateStories } from "@/lib/storiesStore";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { NewStoryButton } from "@/components/HeaderActions";
@@ -169,6 +170,8 @@ const savedFilters: SavedFilter[] = [
 export default function StoriesPage() {
   const { selectedProject, hasProjects, ready, reloadProjects } = useProject();
   const { notify } = useAIAction();
+  const canCreate = useCanDo("can_create_stories");
+  const canDelete = useCanDo("can_delete_stories");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState("All Types");
@@ -291,6 +294,16 @@ export default function StoriesPage() {
     });
   };
 
+  // Wait for ProjectContext to finish loading before rendering anything.
+  // Without this guard the page flashes "No Projects" then "empty stories" before real data arrives.
+  if (!ready) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 size={28} className="animate-spin text-muted" />
+      </div>
+    );
+  }
+
   // Empty config: no projects yet.
   if (storiesLoading) {
     return (
@@ -309,7 +322,7 @@ export default function StoriesPage() {
     <PageLayout>
       <PageHeader
         title="Stories"
-        actions={<PageActions primary={<NewStoryButton />} />}
+        actions={<PageActions primary={canCreate ? <NewStoryButton /> : null} />}
       />
 
       {/* Page content */}
@@ -323,7 +336,7 @@ export default function StoriesPage() {
             />
             <input
               type="text"
-              placeholder="Search stories…"
+              placeholder="Search stories by title or ID…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 h-9 text-sm border border-border rounded-btn bg-white text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/30 transition-colors"
@@ -473,6 +486,7 @@ export default function StoriesPage() {
               stories={selectedStories}
               onClear={clearSelection}
               onDelete={() => deleteStories(selectedStories.map((s) => s.id))}
+              canDelete={canDelete}
             />
           )}
         </AnimatePresence>
@@ -517,6 +531,7 @@ export default function StoriesPage() {
               selected={selected}
               onToggleSelect={toggleSelect}
               onDelete={(id) => deleteStories([id])}
+              canDelete={canDelete}
             />
           )}
         </AnimatePresence>
@@ -528,35 +543,26 @@ export default function StoriesPage() {
 }
 
 function EmptyState({ hasSearch }: { hasSearch: boolean }) {
-  const [showPaths, setShowPaths] = useState(false);
+  if (hasSearch) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Search size={32} className="text-muted mb-3" />
+        <p className="text-sm font-medium text-navy mb-1">No stories match your search</p>
+        <p className="text-xs text-muted">Try different keywords or clear the search</p>
+      </div>
+    );
+  }
   return (
-    <motion.div
-      {...fadeInUp}
-      className="flex flex-col items-center justify-center py-24 text-center"
-    >
-      <BookOpen size={48} className="text-muted mb-4" />
-      <h2 className="text-h2 text-navy mb-2">
-        {hasSearch ? "No stories match your search" : "No stories yet"}
-      </h2>
-      <p className="text-sm text-muted max-w-sm mb-6">
-        {hasSearch
-          ? "Try a different search term or clear filters."
-          : "Upload a user story, paste requirements, or import from Jira to get started."}
-      </p>
-      {!hasSearch && (
-        <>
-          <button
-            type="button"
-            onClick={() => setShowPaths(true)}
-            className="inline-flex items-center gap-2 bg-pink text-white text-sm font-medium px-4 h-9 rounded-btn hover:bg-[#e0005f] transition-colors"
-          >
-            <Plus size={16} />
-            Create Your First Story
-          </button>
-          <NewStoryModal open={showPaths} onClose={() => setShowPaths(false)} />
-        </>
-      )}
-    </motion.div>
+    <div className="flex flex-col items-center justify-center py-16 text-center max-w-sm mx-auto">
+      <div className="w-16 h-16 rounded-2xl bg-pink/5 border border-border flex items-center justify-center mb-4">
+        <FileText size={24} className="text-pink" />
+      </div>
+      <p className="text-base font-semibold text-navy mb-2">No stories yet</p>
+      <p className="text-xs text-muted mb-5 leading-relaxed">Upload a user story or requirements document to generate AI-powered test cases.</p>
+      <a href="/stories/new" className="inline-flex items-center gap-2 h-9 px-5 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors">
+        <Plus size={14} /> Upload a story
+      </a>
+    </div>
   );
 }
 
@@ -565,11 +571,13 @@ function BulkActionBar({
   stories,
   onClear,
   onDelete,
+  canDelete,
 }: {
   count: number;
   stories: Story[];
   onClear: () => void;
   onDelete: () => void;
+  canDelete: boolean;
 }) {
   const { runAIAction } = useAIAction();
   const ids = stories.map((s) => s.id).join(",");
@@ -614,6 +622,7 @@ function BulkActionBar({
         <Download size={15} />
         Export
       </Link>
+      {canDelete && (
       <button
         type="button"
         onClick={onDelete}
@@ -622,6 +631,7 @@ function BulkActionBar({
         <Trash2 size={15} />
         Delete
       </button>
+      )}
       <button
         type="button"
         onClick={onClear}
@@ -882,6 +892,7 @@ function ListView({
   selected,
   onToggleSelect,
   onDelete,
+  canDelete,
 }: {
   stories: Story[];
   openMenu: string | null;
@@ -889,6 +900,7 @@ function ListView({
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  canDelete: boolean;
 }) {
   return (
     <motion.div
@@ -1003,6 +1015,7 @@ function ListView({
                   Export
                 </Link>
                 <div className="my-1 border-t border-border" />
+                {canDelete && (
                 <button
                   onClick={() => { setOpenMenu(null); onDelete(story.id); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-error hover:bg-[#FEF2F2] transition-colors"
@@ -1010,6 +1023,7 @@ function ListView({
                   <Trash2 size={14} />
                   Delete Story
                 </button>
+                )}
               </div>
             )}
           </div>

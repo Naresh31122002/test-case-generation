@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { GitPullRequest, Loader2 } from "lucide-react";
+import { GitPullRequest, Loader2, Zap, FileText, Target } from "lucide-react";
+import { FeatureIntroCard } from "@/components/ui/FeatureIntroCard";
 type ChangeStatus = "Pending" | "Approved" | "Rejected";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { api } from "@/lib/api";
@@ -131,6 +132,17 @@ export default function ChangesPage() {
 
       {/* Content */}
       <PageBody>
+        <FeatureIntroCard
+          storageKey="changes"
+          icon={Zap}
+          title="Change Impact Detection"
+          description="When you upload a new version of a story, TestSurge compares it against the previous version and identifies which existing test cases are still valid, which need updating, and which new tests are required."
+          learnMoreItems={[
+            { icon: FileText, label: "Version comparison", desc: "AI diffs old vs new story to find requirement changes" },
+            { icon: Target, label: "Impacted tests", desc: "Tests that need updating because requirements changed" },
+            { icon: Zap, label: "New tests needed", desc: "New requirements that have no test coverage yet" },
+          ]}
+        />
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 size={32} className="animate-spin text-muted" />

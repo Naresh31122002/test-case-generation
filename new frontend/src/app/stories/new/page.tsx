@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAIAction, AI_ACTION_COSTS } from "@/contexts/AIActionContext";
 import { useProject } from "@/contexts/ProjectContext";
 import { makeStoryId } from "@/lib/storyId";
+import { StepProgress } from "@/components/ui/StepProgress";
 
 /** Shared mock async op (~1.8s, ~10% failure) for the Create Story flow. */
 function mockRunNewStory(ms = 1800): Promise<void> {
@@ -19,7 +20,6 @@ import {
   Upload,
   AlertTriangle,
   Sparkles,
-  CheckCircle2,
   FileText,
   X,
   Zap,
@@ -28,6 +28,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Globe,
 } from "lucide-react";
 import { easeStandard, easeOut, duration, spring } from "@/lib/motion";
 
@@ -94,24 +95,13 @@ function parsePastedStories(raw: string): string[] {
 }
 
 const testTypes = [
-  { id: "functional", label: "Functional", description: "Core happy-path scenarios", count: "~8 tests" },
-  { id: "negative", label: "Negative", description: "Invalid inputs, wrong states", count: "~4 tests" },
-  { id: "boundary", label: "Boundary", description: "Edge values, limits", count: "~3 tests" },
-  { id: "security", label: "Security", description: "Auth, injection, permissions", count: "~3 tests" },
+  { id: "functional", label: "Functional", description: "Happy path scenarios, core workflows", count: "~8 tests" },
+  { id: "negative", label: "Negative", description: "Error handling, invalid inputs, edge cases", count: "~4 tests" },
+  { id: "boundary", label: "Boundary", description: "Limit testing, min/max values, thresholds", count: "~3 tests" },
+  { id: "security", label: "Security", description: "Auth checks, injection prevention, access control", count: "~3 tests" },
   { id: "accessibility", label: "Accessibility", description: "ARIA, keyboard, contrast", count: "~2 tests" },
 ];
 
-const qualityIssues = [
-  { title: "Missing acceptance criteria for error states", description: "No criteria for server-unavailable scenario.", area: "Completeness" },
-  { title: "User role is ambiguous", description: "Which type of user? Admin, guest, or standard?", area: "Clarity" },
-  { title: "No definition of post-lockout behavior", description: "Unlock after 15 minutes — automatic or manual reset?", area: "Testability" },
-];
-
-const steps: { id: StepId; label: string }[] = [
-  { id: 1, label: "Input" },
-  { id: 2, label: "Settings" },
-  { id: 3, label: "Generate" },
-];
 
 export default function CreateStoryPage() {
   const { selectedProject } = useProject();
@@ -121,6 +111,7 @@ export default function CreateStoryPage() {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [jiraKeys, setJiraKeys] = useState<string[]>([]);
+  const [storyUrl, setStoryUrl] = useState("");
   const [detected, setDetected] = useState<DetectedStory[] | null>(null);
   const [checkedTypes, setCheckedTypes] = useState(
     Object.fromEntries(testTypes.map((t) => [t.id, true]))
@@ -133,42 +124,68 @@ export default function CreateStoryPage() {
     selectedProject?.id ??
     (typeof window !== "undefined" ? localStorage.getItem("activeProject") ?? "default" : "default");
 
+  // Step 0: project name for first-time users (no existing project / default only)
+  const [showProjectStep, setShowProjectStep] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+
+  useEffect(() => {
+    const active = typeof window !== "undefined" ? localStorage.getItem("activeProject") : null;
+    const pending = typeof window !== "undefined" ? localStorage.getItem("pendingProject") : null;
+    if (pending) {
+      setNewProjectName(pending);
+      localStorage.removeItem("pendingProject");
+    }
+    // Show the project naming step when there is no meaningful active project yet
+    // (i.e. the user has not completed onboarding or came here directly).
+    if (!active || active === "default") {
+      setShowProjectStep(true);
+    }
+  }, []);
+
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
+  const [qualityBreakdown, setQualityBreakdown] = useState<Array<{ label: string; value: number }>>([]);
+  const [qualityIssuesList, setQualityIssuesList] = useState<Array<{ title: string; description: string; area: string }>>([]);
+  const [qualityFullResult, setQualityFullResult] = useState<any>(null);
+
   const goTo = (next: StepId) => {
     setPrevStep(step);
     setStep(next);
     if (next === 3) {
       const content = pasteBlocks.join("\n---\n").trim();
       if (content) {
-        setQualityLoading(true);
-        import("@/lib/api").then(async ({ api }) => {
-          try {
-            const result = await api.analyzeStoryContent(content);
-            setQualityScore(result.overall_score);
-            setQualityBreakdown([
-              { label: "Completeness", value: result.completeness },
-              { label: "Clarity", value: result.clarity },
-              { label: "Testability", value: result.testability },
-            ]);
-            setQualityIssuesList(result.issues ?? []);
-          } catch {
-            setQualityScore(0);
-            setQualityIssuesList([]);
-          } finally {
-            setQualityLoading(false);
-          }
-        });
+        runQualityAnalysis(content);
       }
     }
   };
 
-  const [qualityLoading, setQualityLoading] = useState(false);
-  const [qualityScore, setQualityScore] = useState(87);
-  const [qualityBreakdown, setQualityBreakdown] = useState([
-    { label: "Completeness", value: 80 },
-    { label: "Clarity", value: 95 },
-    { label: "Testability", value: 63 },
-  ]);
-  const [qualityIssuesList, setQualityIssuesList] = useState<Array<{ title: string; description: string; area: string }>>(qualityIssues);
+  /** Re-run quality analysis with the given content (Fix 3 — called after story improvement). */
+  function runQualityAnalysis(content: string) {
+    setQualityLoading(true);
+    setQualityScore(null);
+    setQualityBreakdown([]);
+    setQualityIssuesList([]);
+    import("@/lib/api").then(async ({ api }) => {
+      try {
+        const result = await api.analyzeStoryContent(content);
+        setQualityScore(result.overall_score);
+        setQualityBreakdown([
+          { label: "Completeness", value: result.completeness },
+          { label: "Clarity", value: result.clarity },
+          { label: "Testability", value: result.testability },
+        ]);
+        setQualityIssuesList(result.issues ?? []);
+        setQualityFullResult(result); // store full result for improve-from-analysis
+      } catch {
+        setQualityScore(0);
+        setQualityBreakdown([]);
+        setQualityIssuesList([]);
+        setQualityFullResult(null);
+      } finally {
+        setQualityLoading(false);
+      }
+    });
+  }
 
   const direction = step > prevStep ? 1 : -1;
 
@@ -185,43 +202,57 @@ export default function CreateStoryPage() {
         <h1 className="text-2xl font-semibold text-navy">Create Story</h1>
       </div>
 
+      {/* Step progress bar */}
+      <div className="px-8 py-4 border-b border-border bg-white">
+        <StepProgress
+          steps={[
+            { id: 1, label: "Upload Story", description: "Add your requirements document" },
+            { id: 2, label: "Configure", description: "Set generation options" },
+            { id: 3, label: "Analyze", description: "Review quality insights" },
+          ]}
+          current={step}
+        />
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto py-10">
         <div className="max-w-[720px] mx-auto px-6">
-          {/* Step indicator */}
-          <div className="flex items-center justify-center gap-0 mb-10">
-            {steps.map((s, i) => (
-              <div key={s.id} className="flex items-center">
-                <motion.div
-                  className="flex items-center gap-2"
-                  animate={{ scale: step === s.id ? 1.05 : 1 }}
-                  transition={spring.snappy}
-                >
-                  <div
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors duration-200 ${
-                      step === s.id
-                        ? "bg-pink border-pink text-white"
-                        : step > s.id
-                        ? "bg-pink border-pink text-white"
-                        : "bg-white border-border text-muted"
-                    }`}
-                  >
-                    {step > s.id ? <CheckCircle2 size={14} /> : s.id}
-                  </div>
-                  <span
-                    className={`text-sm font-medium transition-colors duration-200 ${
-                      step === s.id ? "text-pink" : step > s.id ? "text-navy" : "text-muted"
-                    }`}
-                  >
-                    {s.label}
-                  </span>
-                </motion.div>
-                {i < steps.length - 1 && (
-                  <div className="w-12 h-px bg-border mx-3" />
-                )}
-              </div>
-            ))}
-          </div>
+          {/* Step 0: project naming for first-time users (shown before the upload wizard) */}
+          {showProjectStep && (
+            <div className="bg-white border border-border rounded-card p-6 mb-6">
+              <h2 className="text-lg font-semibold text-navy mb-2">Name your project</h2>
+              <p className="text-sm text-muted mb-4">
+                Projects organise your stories. You can create more later.
+              </p>
+              <input
+                autoFocus
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newProjectName.trim()) {
+                    if (newProjectName.trim()) {
+                      localStorage.setItem("pendingProject", newProjectName.trim());
+                    }
+                    setShowProjectStep(false);
+                  }
+                }}
+                placeholder="e.g. Mobile App, Backend API, Payment Flow"
+                className="w-full h-11 px-4 rounded-lg border border-border text-sm text-navy focus:outline-none focus:border-pink mb-4"
+              />
+              <button
+                onClick={() => {
+                  if (newProjectName.trim()) {
+                    localStorage.setItem("pendingProject", newProjectName.trim());
+                  }
+                  setShowProjectStep(false);
+                }}
+                disabled={!newProjectName.trim()}
+                className="h-10 px-6 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors disabled:opacity-40"
+              >
+                Continue
+              </button>
+            </div>
+          )}
 
           {/* Step content */}
           <AnimatePresence mode="wait" custom={direction}>
@@ -239,6 +270,8 @@ export default function CreateStoryPage() {
                 setJiraKeys={setJiraKeys}
                 detected={detected}
                 setDetected={setDetected}
+                storyUrl={storyUrl}
+                setStoryUrl={setStoryUrl}
                 onContinue={() => goTo(2)}
               />
             )}
@@ -261,10 +294,13 @@ export default function CreateStoryPage() {
                 files={files}
                 pasteBlocks={pasteBlocks}
                 projectId={projectId}
+                storyUrl={storyUrl}
                 qualityLoading={qualityLoading}
                 qualityScore={qualityScore}
                 qualityBreakdown={qualityBreakdown}
                 qualityIssuesList={qualityIssuesList}
+                qualityFullResult={qualityFullResult}
+                onQualityReAnalyze={runQualityAnalysis}
               />
             )}
           </AnimatePresence>
@@ -474,7 +510,8 @@ function FilePreviewModal({ file, onClose }: { file: File; onClose: () => void }
 
 function StepInput({
   direction, pasteBlocks, setPasteBlocks,
-  dragging, setDragging, files, setFiles, jiraKeys, setJiraKeys, detected, setDetected, onContinue,
+  dragging, setDragging, files, setFiles, jiraKeys, setJiraKeys, detected, setDetected,
+  storyUrl, setStoryUrl, onContinue,
 }: {
   direction: number;
   pasteBlocks: string[];
@@ -487,6 +524,8 @@ function StepInput({
   setJiraKeys: (v: string[]) => void;
   detected: DetectedStory[] | null;
   setDetected: (d: DetectedStory[] | null) => void;
+  storyUrl: string;
+  setStoryUrl: (v: string) => void;
   onContinue: () => void;
 }) {
   const [jiraInput, setJiraInput] = useState("");
@@ -639,7 +678,7 @@ function StepInput({
           </button>
 
           <p className="text-xs text-muted">
-            Add a block per story, or paste several in one block separated by a line containing{" "}
+            Add a story block per story, or paste several in one block separated by a line containing{" "}
             <code className="px-1 py-0.5 rounded bg-gray-100 text-navy">---</code>. Minimum {MIN_STORY_CHARS} characters per story.
           </p>
 
@@ -792,6 +831,24 @@ function StepInput({
             <Link href="/settings/integrations" className="text-cyan hover:underline">Connect Jira</Link>
           </p>
         </div>
+      </section>
+
+      {/* ── Section: Page URL ── */}
+      <section className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Globe size={14} className="text-cyan" />
+          <h3 className="text-sm font-semibold text-navy">App URL <span className="text-muted font-normal text-xs">(optional)</span></h3>
+        </div>
+        <input
+          type="url"
+          value={storyUrl}
+          onChange={(e) => setStoryUrl(e.target.value)}
+          placeholder="https://yourapp.com/the-page-being-tested"
+          className="w-full h-10 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan focus:ring-1 focus:ring-cyan/30 transition-colors"
+        />
+        <p className="mt-1.5 text-xs text-muted">
+          TestSurge crawls this URL to generate runnable Playwright/Cypress code with real selectors.
+        </p>
       </section>
 
       {/* Footer */}
@@ -1004,7 +1061,9 @@ function StepSettings({
 /* ─── Step 3 ─── */
 function StepGenerate({
   direction, onBack, detected, files, pasteBlocks, projectId,
+  storyUrl,
   qualityLoading, qualityScore, qualityBreakdown, qualityIssuesList,
+  qualityFullResult, onQualityReAnalyze,
 }: {
   direction: number;
   onBack: () => void;
@@ -1012,10 +1071,13 @@ function StepGenerate({
   files: File[];
   pasteBlocks: string[];
   projectId: string;
+  storyUrl?: string;
   qualityLoading: boolean;
-  qualityScore: number;
+  qualityScore: number | null;
   qualityBreakdown: Array<{ label: string; value: number }>;
   qualityIssuesList: Array<{ title: string; description: string; area: string }>;
+  qualityFullResult?: any;
+  onQualityReAnalyze?: (content: string) => void;
 }) {
   const router = useRouter();
   const { notify } = useAIAction();
@@ -1029,6 +1091,9 @@ function StepGenerate({
   const [improving, setImproving] = useState(false);
   const [improvedStory, setImprovedStory] = useState<string | null>(null);
   const [improveError, setImproveError] = useState<string | null>(null);
+  const [useAnalysis, setUseAnalysis] = useState(false);
+  // Whether the "View story content" collapsible is open
+  const [showStory, setShowStory] = useState(false);
   // Local copy of story content that can be improved (starts from pasteBlocks)
   const [currentStoryContent, setCurrentStoryContent] = useState(
     pasteBlocks.join("\n---\n").trim()
@@ -1041,7 +1106,24 @@ function StepGenerate({
     setImproveError(null);
     try {
       const { api } = await import("@/lib/api");
-      const result = await api.improveStory(currentStoryContent, improveInstructions);
+      // Build analysis_data from full quality results when useAnalysis is true
+      const analysisData = useAnalysis ? {
+        issues: qualityFullResult?.issues ?? qualityIssuesList,
+        recommendations: qualityFullResult?.recommendations ?? [],
+        missing_scenarios: qualityFullResult?.missing_scenarios ?? [],
+        missing_validations: qualityFullResult?.missing_validations ?? [],
+        missing_security_requirements: qualityFullResult?.missing_security_requirements ?? [],
+        risk_areas: qualityFullResult?.risk_areas ?? [],
+        completeness: qualityFullResult?.completeness,
+        clarity: qualityFullResult?.clarity,
+        testability: qualityFullResult?.testability,
+      } : undefined;
+      const result = await api.improveStory(
+        currentStoryContent,
+        improveInstructions,
+        useAnalysis,
+        analysisData,
+      );
       setImprovedStory(result.improved_story);
     } catch (e: any) {
       setImproveError(e?.message ?? "Improvement failed. Please try again.");
@@ -1055,10 +1137,13 @@ function StepGenerate({
       setCurrentStoryContent(improvedStory);
       // Also update pasteBlocks reference used by handleGenerate
       pasteBlocks.splice(0, pasteBlocks.length, improvedStory);
+      // Re-run quality analysis on the improved content (Fix 3)
+      onQualityReAnalyze?.(improvedStory);
     }
     setImproveModalOpen(false);
     setImprovedStory(null);
     setImproveInstructions("");
+    setUseAnalysis(false);
   }
 
   async function handleGenerate() {
@@ -1083,6 +1168,9 @@ function StepGenerate({
           const content = s?.content ?? pasteBlocks.join("\n---\n").trim();
           formData.append("content", content);
         }
+        if (storyUrl && storyUrl.trim()) {
+          formData.append("page_url", storyUrl.trim());
+        }
         if (stories.length > 1) setProgress(`Uploading story ${i + 1} of ${stories.length}…`);
         const result = await api.uploadStory(formData);
         lastStoryId = result.storyId || storyId;
@@ -1105,6 +1193,37 @@ function StepGenerate({
       <h2 className="text-[24px] font-bold text-navy mb-1">Story analysis complete.</h2>
       <p className="text-sm text-muted mb-6">Here&apos;s what we found before generating tests.</p>
 
+      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-5">
+        <p className="text-xs font-semibold text-amber-700 mb-1">📋 About these scores</p>
+        <p className="text-xs text-amber-600 leading-relaxed">
+          These scores reflect how well your story is written for test generation.{" "}
+          <strong> Completeness</strong> — are all scenarios covered?{" "}
+          <strong> Clarity</strong> — is the intent unambiguous?{" "}
+          <strong> Testability</strong> — can every statement be verified? Higher scores = better test cases.
+        </p>
+      </div>
+
+      {/* Collapsible story content viewer (Fix 5) */}
+      <div className="bg-white border border-border rounded-card mb-5">
+        <button
+          onClick={() => setShowStory(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-navy hover:bg-gray-50 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <FileText size={14} className="text-muted" />
+            View story content
+          </span>
+          <ChevronDown size={14} className={`text-muted transition-transform ${showStory ? "rotate-180" : ""}`} />
+        </button>
+        {showStory && (
+          <div className="px-5 pb-4 border-t border-border">
+            <pre className="text-xs text-navy whitespace-pre-wrap leading-relaxed font-sans max-h-64 overflow-y-auto mt-3">
+              {pasteBlocks.join("\n---\n")}
+            </pre>
+          </div>
+        )}
+      </div>
+
       {/* Quality score card */}
       <div className="bg-white border border-border rounded-card p-5 mb-5">
         {qualityLoading ? (
@@ -1118,7 +1237,7 @@ function StepGenerate({
         ) : (
         <div className="flex gap-6 items-center">
           {/* Donut */}
-          <QualityDonut score={qualityScore} />
+          <QualityDonut score={qualityScore ?? 0} />
           {/* Bars */}
           <div className="flex-1 space-y-3">
             {qualityBreakdown.map((bar, i) => (
@@ -1218,7 +1337,7 @@ function StepGenerate({
 
     {/* Improve Story Modal */}
     {improveModalOpen && (
-      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); } }}>
+      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-navy/20 px-4" onMouseDown={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); setUseAnalysis(false); } }}>
         <div className="w-full max-w-2xl bg-white border border-border rounded-card shadow-card overflow-hidden max-h-[90vh] flex flex-col" onMouseDown={e => e.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
@@ -1226,7 +1345,7 @@ function StepGenerate({
               <h2 className="text-base font-semibold text-navy">Improve Story</h2>
               <p className="text-xs text-muted mt-0.5">Tell the AI how to improve your story, then accept the result.</p>
             </div>
-            <button onClick={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); } }} className="text-muted hover:text-navy transition-colors">
+            <button onClick={() => { if (!improving) { setImproveModalOpen(false); setImprovedStory(null); setImproveInstructions(""); setUseAnalysis(false); } }} className="text-muted hover:text-navy transition-colors">
               ✕
             </button>
           </div>
@@ -1256,6 +1375,18 @@ function StepGenerate({
                   autoFocus
                   className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-none"
                 />
+                {/* Improve from analysis button (Fix 4) */}
+                {qualityIssuesList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setUseAnalysis(true); handleImprove(); }}
+                    disabled={improving}
+                    className="mt-3 w-full h-10 rounded-btn border border-cyan text-cyan text-sm font-semibold hover:bg-cyan/5 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Sparkles size={14} />
+                    Improve using quality analysis ({qualityIssuesList.length} issue{qualityIssuesList.length !== 1 ? "s" : ""} found)
+                  </button>
+                )}
                 {improveError && <p className="text-xs text-error mt-1">{improveError}</p>}
               </div>
             )}

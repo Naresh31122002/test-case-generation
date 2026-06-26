@@ -129,16 +129,20 @@ def _handle_invoice_succeeded(invoice: dict):
         with conn.cursor() as cur:
             # Get owner email
             cur.execute("""
-                SELECT u.email, u.name 
+                SELECT u.email, u.full_name
                 FROM workspaces w
-                JOIN users u ON w.owner_id = u.id
+                JOIN users u ON w.owner_id = u.user_id
                 WHERE w.stripe_customer_id = %s
             """, (customer_id,))
             row = cur.fetchone()
             if row:
                 email, name = row
-                from app.tasks.email_tasks import task_send_subscription_renewed
-                task_send_subscription_renewed.delay(email, name or "Customer", plan, f"${amount_paid:.2f}")
+                try:
+                    from app.tasks.email_tasks import task_send_subscription_renewed
+                    task_send_subscription_renewed.delay(email, name or "Customer", plan, f"${amount_paid:.2f}")
+                except Exception as celery_err:
+                    import logging
+                    logging.getLogger(__name__).warning("[stripe] Celery unavailable, skipping renewal email: %s", celery_err)
 
 def _handle_invoice_failed(invoice: dict):
     customer_id = invoice.get('customer')
@@ -147,13 +151,17 @@ def _handle_invoice_failed(invoice: dict):
     with psycopg2.connect(**Config.postgres_config()) as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT u.email, u.name 
+                SELECT u.email, u.full_name
                 FROM workspaces w
-                JOIN users u ON w.owner_id = u.id
+                JOIN users u ON w.owner_id = u.user_id
                 WHERE w.stripe_customer_id = %s
             """, (customer_id,))
             row = cur.fetchone()
             if row:
                 email, name = row
-                from app.tasks.email_tasks import task_send_payment_failed
-                task_send_payment_failed.delay(email, name or "Customer")
+                try:
+                    from app.tasks.email_tasks import task_send_payment_failed
+                    task_send_payment_failed.delay(email, name or "Customer")
+                except Exception as celery_err:
+                    import logging
+                    logging.getLogger(__name__).warning("[stripe] Celery unavailable, skipping failed payment email: %s", celery_err)

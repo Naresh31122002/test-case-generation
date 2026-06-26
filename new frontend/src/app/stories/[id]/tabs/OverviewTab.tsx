@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Sparkles, Info, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Sparkles, Loader2, RefreshCw, Info } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { SeverityBadge } from "@/components/ui/SeverityBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { InlineTooltip } from "@/components/ui/InlineTooltip";
 import { fadeInUp, staggerContainer, duration, easeOut } from "@/lib/motion";
 import { VersionTimeline } from "../VersionTimeline";
 import { api } from "@/lib/api";
@@ -50,6 +51,19 @@ export function OverviewTab({ story }: { story: Story }) {
     setQualityLoading(false);
   }, [story.id]);
 
+  // Listen for story:quality:refresh events dispatched after an improve story action
+  // so the quality panel re-fetches without requiring a manual page refresh.
+  useEffect(() => {
+    function handleRefresh() {
+      if (insightsRequested) {
+        generateInsights();
+      }
+    }
+    window.addEventListener("story:quality:refresh", handleRefresh);
+    return () => window.removeEventListener("story:quality:refresh", handleRefresh);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insightsRequested, story.id]);
+
   async function handleAsk() {
     if (!aiQuery.trim() || aiLoading) return;
     setAiLoading(true);
@@ -92,9 +106,17 @@ export function OverviewTab({ story }: { story: Story }) {
             ))}
           </ul>
         ) : (
-          <div className="flex items-center gap-2 p-3 bg-[#FFFBEB] border border-[#FCD34D] rounded-lg">
-            <AlertTriangle size={15} className="text-warning" />
-            <p className="text-sm text-[#92400E]">No acceptance criteria found. AI may generate lower quality tests.</p>
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">No acceptance criteria found</p>
+              <p className="text-xs text-amber-600 mt-0.5 leading-relaxed">
+                Adding acceptance criteria (e.g. "Given/When/Then" or bullet points under "Acceptance Criteria:") significantly improves test case quality and coverage accuracy.
+              </p>
+              <button className="mt-2 text-xs text-amber-700 font-semibold underline hover:no-underline">
+                How to write acceptance criteria →
+              </button>
+            </div>
           </div>
         )}
       </motion.div>
@@ -104,9 +126,7 @@ export function OverviewTab({ story }: { story: Story }) {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[15px] font-semibold text-navy flex items-center gap-1.5">
             Story Quality Analysis
-            <Tooltip content="AI-powered analysis of Completeness, Clarity and Testability.">
-              <Info size={13} className="text-muted cursor-help" />
-            </Tooltip>
+            <InlineTooltip content="Quality scores predict how good your generated test cases will be. Low Completeness = missing scenarios. Low Clarity = ambiguous requirements. Low Testability = requirements too vague to test." />
           </h3>
           {insightsRequested && !qualityLoading && (
             <button
@@ -122,7 +142,7 @@ export function OverviewTab({ story }: { story: Story }) {
         {!insightsRequested ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
             <p className="text-sm text-muted max-w-sm">
-              Run AI analysis to score Completeness, Clarity and Testability, and surface risks and recommendations for this story.
+              Analyzes your story for completeness, clarity, and testability. Identifies missing acceptance criteria, ambiguous requirements, and security/performance gaps.
             </p>
             <button
               onClick={generateInsights}
@@ -214,6 +234,9 @@ export function OverviewTab({ story }: { story: Story }) {
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-muted mt-3 italic">
+            Risk areas are identified by AI analysis of your story text. High severity risks should be addressed before generating tests to maximize coverage quality.
+          </p>
         </motion.div>
       )}
 

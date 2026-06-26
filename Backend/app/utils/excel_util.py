@@ -43,6 +43,33 @@ def generate_excel(test_cases_data):
                 else:
                     expected_text = tc.get('expected_result', '')
                 
+                # Extract preconditions
+                preconditions = tc.get('preconditions', [])
+                if isinstance(preconditions, list):
+                    preconditions_text = ' | '.join(preconditions)
+                else:
+                    preconditions_text = str(preconditions) if preconditions else ''
+
+                # Extract test data
+                test_data = tc.get('test_data', {})
+                if isinstance(test_data, dict) and 'values' in test_data:
+                    test_data_text = ', '.join(
+                        f"{k}={v}" for k, v in test_data['values'].items()
+                    )
+                elif isinstance(test_data, dict) and test_data:
+                    test_data_text = ', '.join(
+                        f"{k}={v}" for k, v in test_data.items()
+                    )
+                else:
+                    test_data_text = str(test_data) if test_data else ''
+
+                # Extract tags
+                tags = tc.get('tags', [])
+                if isinstance(tags, list):
+                    tags_text = ', '.join(tags)
+                else:
+                    tags_text = str(tags) if tags else ''
+
                 # Create row with all fields
                 row = {
                     'Story ID': story_id,
@@ -52,7 +79,15 @@ def generate_excel(test_cases_data):
                     'Steps': steps_text,
                     'Expected Results': expected_text,
                     'Priority': tc.get('priority', ''),
-                    'Status': tc.get('status', 'New')
+                    'Status': tc.get('status', 'New'),
+                    'Preconditions': preconditions_text,
+                    'Test Data': test_data_text,
+                    'Severity': tc.get('severity', ''),
+                    'Tags': tags_text,
+                    'Automation': tc.get('automation_feasibility', ''),
+                    'Est. Duration (min)': tc.get('estimated_duration_minutes', ''),
+                    'Rationale': tc.get('rationale', ''),
+                    'Requirement Ref': tc.get('requirement_ref', ''),
                 }
                 rows.append(row)
         
@@ -107,14 +142,17 @@ def generate_excel(test_cases_data):
                 worksheet.write(0, col_num, value, header_format)
                 
                 # Set column widths
-                if value in ['Story ID', 'Test Case ID', 'Priority', 'Status']:
+                if value in ['Story ID', 'Test Case ID', 'Priority', 'Status',
+                             'Severity', 'Est. Duration (min)']:
                     worksheet.set_column(col_num, col_num, 15, cell_format)
-                elif value in ['Title']:
+                elif value in ['Title', 'Tags', 'Automation', 'Requirement Ref']:
                     worksheet.set_column(col_num, col_num, 30, cell_format)
                 elif value in ['Steps']:
                     worksheet.set_column(col_num, col_num, 50, steps_format)
                 elif value in ['Expected Results']:
                     worksheet.set_column(col_num, col_num, 50, expected_format)
+                elif value in ['Preconditions', 'Test Data', 'Rationale']:
+                    worksheet.set_column(col_num, col_num, 40, cell_format)
                 else:
                     worksheet.set_column(col_num, col_num, 40, cell_format)
             

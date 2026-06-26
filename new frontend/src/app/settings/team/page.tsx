@@ -3,14 +3,33 @@
 import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
+import { useCanDo } from "@/contexts/RBACContext";
 
 interface Member { user_id: string; email: string; role: string; }
 
+const ROLE_STYLES: Record<string, string> = {
+  owner:  'bg-purple-50 text-purple-700 border border-purple-200',
+  admin:  'bg-orange-50 text-orange-700 border border-orange-200',
+  editor: 'bg-blue-50 text-blue-700 border border-blue-200',
+  viewer: 'bg-gray-50 text-gray-600 border border-gray-200',
+};
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner', admin: 'Admin', editor: 'Editor', viewer: 'Viewer',
+};
+
+function friendlyError(msg: string): string {
+  if (msg.includes('409') || msg.includes('already') || msg.includes('pending')) return 'An invitation for this email is already pending.';
+  if (msg.includes('403') || msg.includes('permission') || msg.includes('Forbidden')) return "You don't have permission to do this.";
+  if (msg.includes('404')) return 'Not found. The invitation may have expired.';
+  return msg || 'Something went wrong. Please try again.';
+}
+
 export default function TeamSettings() {
+  const canManageMembers = useCanDo("can_manage_members");
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("member");
+  const [inviteRole, setInviteRole] = useState("editor");
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -96,27 +115,30 @@ export default function TeamSettings() {
       </div>
 
       {/* Invite */}
-      <div className="bg-white border border-border rounded-card p-5">
-        <p className="text-sm font-semibold text-navy mb-3">Invite a member</p>
-        <div className="flex gap-3">
-          <input
-            type="email" placeholder="colleague@company.com" value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && invite()}
-            className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
-          />
-          <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
-            className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none">
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button onClick={invite} disabled={inviting || !inviteEmail.trim()}
-            className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
-            {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />} Invite
-          </button>
+      {canManageMembers && (
+        <div className="bg-white border border-border rounded-card p-5">
+          <p className="text-sm font-semibold text-navy mb-3">Invite a member</p>
+          <div className="flex gap-3">
+            <input
+              type="email" placeholder="colleague@company.com" value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && invite()}
+              className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
+            />
+            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
+              className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none">
+              <option value="admin">Admin — can invite members, manage workspace</option>
+              <option value="editor">Editor — can create stories and test cases</option>
+              <option value="viewer">Viewer — read-only access</option>
+            </select>
+            <button onClick={invite} disabled={inviting || !inviteEmail.trim()}
+              className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+              {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />} Invite
+            </button>
+          </div>
+          {error && <p className="text-xs text-error mt-2">{friendlyError(error)}</p>}
         </div>
-        {error && <p className="text-xs text-error mt-2">{error}</p>}
-      </div>
+      )}
 
       {/* Member list */}
       <div className="bg-white border border-border rounded-card overflow-hidden">
@@ -134,16 +156,24 @@ export default function TeamSettings() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-navy truncate">{m.email}</p>
             </div>
-            <select value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}
-              className="h-8 px-2 text-xs border border-border rounded-btn text-navy bg-white focus:outline-none cursor-pointer">
-              <option value="owner">Owner</option>
-              <option value="admin">Admin</option>
-              <option value="member">Member</option>
-            </select>
-            <button onClick={() => removeMember(m.user_id)}
-              className="w-7 h-7 flex items-center justify-center rounded text-muted hover:text-error hover:bg-[#FEF2F2] transition-colors">
-              <Trash2 size={13} />
-            </button>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ROLE_STYLES[m.role] || ROLE_STYLES.viewer}`}>
+              {ROLE_LABELS[m.role] || m.role}
+            </span>
+            {canManageMembers && (
+              <select value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}
+                className="h-8 px-2 text-xs border border-border rounded-btn text-navy bg-white focus:outline-none cursor-pointer">
+                <option value="owner">Owner</option>
+                <option value="admin">Admin</option>
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            )}
+            {canManageMembers && (
+              <button onClick={() => removeMember(m.user_id)}
+                className="w-7 h-7 flex items-center justify-center rounded text-muted hover:text-error hover:bg-[#FEF2F2] transition-colors">
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
         ))}
       </div>

@@ -72,7 +72,7 @@ export async function login(
 ): Promise<{ user: AuthUser; hasWorkspace: boolean }> {
   const data = await authRequest<any>('/api/auth/login', { email, password })
   return {
-    user: normalizeUser(data?.user ?? data),
+    user: normalizeUser(data?.user ?? data, data?.current_workspace),
     hasWorkspace: !!(data?.current_workspace ?? data?.user?.current_workspace),
   }
 }
@@ -100,7 +100,7 @@ export async function loginWithGoogle(
 ): Promise<{ user: AuthUser; hasWorkspace: boolean }> {
   const data = await authRequest<any>('/api/auth/google', { credential })
   return {
-    user: normalizeUser(data?.user ?? data),
+    user: normalizeUser(data?.user ?? data, data?.current_workspace),
     hasWorkspace: !!(data?.current_workspace ?? data?.user?.current_workspace),
   }
 }
