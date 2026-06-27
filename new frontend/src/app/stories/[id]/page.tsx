@@ -29,6 +29,7 @@ import { domainStoryToSeed } from "@/lib/adapters";
 import { invalidateStories } from "@/lib/storiesStore";
 import { useCopilotPageContext } from "@/lib/copilotContext";
 import type { TestCase as DomainTestCase } from "@/types/domain";
+import LoadingOverlay from "@/components/ui/LoadingOverlay";
 
 // Tabs — lazy-loaded so only the active tab's bundle is fetched.
 const TabFallback = () => (
@@ -587,13 +588,22 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
                       <Loader2 size={20} className="animate-spin" /> Loading v{selectedVersion} test cases…
                     </div>
                   ) : (story.testCount === 0 || isAnalyzing) && selectedVersion === null ? (
-                    <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-                      <div className="w-14 h-14 rounded-full bg-surface-pink flex items-center justify-center">
-                        <Loader2 size={28} className="text-pink animate-spin" />
-                      </div>
-                      <p className="text-base font-semibold text-navy">Generating test cases…</p>
-                      <p className="text-sm text-muted max-w-xs">Our AI is writing test cases for this story. This usually takes 15–30 seconds.</p>
-                    </div>
+                    <>
+                      <LoadingOverlay
+                        show
+                        animated
+                        fullScreen={false}
+                        messages={[
+                          "Analysing your story requirements…",
+                          "Generating functional test cases…",
+                          "Writing negative & boundary tests…",
+                          "Adding security test cases…",
+                          "Finalising and grouping test cases…",
+                        ]}
+                        delayMs={0}
+                      />
+                      <div className="h-64" />
+                    </>
                   ) : (
                     <TestsTab tests={displayedTests} storyId={storyId} readOnly={selectedVersion !== null} />
                   )
