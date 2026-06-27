@@ -16,9 +16,9 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  PlayCircle,
   ChevronUp,
   Kanban,
+  Play,
 } from "lucide-react";
 import { spring } from "@/lib/motion";
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher";
@@ -243,9 +243,10 @@ export function Sidebar() {
                 onClick={() => { setMenuOpen(false); startTour(); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-navy hover:bg-gray-50 transition-colors"
               >
-                <PlayCircle size={16} className="text-muted" />
+                <Play size={16} className="text-muted" />
                 Product Tour
               </button>
+              <div className="border-t border-border" />
               <Link
                 href="/settings"
                 onClick={() => setMenuOpen(false)}

@@ -342,13 +342,51 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
   const [regenFile, setRegenFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
 
-  // Auto-scroll detail panel to top whenever a different test case is selected
+  // Auto-scroll whenever a different test case is selected so the detail panel
+  // (Pass/Fail/Skip + test info) is immediately visible without manual
+  // scrolling. The TestsTab root has min-height ~100vh, so the element that
+  // actually scrolls is an ANCESTOR overflow-y-auto wrapper (the story page's
+  // content scroller / AppShell <main>), not detailPanelRef itself — calling
+  // scrollTo() on the panel does nothing. So we walk up from the panel to find
+  // the nearest genuinely-scrollable ancestor and scroll IT back to the top,
+  // which brings Pass/Fail/Skip into view regardless of which wrapper scrolls.
   useEffect(() => {
-    if (selected) {
-      detailPanelRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    if (!selected) return;
+    const id = requestAnimationFrame(() => {
+      const panel = detailPanelRef.current;
+      if (panel) {
+        // Reset the panel's own scroll (in case it became the scroller).
+        panel.scrollTop = 0;
+        // Find and scroll the nearest scrollable ancestor to the top.
+        let el: HTMLElement | null = panel.parentElement;
+        while (el) {
+          const style = window.getComputedStyle(el);
+          const canScrollY =
+            (style.overflowY === "auto" || style.overflowY === "scroll") &&
+            el.scrollHeight > el.clientHeight + 1;
+          if (canScrollY) {
+            el.scrollTo({ top: 0, behavior: "smooth" });
+            break;
+          }
+          el = el.parentElement;
+        }
+      }
+      selectedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => cancelAnimationFrame(id);
   }, [selected]);
+
+  // When tests first appear (e.g. generation just finished) or the current
+  // selection no longer exists, auto-select the first test so the user lands on
+  // a relevant test case instead of an empty detail panel.
+  useEffect(() => {
+    if (tests.length === 0) return;
+    if (!selected || !tests.some((t) => t.id === selected)) {
+      setSelected(tests[0].id);
+    }
+  }, [tests, selected]);
 
   // Phase 2: Review & Refine state
   type ReviewState = {
@@ -1239,6 +1277,7 @@ export function TestsTab({ tests: initialTests, storyId, readOnly = false }: { t
                 {/* Group items */}
                 {!isCollapsed && groupTests.map((test) => (
                   <button key={test.id} onClick={() => setSelected(test.id)}
+                    ref={selected === test.id ? selectedRowRef : undefined}
                     className={`w-full flex items-center gap-3 px-3 h-11 text-left border-b border-border transition-colors relative ${
                       selected === test.id ? "bg-surface-pink" : "hover:bg-gray-50"
                     }`}

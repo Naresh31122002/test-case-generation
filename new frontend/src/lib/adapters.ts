@@ -77,5 +77,6 @@ export function domainStoryToSeed(story: DomainStory): Story {
     lastUpdated: story.testCaseCreatedTime || story.embeddingTimestamp || "",
     version: "v1",
     pageUrl: story.page_url ?? undefined,
+    kanbanStatus: story.storyStatus,
   };
 }

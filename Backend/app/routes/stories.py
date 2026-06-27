@@ -37,6 +37,66 @@ from app.models.test_case_collaboration_model import (
 )
 stories_bp = Blueprint('stories', __name__)
 
+
+_JSON_VALID_ESCAPE_NEXT = set('"\\/bfnrtu')
+
+
+def _fix_invalid_json_escapes(s: str) -> str:
+    """
+    Double any backslash that is not the start of a valid JSON escape sequence
+    (\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX). LLMs frequently emit a lone
+    backslash inside a string — e.g. a Windows path like C:\\data or a regex —
+    which json.loads rejects with "Invalid \\escape". Valid escapes are left
+    untouched so \\n / \\t / \\uXXXX still decode correctly.
+    """
+    out = []
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if ch == '\\':
+            nxt = s[i + 1] if i + 1 < n else ''
+            if nxt in _JSON_VALID_ESCAPE_NEXT:
+                out.append(ch)
+                out.append(nxt)
+                i += 2
+                continue
+            out.append('\\\\')
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
+def _robust_json_loads(raw: str):
+    """
+    Parse JSON returned by an LLM, tolerating the two failure modes seen most
+    often in production logs for the quality-analysis prompts:
+
+      - "Invalid \\escape": a lone backslash inside a string (Windows path / regex).
+      - "Expecting ',' delimiter": trailing commas before } or ].
+
+    Try a straight json.loads first (fast path, no mutation). On failure, isolate
+    the outermost {...}, fix invalid escapes, strip trailing commas, then retry.
+    Re-raise the original error if it still cannot be parsed so the caller can
+    surface a real failure rather than silently degrade.
+    """
+    import re as _re
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as first_err:
+        text = raw
+        start, end = text.find('{'), text.rfind('}') + 1
+        if start != -1 and end > start:
+            text = text[start:end]
+        text = _fix_invalid_json_escapes(text)
+        text = _re.sub(r',\s*([}\]])', r'\1', text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            raise first_err
+
+
 # Backwards-compatible alias: existing routes are decorated with @dev_jwt_required.
 # It now resolves the workspace too, so every route is tenant-scoped.
 dev_jwt_required = workspace_required
@@ -807,7 +867,7 @@ Return ONLY this JSON:
         elif '```' in raw:
             raw = raw.split('```')[1].strip()
         start, end = raw.find('{'), raw.rfind('}') + 1
-        result = json.loads(raw[start:end])
+        result = _robust_json_loads(raw[start:end])
 
         completeness = int(result.get('completeness', 70))
         clarity = int(result.get('clarity', 70))
@@ -2271,7 +2331,7 @@ Return ONLY valid JSON:
         if start == -1 or end == 0:
             return {'error': 'LLM did not return valid JSON'}, 500
 
-        result = json.loads(raw[start:end])
+        result = _robust_json_loads(raw[start:end])
 
         # Compute overall score
         completeness = min(100, max(0, int(result.get('completeness', 70))))

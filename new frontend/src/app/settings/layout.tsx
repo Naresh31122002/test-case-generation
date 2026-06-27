@@ -8,7 +8,7 @@ import { LogOut, X, ExternalLink } from "lucide-react";
 import { PageLayout, PageHeader, PageActions } from "@/components/layout/PageLayout";
 import { useAuth } from "@/contexts/AuthContext";
 
-const DOCS_URL = "https://docs.testsurge.app";
+const DOCS_URL = "https://testsurge.kynetropo.com/docs";
 
 interface NavItem {
   label: string;
@@ -82,7 +82,7 @@ function SettingsLayoutInner({ children }: { children: React.ReactNode }) {
         <nav className="w-[200px] flex-shrink-0 border-r border-border py-4 px-2 overflow-y-auto flex flex-col">
           {navSections.map((section) => (
             <div key={section.label} className="mb-4">
-              <p className="px-3 mb-1 text-[11px] font-semibold text-muted uppercase tracking-wide">
+              <p className="px-3 mb-1 text-[11px] font-semibold text-pink uppercase tracking-wide">
                 {section.label}
               </p>
               {section.items.map((item) => {

@@ -8,9 +8,10 @@ import { CoverageRing } from "@/components/ui/CoverageRing";
 import { FeatureIntroCard } from "@/components/ui/FeatureIntroCard";
 import { staggerContainer, fadeInUp, duration, easeOut } from "@/lib/motion";
 import { api } from "@/lib/api";
-import { domainStoryToSeed } from "@/lib/adapters";
+import { useStoriesStore } from "@/lib/storiesStore";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
+import LoadingOverlay from "@/components/ui/LoadingOverlay";
 
 const TYPE_COLORS: Record<string, string> = {
   Functional: "#3B82F6",
@@ -37,23 +38,14 @@ const impactStyles: Record<string, string> = {
 };
 
 export default function CoveragePage() {
-  const [stories, setStories] = useState<ReturnType<typeof domainStoryToSeed>[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
+  // Routed through the shared stories cache (same as Stories/Kanban) so
+  // revisiting Coverage doesn't re-fetch the full list from scratch every time.
+  const { stories, loading, error: fetchError, refresh } = useStoriesStore(undefined, true);
   // Per-story test cases for type breakdown (loaded lazily for top stories only)
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>({});
   const [typeLoading, setTypeLoading] = useState(true);
 
-  const loadStories = () => {
-    setFetchError(false);
-    setLoading(true);
-    api.getStories(1, 200)
-      .then(res => setStories(res.data.map(domainStoryToSeed)))
-      .catch(() => setFetchError(true))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { loadStories(); }, []);
+  const loadStories = refresh;
 
   // Compute per-type breakdown from real test cases (sample top 10 stories by test count)
   useEffect(() => {
@@ -123,9 +115,7 @@ export default function CoveragePage() {
           ]}
         />
         {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <Loader2 size={32} className="animate-spin text-cyan" />
-          </div>
+          <LoadingOverlay show fullScreen label="Loading coverage…" />
         ) : fetchError ? (
           <ErrorBanner message="Could not load coverage data." detail="Check your connection and try again." onRetry={loadStories} />
         ) : (
@@ -206,8 +196,8 @@ export default function CoveragePage() {
               className="space-y-4"
             >
               {typeLoading ? (
-                <div className="flex items-center justify-center h-32 text-muted gap-2">
-                  <Loader2 size={16} className="animate-spin" /> Analysing test types…
+                <div className="relative h-32">
+                  <LoadingOverlay show animated={false} label="Analysing test types…" fullScreen={false} />
                 </div>
               ) : worstByType.length === 0 ? (
                 <div className="bg-white border border-border rounded-card p-5 text-sm text-muted">
@@ -244,8 +234,8 @@ export default function CoveragePage() {
               <span className="text-[11px] text-muted">(estimated from test titles)</span>
             </div>
             {typeLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted py-4">
-                <Loader2 size={14} className="animate-spin" /> Loading…
+              <div className="relative h-24">
+                <LoadingOverlay show animated={false} label="Loading coverage breakdown…" fullScreen={false} />
               </div>
             ) : (
               <div className="space-y-4">

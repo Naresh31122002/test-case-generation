@@ -16,6 +16,11 @@ export function ProductTourProvider({ children }: { children: ReactNode }) {
   const startTour = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
 
+  // Note: first-time auto-launch of this 14-step tour is owned by AppShell
+  // (it waits for the onboarding survey to close, then calls startTour() if
+  // !hasSeenTour()). We deliberately do NOT auto-open here too, to avoid the
+  // tour firing twice for a brand-new user.
+
   return (
     <ProductTourContext.Provider value={{ startTour }}>
       {children}
