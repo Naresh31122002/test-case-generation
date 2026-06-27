@@ -1311,8 +1311,8 @@ def upload_story():
                 "doc_content_text": story_content,
                 "embedding_timestamp": datetime.now(),
                 "source": source,
-                "page_url": page_url
             }])
+            # page_url is stored in test_cases.inputs JSONB (not LanceDB) to avoid schema issues
 
         except Exception as e:
             return jsonify({
@@ -1324,10 +1324,10 @@ def upload_story():
         # Frontend polls GET /api/stories/<id> until test_case_count > 0.
         import threading
 
-        def run_full_pipeline(sid, proj_id, uid, wsid, fpath, fname):
+        def run_full_pipeline(sid, proj_id, uid, wsid, fpath, fname, purl=""):
             try:
                 from app.LLM.Test_case_generator import generate_test_case_for_story
-                generate_test_case_for_story(sid, user_id=uid, workspace_id=wsid)
+                generate_test_case_for_story(sid, user_id=uid, workspace_id=wsid, page_url=purl)
 
                 # Move file to success folder after generation
                 if fpath and os.path.exists(fpath):
@@ -1360,7 +1360,7 @@ def upload_story():
 
         thread = threading.Thread(
             target=run_full_pipeline,
-            args=(story_id, project_id, user_id, workspace_id, file_path, filename if file else f"{story_id}.txt"),
+            args=(story_id, project_id, user_id, workspace_id, file_path, filename if file else f"{story_id}.txt", page_url),
             daemon=True
         )
         thread.start()

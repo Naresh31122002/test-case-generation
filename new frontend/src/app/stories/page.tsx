@@ -514,7 +514,7 @@ export default function StoriesPage() {
               <button onClick={refreshStories} className="underline hover:no-underline ml-1">Retry</button>
             </div>
           ) : filtered.length === 0 ? (
-            <EmptyState key="empty" hasSearch={!!search} />
+            <EmptyState key="empty" hasSearch={!!search} onNewStory={() => document.dispatchEvent(new CustomEvent('testsurge:open-new-story'))} />
           ) : viewMode === "board" ? (
             <BoardView
               key={`board-${filterType}-${sortKey}-${activeFilter}`}
@@ -542,7 +542,7 @@ export default function StoriesPage() {
   );
 }
 
-function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+function EmptyState({ hasSearch, onNewStory }: { hasSearch: boolean; onNewStory?: () => void }) {
   if (hasSearch) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -559,9 +559,9 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
       </div>
       <p className="text-base font-semibold text-navy mb-2">No stories yet</p>
       <p className="text-xs text-muted mb-5 leading-relaxed">Upload a user story or requirements document to generate AI-powered test cases.</p>
-      <a href="/stories/new" className="inline-flex items-center gap-2 h-9 px-5 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors">
+      <button onClick={onNewStory} className="inline-flex items-center gap-2 h-9 px-5 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors">
         <Plus size={14} /> Upload a story
-      </a>
+      </button>
     </div>
   );
 }

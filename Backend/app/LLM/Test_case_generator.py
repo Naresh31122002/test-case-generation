@@ -520,13 +520,13 @@ Return ONLY valid JSON, no markdown, no explanation:
         
         return formatted
 
-def generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = ""):
+def generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = "", page_url: str = ""):
     """Synchronous wrapper for async function"""
     if llm_ref is None:
         llm_ref = Config.llm
-    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id, workspace_id=workspace_id, quality_hints=quality_hints))
+    return asyncio.run(_generate_test_case_for_story(story_id, llm_ref, user_id=user_id, workspace_id=workspace_id, quality_hints=quality_hints, page_url=page_url))
 
-async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = ""):
+async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, workspace_id=None, quality_hints: str = "", page_url: str = ""):
     """Async implementation of test case generation"""
     if llm_ref is None:
         llm_ref = Config.llm
@@ -600,7 +600,7 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, wo
                     "story_description": story_description,
                     "main_text": main_text,
                     "project_id": project_id,
-                    "page_url": row.get("page_url", "")
+                    "page_url": page_url or row.get("page_url", "")
                 },
                 user_id=resolved_user_id,
                 workspace_id=resolved_workspace_id

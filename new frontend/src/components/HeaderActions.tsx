@@ -946,6 +946,16 @@ export function NewStoryButton() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPaths, setShowPaths] = useState(false);
 
+  // Listen for custom event from EmptyState "Upload a story" button
+  useEffect(() => {
+    function handleOpen() {
+      if (!selectedProject) { setShowCreate(true); return; }
+      setShowPaths(true);
+    }
+    document.addEventListener('testsurge:open-new-story', handleOpen);
+    return () => document.removeEventListener('testsurge:open-new-story', handleOpen);
+  }, [selectedProject]);
+
   return (
     <>
       <button
