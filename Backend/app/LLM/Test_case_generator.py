@@ -13,6 +13,11 @@ import pandas as pd
 from .impact_analyzer import analyze_test_case_impacts
 import asyncio
 from datetime import datetime
+
+# Load the master test case generation prompt from txt file
+_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "test_case_prompt.txt")
+with open(_PROMPT_PATH, "r", encoding="utf-8") as _f:
+    TEST_CASE_MASTER_PROMPT = _f.read().strip()
 from typing import Dict, List, Optional
 import re
 import random  # Add import for randomization
@@ -410,8 +415,11 @@ class TestCaseGenerator:
                 already_generated_titles = ""
                 # Note: we don't have the full list here, just current_count used for IDs
 
-                batch_prompt = f"""You are a Senior QA Architect with 15+ years of enterprise testing experience.
-Generate exactly {actual_batch_size} {test_type} test cases for the user story below.
+                batch_prompt = f"""{TEST_CASE_MASTER_PROMPT}
+
+=== TASK ===
+Generate exactly {actual_batch_size} {test_type.upper()} test cases for the story below.
+Only generate {test_type} type — do not mix types.
 
 STORY ID: {story_id}
 STORY SUMMARY: {story_description}
@@ -423,64 +431,30 @@ FULL STORY CONTENT:
 FOCUS AREAS FOR THIS BATCH ({test_type.upper()}):
 {chr(10).join(f"- {area}" for area in focus_areas)}
 
-INSTRUCTIONS:
-1. Generate ONLY {test_type} test cases — no other types
-2. Ground every test case in the actual story content above — no invented scenarios
-3. Steps must reference specific data, fields, values, or conditions from the story
-4. Expected results must be specific and verifiable (mention specific messages, codes, states)
-5. Each test case must be unique — do not repeat scenarios already implied by the story
-6. For boundary tests: specify exact threshold values from the story (e.g. "51 characters when max is 50")
-7. For security tests: tie to the specific auth/permission model described in the story
-8. For performance tests: reference specific load numbers or SLAs from the story if present
-9. Add a "rationale" field: one sentence explaining which requirement this test case covers
-10. Add a "requirement_ref" field: quote the specific sentence or AC item from the story this covers (or "General" if none)
-11. preconditions: List specific system state required (user roles, data records, feature flags, env vars)
-12. test_data: Specific field→value mappings (not "valid email" — actual value like "testuser@example.com")
-13. severity: Critical=system unusable, High=major feature broken, Medium=degraded experience, Low=cosmetic
-14. tags: Choose from: smoke, regression, boundary, security, performance, accessibility, api, ui, integration
-15. automation_feasibility: High=pure UI/API steps, Medium=requires test data setup, Low=needs manual judgment
-16. estimated_duration_minutes: Realistic estimate (1-60 minutes)
-17. category MUST be exactly "{test_type}" (already set in the prompt variable)
-18. STEPS: MUST have between 4 and 8 steps. Each step must be a distinct, specific action.
-    - Never write fewer than 4 steps. A test case with only 2 steps is INVALID.
-    - Step 1: Navigate to / open the specific page or endpoint
-    - Step 2: Set up or enter specific test data (exact values, not generic descriptions)
-    - Step 3: Perform the main action (click, submit, send request)
-    - Step 4+: Validate specific outcomes (check error messages, redirects, database state, response codes)
-    - Final step: Verify final state / cleanup if needed
-
 Return ONLY valid JSON, no markdown, no explanation:
 {{
     "test_cases": [
         {{
             "id": "{story_id}-TC{current_count + 1}",
-            "title": "Specific, unambiguous description of what is being tested",
-            "preconditions": [
-                "Specific system state that must exist before this test starts",
-                "e.g. Registered user account with verified email exists in database"
-            ],
-            "test_data": {{
-                "description": "Specific values to use in this test",
-                "values": {{
-                    "field_name": "exact_value_not_placeholder"
-                }}
-            }},
+            "title": "Specific, self-explanatory title",
+            "preconditions": ["Specific system state before test starts"],
+            "test_data": {{"description": "what data is used", "values": {{"field": "exact_value"}}}},
             "steps": [
-                "Step 1: Navigate to [specific URL or screen]",
-                "Step 2: Enter [specific field] with value [exact test data value]",
-                "Step 3: Perform [specific action e.g. click Submit button]",
-                "Step 4: Verify [specific observable outcome with exact expected value]",
-                "Step 5: Confirm [secondary validation if applicable]"
+                "Step 1: Navigate to [exact URL]",
+                "Step 2: Enter [field name] with [exact value]",
+                "Step 3: Click/Submit [specific element]",
+                "Step 4: Verify [exact expected outcome]",
+                "Step 5: Confirm [secondary validation]"
             ],
-            "expected_result": "Specific, verifiable outcome with exact system response, error message, redirect URL, or data state",
+            "expected_result": "Specific verifiable outcome with exact values",
             "priority": "High|Medium|Low",
             "category": "{test_type}",
             "severity": "Critical|High|Medium|Low",
-            "tags": ["smoke", "regression", "boundary", "security", "api", "ui"],
+            "tags": ["relevant", "tags"],
             "automation_feasibility": "High|Medium|Low",
             "estimated_duration_minutes": 5,
-            "rationale": "One sentence: which requirement this test covers",
-            "requirement_ref": "Quoted sentence from story or AC item, or General"
+            "rationale": "Which AC item or requirement this covers",
+            "requirement_ref": "Quoted AC sentence or General"
         }}
     ]
 }}"""
