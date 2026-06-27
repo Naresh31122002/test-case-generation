@@ -45,7 +45,8 @@ export default function TeamSettings() {
   }
 
   useEffect(() => {
-    fetch('/api/workspaces/members', { credentials: 'include' })
+    const wsId = typeof window !== 'undefined' ? localStorage.getItem('activeWorkspaceId') || '' : '';
+    fetch('/api/workspaces/members', { credentials: 'include', headers: { 'X-Workspace-Id': wsId } })
       .then(r => r.json())
       .then(d => setMembers(d.members ?? []))
       .catch(() => setError('Could not load team members. Please refresh to try again.'))
@@ -56,9 +57,10 @@ export default function TeamSettings() {
     if (!inviteEmail.trim()) return;
     setInviting(true); setError(null);
     try {
+      const wsId = typeof window !== 'undefined' ? localStorage.getItem('activeWorkspaceId') || '' : '';
       const r = await fetch('/api/workspaces/invites', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Workspace-Id': wsId },
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       });
       const d = await r.json();
@@ -118,21 +120,21 @@ export default function TeamSettings() {
       {canManageMembers && (
         <div className="bg-white border border-border rounded-card p-5">
           <p className="text-sm font-semibold text-navy mb-3">Invite a member</p>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="email" placeholder="colleague@company.com" value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && invite()}
-              className="flex-1 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
+              className="flex-1 min-w-0 h-9 px-3 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan transition-colors"
             />
             <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
-              className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none">
-              <option value="admin">Admin — can invite members, manage workspace</option>
-              <option value="editor">Editor — can create stories and test cases</option>
-              <option value="viewer">Viewer — read-only access</option>
+              className="h-9 px-3 text-sm border border-border rounded-btn text-navy bg-white focus:outline-none w-full sm:w-auto sm:max-w-[200px]">
+              <option value="admin">Admin</option>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
             </select>
             <button onClick={invite} disabled={inviting || !inviteEmail.trim()}
-              className="h-9 px-4 text-sm font-medium bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center gap-2 disabled:opacity-60">
+              className="h-9 px-4 text-sm font-semibold bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors flex items-center justify-center gap-2 disabled:opacity-60 flex-shrink-0">
               {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />} Invite
             </button>
           </div>

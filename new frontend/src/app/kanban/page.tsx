@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { useProject } from "@/contexts/ProjectContext";
+import { invalidateStories } from "@/lib/storiesStore";
 import { useStoriesStore } from "@/lib/storiesStore";
 import { PageLayout, PageHeader, PageActions, PageBody } from "@/components/layout/PageLayout";
 import { StoryKanban } from "@/components/StoryKanban";
@@ -111,7 +112,7 @@ export default function KanbanPage() {
                 <Loader2 size={16} className="animate-spin" /> Loading board…
               </div>
             ) : subMode === "story" ? (
-              <StoryKanban stories={filteredStories} />
+              <StoryKanban stories={filteredStories} onStatusChange={() => invalidateStories()} />
             ) : (
               <TestCaseKanban stories={filteredStories} />
             )}

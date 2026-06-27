@@ -502,7 +502,7 @@ export default function StoriesPage() {
               transition={{ duration: 0.15 }}
             >
               {kanbanSubMode === "story" ? (
-                <StoryKanban stories={filtered} />
+                <StoryKanban stories={filtered} onStatusChange={() => invalidateStories()} />
               ) : (
                 <TestCaseKanban stories={filtered} />
               )}

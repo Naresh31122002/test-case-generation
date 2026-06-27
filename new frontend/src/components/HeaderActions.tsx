@@ -658,7 +658,7 @@ function NotificationBell() {
       } catch {}
     }
     fetchUnread();
-    const interval = setInterval(fetchUnread, 30000);
+    const interval = setInterval(fetchUnread, 120000); // 2 min — avoid rate limiting
     return () => clearInterval(interval);
   }, []);
 
