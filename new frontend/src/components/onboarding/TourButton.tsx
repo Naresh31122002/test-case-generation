@@ -1,9 +1,9 @@
 "use client";
 import { Play } from "lucide-react";
-import { useTour } from "@/contexts/TourContext";
+import { useProductTour } from "@/contexts/ProductTourContext";
 
 export function TourButton({ collapsed = false }: { collapsed?: boolean }) {
-  const { startTour } = useTour();
+  const { startTour } = useProductTour();
   return (
     <button
       onClick={startTour}

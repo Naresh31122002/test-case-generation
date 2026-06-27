@@ -66,39 +66,22 @@ function StoryCard({
   assigneePreview = [],
   assigneeCount = 0,
   onOpenActivity,
-  dragHandleProps,
 }: {
   story: Story & { _kanban?: KanbanStatus };
   dragging?: boolean;
   assigneePreview?: { user_id: string; email: string }[];
   assigneeCount?: number;
   onOpenActivity?: (storyId: string) => void;
-  dragHandleProps?: Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
 }) {
   return (
     <div
-      onClick={() => {
-        console.debug("[Kanban] StoryCard click fired", story.id);
-        onOpenActivity?.(story.id);
-      }}
-      className={`bg-white border rounded-card p-3.5 shadow-sm transition-shadow cursor-pointer ${
+      onClick={() => { onOpenActivity?.(story.id); }}
+      className={`bg-white border rounded-card p-3.5 shadow-sm transition-shadow cursor-grab active:cursor-grabbing ${
         dragging ? "shadow-lg opacity-90 rotate-1" : "hover:shadow-md"
       }`}
     >
       <div className="flex items-center justify-between mb-1.5">
-        {dragHandleProps ? (
-          <span
-            {...dragHandleProps.attributes}
-            {...dragHandleProps.listeners}
-            onClick={(e) => e.stopPropagation()}
-            className="cursor-grab active:cursor-grabbing text-muted hover:text-navy -ml-1 p-0.5"
-            title="Drag to move"
-          >
-            <GripVertical size={13} />
-          </span>
-        ) : (
-          <span />
-        )}
+        <span />
         <span className="text-[10px] font-bold text-cyan">{story.id}</span>
         <StatusChip status={story.status} />
       </div>
@@ -159,13 +142,14 @@ function SortableStoryCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      {...attributes}
+      {...listeners}
     >
       <StoryCard
         story={story}
         assigneePreview={assigneePreview}
         assigneeCount={assigneeCount}
         onOpenActivity={onOpenActivity}
-        dragHandleProps={{ attributes, listeners }}
       />
     </div>
   );
