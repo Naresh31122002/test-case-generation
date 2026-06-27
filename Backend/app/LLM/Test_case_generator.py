@@ -441,6 +441,13 @@ INSTRUCTIONS:
 15. automation_feasibility: High=pure UI/API steps, Medium=requires test data setup, Low=needs manual judgment
 16. estimated_duration_minutes: Realistic estimate (1-60 minutes)
 17. category MUST be exactly "{test_type}" (already set in the prompt variable)
+18. STEPS: MUST have between 4 and 8 steps. Each step must be a distinct, specific action.
+    - Never write fewer than 4 steps. A test case with only 2 steps is INVALID.
+    - Step 1: Navigate to / open the specific page or endpoint
+    - Step 2: Set up or enter specific test data (exact values, not generic descriptions)
+    - Step 3: Perform the main action (click, submit, send request)
+    - Step 4+: Validate specific outcomes (check error messages, redirects, database state, response codes)
+    - Final step: Verify final state / cleanup if needed
 
 Return ONLY valid JSON, no markdown, no explanation:
 {{
@@ -449,21 +456,23 @@ Return ONLY valid JSON, no markdown, no explanation:
             "id": "{story_id}-TC{current_count + 1}",
             "title": "Specific, unambiguous description of what is being tested",
             "preconditions": [
-                "System state or data that must exist before test starts",
-                "e.g., User account exists with role Admin",
-                "e.g., Database has 3 existing records"
+                "Specific system state that must exist before this test starts",
+                "e.g. Registered user account with verified email exists in database"
             ],
             "test_data": {{
                 "description": "Specific values to use in this test",
                 "values": {{
-                    "field_name": "exact_value"
+                    "field_name": "exact_value_not_placeholder"
                 }}
             }},
             "steps": [
-                "Step 1: [specific action] using [specific data value]",
-                "Step 2: [specific validation] — verify [exact expected value]"
+                "Step 1: Navigate to [specific URL or screen]",
+                "Step 2: Enter [specific field] with value [exact test data value]",
+                "Step 3: Perform [specific action e.g. click Submit button]",
+                "Step 4: Verify [specific observable outcome with exact expected value]",
+                "Step 5: Confirm [secondary validation if applicable]"
             ],
-            "expected_result": "Specific, verifiable outcome with exact system response, error message, redirect, or data state",
+            "expected_result": "Specific, verifiable outcome with exact system response, error message, redirect URL, or data state",
             "priority": "High|Medium|Low",
             "category": "{test_type}",
             "severity": "Critical|High|Medium|Low",
@@ -586,6 +595,41 @@ async def _generate_test_case_for_story(story_id, llm_ref=None, user_id=None, wo
         combined_context = rag_context_section
         if quality_hints:
             combined_context = combined_context + "\n\n" + quality_hints if combined_context else quality_hints
+
+        # ── DOM crawl: if page_url set, crawl to get real UI elements ────────
+        if page_url:
+            try:
+                from playwright.sync_api import sync_playwright
+                print(f"[dom-crawl] Crawling {page_url} for real UI elements...")
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"])
+                    pg = browser.new_page()
+                    pg.goto(page_url, wait_until="networkidle", timeout=20000)
+                    title = pg.title()
+                    elements = pg.evaluate("""() => {
+                        var results=[], seen={};
+                        ['button','input','select','textarea','a[href]','[role="button"]','[data-testid]','[aria-label]'].forEach(function(sel){
+                            try{ document.querySelectorAll(sel).forEach(function(el){
+                                var s = el.id?'#'+el.id : el.getAttribute('data-testid')?'[data-testid="'+el.getAttribute('data-testid')+'"]' :
+                                        el.name?'[name="'+el.name+'"]' : el.type&&el.type!=='text'&&el.tagName==='INPUT'?'input[type="'+el.type+'"]' :
+                                        el.getAttribute('autocomplete')?'[autocomplete="'+el.getAttribute('autocomplete')+'"]' :
+                                        el.getAttribute('href')&&el.tagName==='A'?'a[href="'+el.getAttribute('href')+'"]' : null;
+                                var t=(el.textContent||el.placeholder||el.getAttribute('aria-label')||'').trim().slice(0,60);
+                                var k=s||(el.tagName+':'+t);
+                                if(!seen[k]&&(t||s)){seen[k]=1;results.push({tag:el.tagName.toLowerCase(),text:t,selector:s});}
+                            });}catch(e){}
+                        });
+                        return results.slice(0,40);
+                    }""")
+                    browser.close()
+                if elements:
+                    elem_lines = "\n".join(f"  - <{e['tag']}> text='{e.get('text','')}' selector={e.get('selector','(none)')}" for e in elements[:25])
+                    dom_section = f"\n\n=== REAL UI ELEMENTS ON THE PAGE ({page_url}) ===\nPage title: {title}\n{elem_lines}\n\nUSE THESE REAL SELECTORS in test steps (e.g. 'Enter email in input[type=\"email\"]', 'Click [type=\"submit\"]'). Reference the actual page URL in navigation steps.\n"
+                    combined_context = combined_context + dom_section if combined_context else dom_section
+                    print(f"[dom-crawl] Injected {len(elements)} elements into generation context")
+            except Exception as crawl_err:
+                print(f"[dom-crawl] Non-fatal: {crawl_err}")
+
         test_cases = generator.generate_test_cases(story_id, story_description, main_text=main_text, rag_context_section=combined_context)
 
         if test_cases and test_cases.get("test_cases"):
