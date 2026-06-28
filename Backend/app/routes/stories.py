@@ -370,12 +370,52 @@ def delete_story(story_id):
         deleted_pg = False
         with Config.get_postgres_connection() as conn:
             with conn.cursor() as cur:
+                # Step 1a: Find stories whose test cases were impacted BY this story
+                # so we can recalculate their impact counts after deletion.
+                cur.execute("""
+                    SELECT DISTINCT original_story_id FROM test_case_impacts
+                    WHERE new_story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+                affected_story_ids = [r[0] for r in cur.fetchall()]
+
+                # Step 1b: Delete impacts where this story was the trigger (new_story_id)
+                # These are NOT cascade-deleted because they reference a different story's run_id
+                cur.execute("""
+                    DELETE FROM test_case_impacts
+                    WHERE new_story_id = %s AND workspace_id = %s
+                """, (story_id, workspace_id))
+
+                # Step 1c: Recalculate impact counts for stories that were affected by this story
+                for affected_id in affected_story_ids:
+                    cur.execute("""
+                        UPDATE test_cases
+                        SET impacted_test_cases_count = (
+                            SELECT COUNT(DISTINCT original_test_case_id)
+                            FROM test_case_impacts
+                            WHERE original_story_id = %s
+                            AND workspace_id = %s
+                            AND impact_status = 'active'
+                        ),
+                        has_impacts = (
+                            SELECT COUNT(DISTINCT original_test_case_id) > 0
+                            FROM test_case_impacts
+                            WHERE original_story_id = %s
+                            AND workspace_id = %s
+                            AND impact_status = 'active'
+                        )
+                        WHERE story_id = %s AND workspace_id = %s
+                    """, (affected_id, workspace_id, affected_id, workspace_id, affected_id, workspace_id))
+
+                # Step 1d: Delete the story itself (cascades to test_case_impacts where original_run_id matches)
                 cur.execute(
                     "DELETE FROM test_cases WHERE story_id = %s AND workspace_id = %s RETURNING story_id",
                     (story_id, workspace_id),
                 )
                 deleted_pg = cur.fetchone() is not None
                 conn.commit()
+
+        if affected_story_ids:
+            print(f"[delete_story] Recalculated impact counts for {len(affected_story_ids)} affected stories")
 
         # 2. Delete the vector row from LanceDB (workspace-scoped). Best-effort -
         #    a missing/empty table shouldn't fail the whole delete.
