@@ -363,6 +363,20 @@ export default function StoryWorkspacePage({ params }: { params: { id: string } 
 
   return (
     <PageLayout>
+      {/* Full-screen branded overlay while test cases are being generated */}
+      <LoadingOverlay
+        show={isAnalyzing}
+        animated
+        fullScreen
+        delayMs={0}
+        messages={[
+          "Analysing your story requirements…",
+          "Generating functional test cases…",
+          "Writing negative & boundary tests…",
+          "Adding security test cases…",
+          "Finalising and grouping test cases…",
+        ]}
+      />
       <PageHeader
         title={
           <span className="flex items-baseline gap-2 min-w-0">
