@@ -1849,35 +1849,38 @@ def get_story_test_case_impacts(story_id):
                         'impact_created_on': impact['impact_created_on'].isoformat() if isinstance(impact['impact_created_on'], datetime) else str(impact['impact_created_on']) if impact['impact_created_on'] else None,
                         'impact_severity': str(impact['impact_severity']) if impact['impact_severity'] else '',
                         'impact_priority': str(impact['impact_priority']) if impact['impact_priority'] else '',
-                        'impact_details': str(impact['impact_details']) if impact['impact_details'] else '',
+                        'impact_details': json.dumps(impact['impact_details']) if isinstance(impact['impact_details'], (dict, list)) else str(impact['impact_details']) if impact['impact_details'] else '',
                         'impact_analysis_json': json.dumps(impact_analysis) if isinstance(impact_analysis, (dict, list)) else str(impact_analysis)
                     }
                     impact_map[test_case_id].append(formatted_impact)
 
-                # Build response with all test cases
+                # Build response — only include test cases that actually have impacts
                 impacted_test_cases = []
                 for tc in test_cases:
                     tc_id = tc.get('id')
                     steps = tc.get('steps', [])
                     steps_str = json.dumps(steps) if isinstance(steps, (list, dict)) else str(steps)
-
+                    tc_impacts = impact_map.get(tc_id, [])
+                    if not tc_impacts:
+                        continue  # skip test cases with no active impacts
                     test_case = {
                         'test_case_id': str(tc_id),
                         'original_title': str(tc.get('title', '')),
                         'original_expected_result': str(tc.get('expected_result', '')),
                         'original_steps': steps_str,
-                        'impacts': impact_map.get(tc_id, [])
+                        'impacts': tc_impacts
                     }
                     impacted_test_cases.append(test_case)
 
-                print(f"DEBUG: Using database count - {db_impacted_count} impacted test cases")
+                # Use actual count from current data, not stale DB column
+                actual_impacted_count = len(impacted_test_cases)
 
                 response = {
                     'story_id': str(story_id),
                     'story_description': str(story_info['story_description']) if story_info['story_description'] else '',
                     'total_test_cases': str(total_test_cases),
-                    'impacted_test_cases_count': str(db_impacted_count),
-                    'impact_percentage': str(round((db_impacted_count / total_test_cases * 100) if total_test_cases > 0 else 0, 2)),
+                    'impacted_test_cases_count': str(actual_impacted_count),
+                    'impact_percentage': str(round((actual_impacted_count / total_test_cases * 100) if total_test_cases > 0 else 0, 2)),
                     'impacted_test_cases': impacted_test_cases,
                     'severity_summary': {
                         'high': str(len([tc for tc in impacted_test_cases if any(i['impact_severity'] == 'high' for i in tc['impacts'])])),
