@@ -160,11 +160,6 @@ const savedFilters: SavedFilter[] = [
     label: "Low Coverage",
     predicate: (s) => s.coverage < 70,
   },
-  {
-    id: "oauth",
-    label: "OAuth Stories",
-    predicate: (s) => deriveTags(s).includes("OAuth"),
-  },
 ];
 
 export default function StoriesPage() {
@@ -344,40 +339,6 @@ export default function StoriesPage() {
           </div>}
 
           {viewMode !== "kanban" && <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
-          >
-            <option>All Types</option>
-            <option>Functional</option>
-            <option>OAuth</option>
-            <option>Security</option>
-          </select>}
-
-          {/* Phase 3: server-side filters (Status · Priority · Impact). */}
-          {viewMode !== "kanban" && <select
-            value={storyStatus}
-            onChange={(e) => setStoryStatus(e.target.value)}
-            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
-          >
-            <option value="">All Status</option>
-            <option value="in_review">In Review</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-          </select>}
-
-          {viewMode !== "kanban" && <select
-            value={storyPriority}
-            onChange={(e) => setStoryPriority(e.target.value)}
-            className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
-          >
-            <option value="">All Priority</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>}
-
-          {viewMode !== "kanban" && <select
             value={storyImpact}
             onChange={(e) => setStoryImpact(e.target.value)}
             className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan cursor-pointer"
@@ -394,9 +355,9 @@ export default function StoriesPage() {
           >
             <option value="lastUpdated">Last Updated</option>
             <option value="name">Name A-Z</option>
-            <option value="coverageDesc">Coverage (High-Low)</option>
-            <option value="coverageAsc">Coverage (Low-High)</option>
-            <option value="impactDesc">Impact (High)</option>
+            <option value="coverageDesc">Coverage (High → Low)</option>
+            <option value="coverageAsc">Coverage (Low → High)</option>
+            <option value="impactDesc">Most Impact</option>
           </select>}
 
           {viewMode !== "kanban" && (
