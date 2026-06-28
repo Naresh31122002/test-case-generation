@@ -1201,6 +1201,47 @@ def delete_project(project_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@stories_bp.route('/<story_id>/project', methods=['PATCH'])
+@dev_jwt_required
+def move_story_to_project(story_id):
+    """Move a story to a different project within the same workspace."""
+    try:
+        workspace_id = get_current_workspace_id()
+        data = request.get_json() or {}
+        new_project_id = (data.get('project_id') or '').strip()
+        if not new_project_id:
+            return jsonify({'error': 'project_id required'}), 400
+
+        # Update Postgres
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE test_cases SET project_id = %s WHERE story_id = %s AND workspace_id = %s",
+                    (new_project_id, story_id, workspace_id)
+                )
+                conn.commit()
+
+        # Update LanceDB (non-fatal)
+        try:
+            import lancedb
+            db = lancedb.connect(Config.LANCE_DB_PATH)
+            table = db.open_table(Config.TABLE_NAME_LANCE)
+            df = table.to_pandas()
+            if 'workspace_id' in df.columns:
+                mask = (df['storyID'] == story_id) & (df['workspace_id'] == workspace_id)
+                if mask.any():
+                    df.loc[mask, 'project_id'] = new_project_id
+                    db.drop_table(Config.TABLE_NAME_LANCE)
+                    db.create_table(Config.TABLE_NAME_LANCE, df)
+        except Exception as e:
+            print(f'[move_story] LanceDB update failed (non-fatal): {e}')
+
+        return jsonify({'story_id': story_id, 'project_id': new_project_id}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @stories_bp.route('/upload', methods=['POST'])
 @dev_jwt_required
 def upload_story():

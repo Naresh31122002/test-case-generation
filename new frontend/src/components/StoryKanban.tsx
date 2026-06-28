@@ -81,7 +81,6 @@ function StoryCard({
       }`}
     >
       <div className="flex items-center justify-between mb-1.5">
-        <span />
         <span className="text-[10px] font-bold text-cyan">{story.id}</span>
         <StatusChip status={story.status} />
       </div>

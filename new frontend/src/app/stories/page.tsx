@@ -20,6 +20,7 @@ import {
   Trash2,
   Sparkles,
   X,
+  FolderInput,
 } from "lucide-react";
 import { type Story } from "@/lib/seed";
 import { CoverageRing } from "@/components/ui/CoverageRing";
@@ -163,13 +164,12 @@ const savedFilters: SavedFilter[] = [
 ];
 
 export default function StoriesPage() {
-  const { selectedProject, hasProjects, ready, reloadProjects } = useProject();
+  const { selectedProject, hasProjects, ready, reloadProjects, projectList } = useProject();
   const { notify } = useAIAction();
   const canCreate = useCanDo("can_create_stories");
   const canDelete = useCanDo("can_delete_stories");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [filterType, setFilterType] = useState("All Types");
   const [sortKey, setSortKey] = useState<SortKey>("lastUpdated");
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [kanbanSubMode, setKanbanSubMode] = useState<"story" | "testcase">("story");
@@ -178,9 +178,12 @@ export default function StoriesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   // Sprint 1 Phase 3: server-side story filters.
-  const [storyStatus, setStoryStatus] = useState<string>("");
-  const [storyPriority, setStoryPriority] = useState<string>("");
   const [storyImpact, setStoryImpact] = useState<string>("");
+
+  // Move to project state
+  const [moveStoryId, setMoveStoryId] = useState<string | null>(null);
+  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
+  const [moving, setMoving] = useState(false);
 
   // Debounce search to avoid a request on every keystroke
   useEffect(() => {
@@ -189,11 +192,9 @@ export default function StoriesPage() {
   }, [search]);
 
   const serverFilters = useMemo(() => ({
-    ...(storyStatus ? { status: [storyStatus] } : {}),
-    ...(storyPriority ? { priority: [storyPriority] } : {}),
     ...(storyImpact ? { impact: storyImpact as 'detected' | 'none' } : {}),
     ...(debouncedSearch ? { search: debouncedSearch } : {}),
-  }), [storyStatus, storyPriority, storyImpact, debouncedSearch]);
+  }), [storyImpact, debouncedSearch]);
 
   // Derive the active project ID to filter by.
   // Wait until ProjectContext is ready -- otherwise first render fetches ALL stories
@@ -222,9 +223,6 @@ export default function StoriesPage() {
   const filtered = useMemo(() => {
     let result = [...projectStories];
     // Search is now server-side (via debouncedSearch in serverFilters) -- no client-side filter needed.
-    if (filterType !== "All Types") {
-      result = result.filter((s) => s.type === filterType);
-    }
     // Saved filter preset
     if (activeFilter) {
       const preset = savedFilters.find((f) => f.id === activeFilter);
@@ -245,7 +243,7 @@ export default function StoriesPage() {
         break;
     }
     return result;
-  }, [projectStories, filterType, sortKey, activeFilter]);
+  }, [projectStories, sortKey, activeFilter]);
 
   // Bulk selection helpers
   const toggleSelect = (id: string) =>
@@ -287,6 +285,23 @@ export default function StoriesPage() {
         }
       },
     });
+  };
+
+  const handleMoveStory = async () => {
+    if (!moveStoryId || !moveTargetProjectId) return;
+    setMoving(true);
+    try {
+      await api.moveStoryToProject(moveStoryId, moveTargetProjectId);
+      notify({ variant: "success", title: "Story moved", detail: `Moved to project "${moveTargetProjectId}"` });
+      reloadProjects();
+      invalidateStories();
+    } catch {
+      notify({ variant: "error", title: "Move failed", detail: "Could not move story. Please try again." });
+    } finally {
+      setMoving(false);
+      setMoveStoryId(null);
+      setMoveTargetProjectId("");
+    }
   };
 
   // Wait for ProjectContext to finish loading before rendering anything.
@@ -412,7 +427,7 @@ export default function StoriesPage() {
             <button
               onClick={() => setViewMode("board")}
               className={`w-9 h-9 flex items-center justify-center transition-colors ${
-                viewMode === "board" ? "bg-surface-pink text-pink" : "bg-white text-muted hover:text-navy"
+                viewMode === "board" ? "bg-surface-pink text-pink" : "bg-white text-navy/60 hover:text-navy hover:bg-gray-100"
               }`}
               title="Card view"
             >
@@ -421,7 +436,7 @@ export default function StoriesPage() {
             <button
               onClick={() => setViewMode("list")}
               className={`w-9 h-9 flex items-center justify-center transition-colors ${
-                viewMode === "list" ? "bg-surface-pink text-pink" : "bg-white text-muted hover:text-navy"
+                viewMode === "list" ? "bg-surface-pink text-pink" : "bg-white text-navy/60 hover:text-navy hover:bg-gray-100"
               }`}
               title="List view"
             >
@@ -430,7 +445,7 @@ export default function StoriesPage() {
             <button
               onClick={() => setViewMode("kanban")}
               className={`w-9 h-9 flex items-center justify-center transition-colors ${
-                viewMode === "kanban" ? "bg-surface-pink text-pink" : "bg-white text-muted hover:text-navy"
+                viewMode === "kanban" ? "bg-surface-pink text-pink" : "bg-white text-navy/60 hover:text-navy hover:bg-gray-100"
               }`}
               title="Kanban view"
             >
@@ -493,12 +508,50 @@ export default function StoriesPage() {
               onToggleSelect={toggleSelect}
               onDelete={(id) => deleteStories([id])}
               canDelete={canDelete}
+              onMoveToProject={(id) => { setMoveStoryId(id); setMoveTargetProjectId(""); }}
             />
           )}
         </AnimatePresence>
       </PageBody>
     </PageLayout>
     <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
+
+    {/* Move to Project Modal */}
+    {moveStoryId && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="bg-white rounded-card shadow-xl p-6 w-full max-w-sm mx-4">
+          <h3 className="text-base font-semibold text-navy mb-3">Move to Project</h3>
+          <p className="text-sm text-muted mb-4">Select a project to move story <span className="font-semibold text-navy">{moveStoryId}</span> to.</p>
+          <select
+            value={moveTargetProjectId}
+            onChange={(e) => setMoveTargetProjectId(e.target.value)}
+            className="w-full h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan mb-5 transition-colors"
+          >
+            <option value="">Select a project…</option>
+            {projectList.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-3 justify-end">
+            <button
+              onClick={() => { setMoveStoryId(null); setMoveTargetProjectId(""); }}
+              disabled={moving}
+              className="h-9 px-4 text-sm font-medium text-navy border border-border rounded-btn hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMoveStory}
+              disabled={!moveTargetProjectId || moving}
+              className="h-9 px-4 text-sm font-semibold text-white bg-pink rounded-btn hover:bg-pink/90 transition-colors disabled:opacity-40 flex items-center gap-2"
+            >
+              {moving && <Loader2 size={13} className="animate-spin" />}
+              Move
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
@@ -817,7 +870,7 @@ function StoryCard({
               <Link
                 href={`/stories/${story.id}`}
                 onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1 text-xs font-medium text-navy hover:text-pink transition-colors px-2 py-1 rounded hover:bg-surface-pink"
+                className="flex items-center gap-1 text-xs font-medium text-pink hover:text-pink transition-colors px-2 py-1 rounded hover:bg-surface-pink"
               >
                 <ExternalLink size={12} />
                 Open
@@ -854,6 +907,7 @@ function ListView({
   onToggleSelect,
   onDelete,
   canDelete,
+  onMoveToProject,
 }: {
   stories: Story[];
   openMenu: string | null;
@@ -862,6 +916,7 @@ function ListView({
   onToggleSelect: (id: string) => void;
   onDelete: (id: string) => void;
   canDelete: boolean;
+  onMoveToProject: (id: string) => void;
 }) {
   return (
     <motion.div
@@ -950,7 +1005,7 @@ function ListView({
               <MoreHorizontal size={16} />
             </button>
             {openMenu === story.id && (
-              <div className="absolute right-0 top-9 z-20 bg-white border border-border rounded-lg shadow-card py-1 w-36">
+              <div className="absolute right-0 top-9 z-20 bg-white border border-border rounded-lg shadow-card py-1 w-44">
                 <Link
                   href={`/stories/${story.id}`}
                   className="flex items-center gap-2 px-3 py-2 text-sm text-navy hover:bg-gray-50 transition-colors"
@@ -975,6 +1030,13 @@ function ListView({
                   <Download size={14} />
                   Export
                 </Link>
+                <button
+                  onClick={() => { setOpenMenu(null); onMoveToProject(story.id); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-navy hover:bg-gray-50 transition-colors"
+                >
+                  <FolderInput size={14} />
+                  Move to project
+                </button>
                 <div className="my-1 border-t border-border" />
                 {canDelete && (
                 <button

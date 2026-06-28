@@ -51,6 +51,12 @@ function LoginForm() {
     try {
       const { user, hasWorkspace } = await login(email, password);
       setUser(user);
+      // If the user arrived via an invite link, always send them back to accept it.
+      const pendingInviteToken = (() => { try { return localStorage.getItem('pendingInviteToken'); } catch { return null; } })();
+      if (pendingInviteToken) {
+        navigate(`/invite/accept?token=${pendingInviteToken}`);
+        return;
+      }
       // Full reload so middleware re-runs with the new cookie and lets the user through.
       const isFirstLogin = !user.onboardingCompleted;
       navigate(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? nextPath : "/onboarding/workspace"));
@@ -86,6 +92,12 @@ function LoginForm() {
     try {
       const { user, hasWorkspace } = await loginWithGoogle(credential);
       setUser(user);
+      // If the user arrived via an invite link, always send them back to accept it.
+      const pendingInviteToken = (() => { try { return localStorage.getItem('pendingInviteToken'); } catch { return null; } })();
+      if (pendingInviteToken) {
+        navigate(`/invite/accept?token=${pendingInviteToken}`);
+        return;
+      }
       const isFirstLogin = !user.onboardingCompleted;
       navigate(isFirstLogin ? "/onboarding/workspace" : (hasWorkspace ? nextPath : "/onboarding/workspace"));
     } catch (err: any) {

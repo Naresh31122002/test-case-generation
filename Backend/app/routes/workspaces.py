@@ -110,6 +110,25 @@ def update_current_workspace():
         return jsonify({"error": str(e)}), 500
 
 
+@workspaces_bp.route("/current", methods=["DELETE"])
+@workspace_required
+@require_workspace_role(["owner"])
+def delete_current_workspace():
+    """Permanently delete the current workspace and all its data.
+    Only the workspace owner can perform this action."""
+    ws_id = get_current_workspace_id()
+    user_id = get_current_user_id()
+    if not ws_id:
+        return jsonify({"error": "No active workspace"}), 404
+    try:
+        WorkspaceModel.delete_workspace(ws_id, user_id)
+        return jsonify({"message": "Workspace deleted"}), 200
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @workspaces_bp.route("/integrations", methods=["GET"])
 @workspace_required
 def list_integrations():
@@ -192,6 +211,51 @@ def switch_workspace():
         )
         set_access_cookies(response, access_token)
     return response
+
+@workspaces_bp.route('/contact', methods=['POST'])
+@workspace_required
+def submit_contact():
+    """Send feature request or bug report to admin email."""
+    user_id = get_current_user_id()
+    workspace_id = get_current_workspace_id()
+    data = request.get_json() or {}
+    contact_type = data.get('type', 'bug_report')  # 'feature_request' or 'bug_report'
+    subject = data.get('subject', '').strip()
+    description = data.get('description', '').strip()
+
+    if not subject or not description:
+        return jsonify({'error': 'Subject and description are required'}), 400
+
+    try:
+        from app.models.user_model import UserModel
+        user = UserModel.get_user_by_id(user_id) or {}
+        user_email = user.get('email', 'Unknown user')
+        workspace_name = ''
+        from app.models.workspace_model import WorkspaceModel
+        ws = WorkspaceModel.get_by_id(workspace_id)
+        if ws:
+            workspace_name = ws.get('name', workspace_id)
+
+        from app.utils.mailer import send_email, smtp_configured
+        if smtp_configured():
+            type_label = 'Feature Request' if contact_type == 'feature_request' else 'Bug Report'
+            html = f"""
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+              <h2 style="color:#0F172A;">{type_label} from TestSurge</h2>
+              <p><strong>From:</strong> {user_email}</p>
+              <p><strong>Workspace:</strong> {workspace_name}</p>
+              <p><strong>Subject:</strong> {subject}</p>
+              <hr style="border:1px solid #e2e8f0;margin:16px 0;">
+              <p><strong>Description:</strong></p>
+              <p style="background:#f8fafc;padding:12px;border-radius:8px;white-space:pre-wrap;">{description}</p>
+            </div>
+            """
+            send_email('admin@kynetropo.com', f'[TestSurge {type_label}] {subject}', description, html)
+
+        return jsonify({'message': 'Submitted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @workspaces_bp.route('/my-role', methods=['GET'])
 @workspace_required
@@ -317,7 +381,6 @@ def create_invite():
         return jsonify({"error": "Admins cannot invite other admins"}), 403
         
     # Check if user is already a member
-    existing_member = WorkspaceModel.get_role(ws_id, None)  # skip — check by email below
     try:
         import psycopg2
         from app.config import Config
@@ -352,7 +415,7 @@ def create_invite():
         inviter = UserModel.get_user_by_id(user_id) or {}
         inviter_name = inviter.get('display_name') or inviter.get('full_name') or inviter.get('email', 'A teammate')
         ws_name = workspace.get('name', 'a workspace')
-        frontend_base = os.environ.get('FRONTEND_URL', 'https://kynetropo.com/app')
+        frontend_base = os.environ.get('PUBLIC_APP_URL', os.environ.get('FRONTEND_URL', 'https://testsurge.kynetropo.com/app')).rstrip('/')
         invite_link = f"{frontend_base}/invite/accept?token={invite['token']}"
         send_workspace_invite_email(
             to_email=email,
@@ -401,6 +464,24 @@ def accept_invite():
             return jsonify({"error": "This invite was sent to a different email address"}), 403
 
     WorkspaceModel.add_member(invite["workspace_id"], user_id, invite["role"])
+
+    # Stamp accepted_at for audit trail before deleting the invite row
+    try:
+        import psycopg2
+        from app.config import Config
+        conn = Config.get_postgres_connection()
+        try:
+            with conn.cursor() as _cur:
+                _cur.execute(
+                    "UPDATE workspace_invites SET accepted_at = NOW() WHERE id = %s",
+                    (invite["id"],)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as stamp_err:
+        print(f"[invite] accepted_at stamp failed (non-fatal): {stamp_err}")
+
     WorkspaceInvitesModel.delete_invite(invite["id"], invite["workspace_id"])
 
     workspace = WorkspaceModel.get_by_id(invite["workspace_id"])
@@ -424,4 +505,55 @@ def accept_invite():
     except Exception as ne:
         print(f"[invite] Notification failed (non-fatal): {ne}")
 
-    return jsonify({"workspace": workspace, "role": invite["role"]}), 200
+    return jsonify({"workspace": workspace, "role": invite["role"], "switch_workspace": True}), 200
+
+
+@workspaces_bp.route("/invites/pending", methods=["GET"])
+@jwt_required()
+def get_pending_invites_for_user():
+    """Get all pending workspace invites for the current user's email."""
+    import psycopg2.extras
+    from app.config import Config
+    from app.models.user_model import UserModel
+    user_id = get_jwt_identity()
+    user = UserModel.get_user_by_id(user_id)
+    if not user:
+        return jsonify({"invites": []}), 200
+    user_email = user.get("email", "").lower().strip()
+    try:
+        conn = Config.get_postgres_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT wi.id, wi.workspace_id, wi.email, wi.role, wi.token,
+                           wi.invited_by, wi.expires_at, wi.created_at,
+                           w.name as workspace_name, w.slug as workspace_slug,
+                           u.email as inviter_email, u.display_name as inviter_name
+                    FROM workspace_invites wi
+                    JOIN workspaces w ON w.id = wi.workspace_id
+                    LEFT JOIN users u ON u.user_id = wi.invited_by
+                    WHERE LOWER(wi.email) = %s
+                      AND wi.accepted_at IS NULL
+                      AND wi.expires_at > CURRENT_TIMESTAMP
+                    ORDER BY wi.created_at DESC
+                """, (user_email,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        invites = []
+        for r in rows:
+            invites.append({
+                "id": str(r["id"]),
+                "workspace_id": str(r["workspace_id"]),
+                "workspace_name": r["workspace_name"],
+                "workspace_slug": r["workspace_slug"],
+                "role": r["role"],
+                "token": r["token"],
+                "inviter_email": r["inviter_email"] or "",
+                "inviter_name": r["inviter_name"] or r["inviter_email"] or "Teammate",
+                "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+        return jsonify({"invites": invites}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

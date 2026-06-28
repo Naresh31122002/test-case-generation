@@ -178,9 +178,12 @@ function useAnchorRect(anchorKey: string | undefined, step: number) {
 
 /** Card dimensions used for viewport-clamped positioning (keeps in sync with
  *  the actual rendered max-width classes below). */
-const CARD_WIDTH = 384; // max-w-sm
+const CARD_WIDTH = 360; // max-w (capped at 360px per spec)
 const PREVIEW_CARD_WIDTH = 672; // max-w-2xl
 const VIEWPORT_MARGIN = 16;
+/** Width of the fixed sidebar — used to offset centered cards into the
+ *  content area so they don't straddle the sidebar/content boundary. */
+const SIDEBAR_WIDTH = 240;
 
 export function ProductTourModal({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -216,22 +219,48 @@ export function ProductTourModal({ onDone }: { onDone: () => void }) {
   // never renders past the viewport edge (right, bottom, or top).
   const cardWidth = current.preview ? PREVIEW_CARD_WIDTH : CARD_WIDTH;
   let cardStyle: React.CSSProperties = {};
-  if (rect && viewport.w > 0 && current.placement === "right") {
-    const fitsRight = rect.right + VIEWPORT_MARGIN + cardWidth <= viewport.w;
+
+  // isCentered: true when no anchor is present or placement is "center"
+  const isCentered = current.placement === "center" || !rect;
+
+  if (isCentered && viewport.w > 0) {
+    // Center the card in the *content area* (viewport minus sidebar).
+    // Content area runs from SIDEBAR_WIDTH to viewport.w.
+    const contentLeft = SIDEBAR_WIDTH;
+    const contentWidth = Math.max(0, viewport.w - contentLeft);
+    const safeCardWidth = Math.min(cardWidth, contentWidth - VIEWPORT_MARGIN * 2);
+    const centeredLeft = contentLeft + (contentWidth - safeCardWidth) / 2;
+    const centeredTop = (viewport.h - 420) / 2; // approximate card height
+    cardStyle = {
+      position: "fixed",
+      top: Math.max(VIEWPORT_MARGIN, centeredTop),
+      left: centeredLeft,
+      width: safeCardWidth,
+    };
+  } else if (rect && viewport.w > 0 && current.placement === "right") {
+    // Position card to the right of the spotlighted element, but always
+    // ensure it clears the sidebar on the left.
+    const preferredLeft = rect.right + 16;
+    const fitsRight = preferredLeft + cardWidth + VIEWPORT_MARGIN <= viewport.w;
     const left = fitsRight
-      ? rect.right + 16
-      : Math.max(VIEWPORT_MARGIN, rect.left - cardWidth - 16); // fall back to the left side
+      ? preferredLeft
+      : Math.max(SIDEBAR_WIDTH + VIEWPORT_MARGIN, rect.left - cardWidth - 16);
     const top = Math.min(
       Math.max(VIEWPORT_MARGIN, rect.top),
-      viewport.h - VIEWPORT_MARGIN - 220 // leave room for card height
+      viewport.h - VIEWPORT_MARGIN - 220
     );
     cardStyle = { position: "fixed", top, left };
   } else if (rect && viewport.w > 0 && current.placement === "bottom") {
+    const rawLeft = rect.right - cardWidth;
     const left = Math.min(
-      Math.max(VIEWPORT_MARGIN, rect.right - cardWidth),
+      Math.max(SIDEBAR_WIDTH + VIEWPORT_MARGIN, rawLeft),
       viewport.w - cardWidth - VIEWPORT_MARGIN
     );
-    cardStyle = { position: "fixed", top: rect.bottom + 12, left };
+    const top = Math.min(
+      rect.bottom + 12,
+      viewport.h - VIEWPORT_MARGIN - 220
+    );
+    cardStyle = { position: "fixed", top, left };
   }
 
   return (
@@ -276,17 +305,13 @@ export function ProductTourModal({ onDone }: { onDone: () => void }) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 12, scale: 0.98 }}
           transition={{ duration: 0.2 }}
-          className={
-            current.placement === "center" || !rect
-              ? "fixed inset-0 flex items-center justify-center px-4"
-              : ""
-          }
-          style={current.placement === "center" || !rect ? undefined : cardStyle}
+          style={cardStyle}
         >
           <div
             className={`bg-white rounded-2xl shadow-2xl border border-border overflow-hidden ${
-              current.preview ? "w-full max-w-2xl" : "w-full max-w-sm"
+              current.preview ? "max-w-2xl w-full" : "w-full"
             }`}
+            style={!current.preview ? { maxWidth: 360 } : undefined}
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-3 px-5 pt-5">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { ConfirmModal, type ConfirmState } from "@/components/ui/ConfirmModal";
 import { useCanDo } from "@/contexts/RBACContext";
 
@@ -25,8 +26,10 @@ function friendlyError(msg: string): string {
 }
 
 export default function TeamSettings() {
+  const router = useRouter();
   const canManageMembers = useCanDo("can_manage_members");
   const [members, setMembers] = useState<Member[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("editor");
@@ -51,6 +54,14 @@ export default function TeamSettings() {
       .then(d => setMembers(d.members ?? []))
       .catch(() => setError('Could not load team members. Please refresh to try again.'))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    // Fetch pending invitations addressed to the current user (across all workspaces).
+    fetch('/api/workspaces/invites/pending', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { invites: [] })
+      .then(d => setPendingInvites(d.invites ?? []))
+      .catch(() => {});
   }, []);
 
   async function invite() {
@@ -115,6 +126,29 @@ export default function TeamSettings() {
         <h2 className="text-[18px] font-semibold text-navy mb-1">Team</h2>
         <p className="text-sm text-muted">Manage workspace members and roles.</p>
       </div>
+
+      {/* Pending Invitations for this user */}
+      {pendingInvites.length > 0 && (
+        <div className="bg-white border border-border rounded-card p-5">
+          <p className="text-sm font-semibold text-navy mb-3">Pending Invitations for You</p>
+          <div className="space-y-3">
+            {pendingInvites.map(inv => (
+              <div key={inv.id} className="flex items-center justify-between p-3 bg-cyan/5 border border-cyan/20 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-navy">{inv.workspace_name}</p>
+                  <p className="text-xs text-muted">Invited by {inv.inviter_name} · Role: {inv.role}</p>
+                </div>
+                <button
+                  onClick={() => router.push('/invite/accept?token=' + inv.token)}
+                  className="h-8 px-4 text-xs font-semibold bg-pink text-white rounded-btn hover:bg-[#e0005f] transition-colors"
+                >
+                  Accept
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Invite */}
       {canManageMembers && (

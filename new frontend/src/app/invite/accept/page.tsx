@@ -18,6 +18,8 @@ function AcceptInviteInner() {
       setMessage("Invalid invitation link — no token provided.");
       return;
     }
+    // Save token so the login page can redirect back here after sign-in / sign-up.
+    try { localStorage.setItem('pendingInviteToken', token); } catch {}
     (async () => {
       try {
         const res = await fetch("/api/workspaces/invites/accept", {
@@ -38,6 +40,15 @@ function AcceptInviteInner() {
           setStatus("error");
           setMessage(data.error || "Failed to accept invitation. It may have expired.");
           return;
+        }
+        // Clear the pending token now that it has been consumed.
+        try { localStorage.removeItem('pendingInviteToken'); } catch {}
+        // Switch the active workspace so the user lands in the right context.
+        if (data.workspace?.id) {
+          try { localStorage.setItem('activeWorkspaceId', data.workspace.id); } catch {}
+        }
+        if (data.workspace?.name) {
+          try { localStorage.setItem('activeWorkspaceName', data.workspace.name); } catch {}
         }
         setWorkspaceName(data.workspace?.name || "the workspace");
         setStatus("success");

@@ -1038,6 +1038,10 @@ export const api = {
     return post(`/api/stories/${storyId}/testcases/${testCaseId}/run`, { run_status: runStatus, comment: comment || '' })
   },
 
+  async moveStoryToProject(storyId: string, projectId: string): Promise<void> {
+    return patch(`/api/stories/${storyId}/project`, { project_id: projectId });
+  },
+
   async getTestRuns(storyId: string, testCaseId: string): Promise<{ runs: any[]; latest: any }> {
     return get(`/api/stories/${storyId}/testcases/${testCaseId}/runs`)
   },

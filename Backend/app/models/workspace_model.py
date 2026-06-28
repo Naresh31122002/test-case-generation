@@ -367,6 +367,73 @@ class WorkspaceModel:
             cursor.close()
             conn.close()
 
+    @staticmethod
+    def delete_workspace(workspace_id: str, user_id: str) -> None:
+        """Permanently delete a workspace and all associated data.
+        Only the workspace owner may call this."""
+        import lancedb as _lancedb
+        conn = Config.get_postgres_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Confirm caller is the owner before doing anything destructive
+            cursor.execute(
+                "SELECT 1 FROM workspaces WHERE id = %s AND owner_id = %s",
+                (workspace_id, user_id),
+            )
+            if not cursor.fetchone():
+                raise PermissionError("Only the workspace owner can delete this workspace")
+
+            # Delete test_cases rows
+            cursor.execute(
+                "DELETE FROM test_cases WHERE workspace_id = %s",
+                (workspace_id,),
+            )
+
+            # Delete workspace_members rows
+            cursor.execute(
+                "DELETE FROM workspace_members WHERE workspace_id = %s",
+                (workspace_id,),
+            )
+
+            # Delete workspace_integrations rows (config, jira, etc.)
+            cursor.execute(
+                "DELETE FROM workspace_integrations WHERE workspace_id = %s",
+                (workspace_id,),
+            )
+
+            # Delete workspace_credits row
+            cursor.execute(
+                "DELETE FROM workspace_credits WHERE workspace_id = %s",
+                (workspace_id,),
+            )
+
+            # Delete the workspace itself
+            cursor.execute(
+                "DELETE FROM workspaces WHERE id = %s AND owner_id = %s",
+                (workspace_id, user_id),
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+        # Remove all LanceDB rows for this workspace (non-fatal)
+        try:
+            db = _lancedb.connect(Config.LANCE_DB_PATH)
+            table = db.open_table(Config.TABLE_NAME_LANCE)
+            df = table.to_pandas()
+            if 'workspace_id' in df.columns:
+                filtered = df[df['workspace_id'] != workspace_id]
+                db.drop_table(Config.TABLE_NAME_LANCE)
+                db.create_table(Config.TABLE_NAME_LANCE, filtered)
+        except Exception as e:
+            print(f"[delete_workspace] LanceDB cleanup failed (non-fatal): {e}")
+
     @classmethod
     def get_member_permissions(cls, workspace_id: str, user_id: str) -> dict:
         """Return a dict of permission flags for a user in a workspace."""

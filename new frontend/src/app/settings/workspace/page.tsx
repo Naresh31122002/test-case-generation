@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Loader2, CheckCircle2, AlertCircle, Plus, ArrowRight, Building2 } from "lucide-react";
-import { get, patch } from "@/lib/apiClient";
+import { Loader2, CheckCircle2, AlertCircle, Plus, ArrowRight, Building2, Trash2 } from "lucide-react";
+import { get, patch, del } from "@/lib/apiClient";
 import {
   listWorkspaces,
   switchWorkspace,
@@ -38,6 +38,12 @@ export default function WorkspaceSettings() {
   const [wsLoading, setWsLoading] = useState(false);
   const [showCreateWs, setShowCreateWs] = useState(false);
   const [newWsName, setNewWsName] = useState("");
+
+  // Delete workspace state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +122,22 @@ export default function WorkspaceSettings() {
       /* ignore — keep form open */
     } finally {
       setWsLoading(false);
+    }
+  }
+
+  async function handleDeleteWorkspace() {
+    if (deleteConfirmName !== name) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await del("/api/workspaces/current");
+      // Clear workspace from localStorage and redirect
+      try { localStorage.removeItem("activeWorkspaceId"); } catch {}
+      window.location.href = "/onboarding/workspace";
+    } catch (err: any) {
+      setDeleteError(err?.message ?? "Failed to delete workspace. Please try again.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -271,6 +293,69 @@ export default function WorkspaceSettings() {
           )}
         </div>
       </div>
+
+      {/* Danger Zone */}
+      <div className="bg-white border border-red-200 rounded-card p-5">
+        <h3 className="text-sm font-semibold text-error mb-1">Danger Zone</h3>
+        <p className="text-xs text-muted mb-4">
+          Permanently delete this workspace and all its stories, test cases, and data. This cannot be undone.
+        </p>
+        <button
+          onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmName(""); setDeleteError(null); }}
+          className="h-9 px-4 text-sm font-semibold text-error border border-error rounded-btn hover:bg-red-50 transition-colors flex items-center gap-2"
+        >
+          <Trash2 size={14} />
+          Delete Workspace
+        </button>
+      </div>
+
+      {/* Delete Workspace Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-card shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Trash2 size={18} className="text-error" />
+              <h3 className="text-base font-semibold text-navy">Delete Workspace</h3>
+            </div>
+            <p className="text-sm text-muted mb-1">
+              This will permanently delete <span className="font-semibold text-navy">{name}</span> and all its stories, test cases, and data.
+            </p>
+            <p className="text-sm text-muted mb-4">
+              To confirm, type the workspace name below:
+            </p>
+            <input
+              autoFocus
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={name}
+              className="w-full h-9 px-3 text-sm border border-border rounded-btn focus:outline-none focus:border-error mb-4 transition-colors"
+              onKeyDown={(e) => { if (e.key === "Enter" && deleteConfirmName === name) handleDeleteWorkspace(); }}
+            />
+            {deleteError && (
+              <p className="text-sm text-error flex items-center gap-1.5 mb-3">
+                <AlertCircle size={13} /> {deleteError}
+              </p>
+            )}
+            <div className="flex items-center gap-3 justify-end">
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmName(""); setDeleteError(null); }}
+                disabled={deleting}
+                className="h-9 px-4 text-sm font-medium text-navy border border-border rounded-btn hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteWorkspace}
+                disabled={deleteConfirmName !== name || deleting}
+                className="h-9 px-4 text-sm font-semibold text-white bg-error rounded-btn hover:bg-red-700 transition-colors disabled:opacity-40 flex items-center gap-2"
+              >
+                {deleting && <Loader2 size={13} className="animate-spin" />}
+                Delete Workspace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

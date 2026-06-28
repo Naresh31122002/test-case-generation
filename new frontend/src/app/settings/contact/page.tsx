@@ -3,58 +3,126 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Bug, LifeBuoy } from "lucide-react";
+import { CheckCircle2, Bug, LifeBuoy, Lightbulb } from "lucide-react";
 
 type Priority = "Low" | "Medium" | "High" | "Urgent";
+type FormType = "contact" | "bug" | "feature";
 
 const PRIORITIES: Priority[] = ["Low", "Medium", "High", "Urgent"];
 
 function ContactForm() {
   const params = useSearchParams();
-  const isBug = params.get("type") === "bug";
+  const initialType: FormType = params.get("type") === "bug" ? "bug" : "contact";
 
-  const [subject, setSubject] = useState(isBug ? "Bug report: " : "");
+  const [formType, setFormType] = useState<FormType>(initialType);
+  const [subject, setSubject] = useState(
+    initialType === "bug" ? "Bug report: " : ""
+  );
   const [message, setMessage] = useState("");
-  const [priority, setPriority] = useState<Priority>(isBug ? "High" : "Medium");
+  const [priority, setPriority] = useState<Priority>(
+    initialType === "bug" ? "High" : "Medium"
+  );
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
 
   const canSubmit = subject.trim().length > 0 && message.trim().length > 0;
 
-  function handleSubmit(e: React.FormEvent) {
+  function switchType(type: FormType) {
+    setFormType(type);
+    setError("");
+    setSubmitted(false);
+    if (type === "bug") {
+      setSubject("Bug report: ");
+      setPriority("High");
+    } else if (type === "feature") {
+      setSubject("Feature Request: ");
+      setPriority("Medium");
+    } else {
+      setSubject("");
+      setPriority("Medium");
+    }
+    setMessage("");
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) {
       setError("Subject and message are required.");
       return;
     }
-    // Mock submit — wire to a real endpoint later.
+    try {
+      await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: formType === "bug" ? "bug_report" : formType === "feature" ? "feature_request" : "contact",
+          subject,
+          description: message,
+        }),
+      });
+    } catch {
+      // Proceed even if no endpoint exists yet
+    }
     setSubmitted(true);
   }
 
   function reset() {
-    setSubject(isBug ? "Bug report: " : "");
+    setSubject(formType === "bug" ? "Bug report: " : formType === "feature" ? "Feature Request: " : "");
     setMessage("");
-    setPriority(isBug ? "High" : "Medium");
+    setPriority(formType === "bug" ? "High" : "Medium");
     setSubmitted(false);
     setError("");
   }
+
+  const headerIcon =
+    formType === "bug" ? <Bug size={15} /> :
+    formType === "feature" ? <Lightbulb size={15} /> :
+    <LifeBuoy size={15} />;
+
+  const headerTitle =
+    formType === "bug" ? "Report a Bug" :
+    formType === "feature" ? "Request a Feature" :
+    "Contact Us";
+
+  const headerSubtitle =
+    formType === "bug" ? "Tell us what went wrong and we'll look into it." :
+    formType === "feature" ? "Describe the feature you'd like and how it would help you." :
+    "Send our team a message and we'll get back to you.";
 
   return (
     <>
       <div>
         <div className="flex items-center gap-2 mb-1">
           <span className="w-7 h-7 rounded-full bg-surface-pink text-pink flex items-center justify-center">
-            {isBug ? <Bug size={15} /> : <LifeBuoy size={15} />}
+            {headerIcon}
           </span>
-          <h2 className="text-[18px] font-semibold text-navy">
-            {isBug ? "Report a Bug" : "Contact Us"}
-          </h2>
+          <h2 className="text-[18px] font-semibold text-navy">{headerTitle}</h2>
         </div>
-        <p className="text-sm text-muted">
-          {isBug
-            ? "Tell us what went wrong and we'll look into it."
-            : "Send our team a message and we'll get back to you."}
-        </p>
+        <p className="text-sm text-muted">{headerSubtitle}</p>
+      </div>
+
+      {/* Type toggle */}
+      <div className="flex items-center gap-1 border border-border rounded-btn overflow-hidden w-fit">
+        {(
+          [
+            { type: "contact" as FormType, label: "Contact" },
+            { type: "bug" as FormType, label: "Bug Report" },
+            { type: "feature" as FormType, label: "Feature Request" },
+          ] as { type: FormType; label: string }[]
+        ).map(({ type, label }) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => switchType(type)}
+            className={`h-8 px-3.5 text-xs font-medium transition-colors ${
+              formType === type
+                ? "bg-surface-pink text-pink"
+                : "bg-white text-navy/60 hover:text-navy hover:bg-gray-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <AnimatePresence mode="wait">
@@ -84,7 +152,7 @@ function ContactForm() {
           </motion.div>
         ) : (
           <motion.form
-            key="form"
+            key={`form-${formType}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -100,45 +168,53 @@ function ContactForm() {
               <input
                 value={subject}
                 onChange={(e) => { setSubject(e.target.value); setError(""); }}
-                placeholder="How can we help?"
+                placeholder={formType === "feature" ? "Feature Request: " : "How can we help?"}
                 className="w-full h-10 px-3 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors"
               />
             </div>
 
-            {/* Priority */}
-            <div>
-              <label className="block text-sm font-medium text-navy mb-1.5">Priority</label>
-              <div className="flex flex-wrap gap-2">
-                {PRIORITIES.map((p) => {
-                  const on = priority === p;
-                  return (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setPriority(p)}
-                      className={`h-9 px-4 rounded-btn border text-sm font-medium transition-colors ${
-                        on
-                          ? "bg-brand-primary-light text-brand-primary border-brand-primary"
-                          : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
+            {/* Priority — only shown for bug and contact */}
+            {formType !== "feature" && (
+              <div>
+                <label className="block text-sm font-medium text-navy mb-1.5">Priority</label>
+                <div className="flex flex-wrap gap-2">
+                  {PRIORITIES.map((p) => {
+                    const on = priority === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPriority(p)}
+                        className={`h-9 px-4 rounded-btn border text-sm font-medium transition-colors ${
+                          on
+                            ? "bg-brand-primary-light text-brand-primary border-brand-primary"
+                            : "bg-white text-muted border-border hover:text-navy hover:bg-gray-50"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Message */}
+            {/* Message / Description */}
             <div>
               <label className="block text-sm font-medium text-navy mb-1.5">
-                Message <span className="text-pink">*</span>
+                {formType === "feature" ? "Description" : "Message"} <span className="text-pink">*</span>
               </label>
               <textarea
                 value={message}
                 onChange={(e) => { setMessage(e.target.value); setError(""); }}
                 rows={6}
-                placeholder={isBug ? "Steps to reproduce, what you expected, what happened…" : "Write your message…"}
+                placeholder={
+                  formType === "bug"
+                    ? "Steps to reproduce, what you expected, what happened…"
+                    : formType === "feature"
+                    ? "Describe the feature you'd like and how it would help you…"
+                    : "Write your message…"
+                }
                 className="w-full px-3 py-2.5 rounded-btn border border-border text-sm text-navy placeholder:text-muted focus:outline-none focus:border-pink transition-colors resize-y"
               />
             </div>
