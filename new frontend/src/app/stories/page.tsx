@@ -182,6 +182,7 @@ export default function StoriesPage() {
 
   // Move to project state
   const [moveStoryId, setMoveStoryId] = useState<string | null>(null);
+  const [bulkMoveIds, setBulkMoveIds] = useState<string[]>([]);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
   const [moving, setMoving] = useState(false);
 
@@ -288,18 +289,21 @@ export default function StoriesPage() {
   };
 
   const handleMoveStory = async () => {
-    if (!moveStoryId || !moveTargetProjectId) return;
+    const idsToMove = bulkMoveIds.length > 0 ? bulkMoveIds : moveStoryId ? [moveStoryId] : [];
+    if (!idsToMove.length || !moveTargetProjectId) return;
     setMoving(true);
     try {
-      await api.moveStoryToProject(moveStoryId, moveTargetProjectId);
-      notify({ variant: "success", title: "Story moved", detail: `Moved to project "${moveTargetProjectId}"` });
+      await Promise.all(idsToMove.map(id => api.moveStoryToProject(id, moveTargetProjectId)));
+      notify({ variant: "success", title: `${idsToMove.length > 1 ? `${idsToMove.length} stories` : "Story"} moved`, detail: `Moved to "${moveTargetProjectId}"` });
       reloadProjects();
       invalidateStories();
+      clearSelection();
     } catch {
-      notify({ variant: "error", title: "Move failed", detail: "Could not move story. Please try again." });
+      notify({ variant: "error", title: "Move failed", detail: "Could not move. Please try again." });
     } finally {
       setMoving(false);
       setMoveStoryId(null);
+      setBulkMoveIds([]);
       setMoveTargetProjectId("");
     }
   };
@@ -463,6 +467,7 @@ export default function StoriesPage() {
               onClear={clearSelection}
               onDelete={() => deleteStories(selectedStories.map((s) => s.id))}
               canDelete={canDelete}
+              onMoveToProject={(ids) => { setBulkMoveIds(ids); setMoveTargetProjectId(""); }}
             />
           )}
         </AnimatePresence>
@@ -493,14 +498,14 @@ export default function StoriesPage() {
             <EmptyState key="empty" hasSearch={!!search} onNewStory={() => document.dispatchEvent(new CustomEvent('testsurge:open-new-story'))} />
           ) : viewMode === "board" ? (
             <BoardView
-              key={`board-${filterType}-${sortKey}-${activeFilter}`}
+              key={`board-${activeFilter}-${sortKey}-${activeFilter}`}
               stories={filtered}
               selected={selected}
               onToggleSelect={toggleSelect}
             />
           ) : (
             <ListView
-              key={`list-${filterType}-${sortKey}-${activeFilter}`}
+              key={`list-${activeFilter}-${sortKey}-${activeFilter}`}
               stories={filtered}
               openMenu={openMenu}
               setOpenMenu={setOpenMenu}
@@ -517,11 +522,16 @@ export default function StoriesPage() {
     <ConfirmModal config={confirmState} onClose={() => setConfirmState(null)} />
 
     {/* Move to Project Modal */}
-    {moveStoryId && (
+    {(moveStoryId || bulkMoveIds.length > 0) && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div className="bg-white rounded-card shadow-xl p-6 w-full max-w-sm mx-4">
           <h3 className="text-base font-semibold text-navy mb-3">Move to Project</h3>
-          <p className="text-sm text-muted mb-4">Select a project to move story <span className="font-semibold text-navy">{moveStoryId}</span> to.</p>
+          <p className="text-sm text-muted mb-4">
+            {bulkMoveIds.length > 1
+              ? <>Moving <span className="font-semibold text-navy">{bulkMoveIds.length} stories</span> to:</>
+              : <>Move <span className="font-semibold text-navy">{moveStoryId}</span> to:</>
+            }
+          </p>
           <select
             value={moveTargetProjectId}
             onChange={(e) => setMoveTargetProjectId(e.target.value)}
@@ -534,7 +544,7 @@ export default function StoriesPage() {
           </select>
           <div className="flex items-center gap-3 justify-end">
             <button
-              onClick={() => { setMoveStoryId(null); setMoveTargetProjectId(""); }}
+              onClick={() => { setMoveStoryId(null); setBulkMoveIds([]); setMoveTargetProjectId(""); }}
               disabled={moving}
               className="h-9 px-4 text-sm font-medium text-navy border border-border rounded-btn hover:bg-gray-50 transition-colors"
             >
@@ -586,12 +596,14 @@ function BulkActionBar({
   onClear,
   onDelete,
   canDelete,
+  onMoveToProject,
 }: {
   count: number;
   stories: Story[];
   onClear: () => void;
   onDelete: () => void;
   canDelete: boolean;
+  onMoveToProject: (ids: string[]) => void;
 }) {
   const { runAIAction } = useAIAction();
   const ids = stories.map((s) => s.id).join(",");
@@ -628,6 +640,14 @@ function BulkActionBar({
       >
         <Sparkles size={15} />
         Generate Tests
+      </button>
+      <button
+        type="button"
+        onClick={() => onMoveToProject(stories.map(s => s.id))}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-navy hover:text-pink transition-colors"
+      >
+        <FolderInput size={15} />
+        Move to project
       </button>
       <Link
         href={`/exports?story=${ids}`}
