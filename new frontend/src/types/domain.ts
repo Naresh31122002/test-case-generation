@@ -227,6 +227,8 @@ export interface Story {
   downloadUrl: string;
   /** Kanban column: in_review | in_progress | completed. Default: in_review */
   storyStatus: 'in_review' | 'in_progress' | 'completed';
+  /** Whether test case generation has completed (false = still generating) */
+  testCaseGenerated?: boolean;
   /** URL of the page under test — used for DOM crawl and smart export. */
   page_url?: string | null;
 }

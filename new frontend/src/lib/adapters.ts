@@ -10,10 +10,10 @@ function inferTitle(description: string, fallback: string): string {
 function deriveStatus(story: DomainStory): StoryStatus {
   const testCount = Number(story.testCaseCount || 0);
   const impactCount = Number(story.impactedTestCasesCount || 0);
-  if (story.storyStatus === 'in_progress') return "Analyzing";
+  // Story is still generating if testCaseGenerated is explicitly false and no test cases yet
+  if (story.testCaseGenerated === false && testCount === 0) return "Analyzing";
   if (impactCount > 0) return "Impact Detected";
   if (testCount > 0) return "Ready";
-  if (story.storyStatus === 'in_review' || story.storyStatus === 'completed') return "Ready";
   return "Draft";
 }
 

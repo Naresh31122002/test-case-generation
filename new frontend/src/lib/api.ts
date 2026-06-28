@@ -294,6 +294,7 @@ function normalizeStory(raw: RawStory): Story {
     // ALWAYS computed — never sourced from raw.download_link (broken backend route).
     downloadUrl: '/api/stories/testcases/download/' + String(raw.id),
     storyStatus: (raw.story_status as any) ?? 'in_review',
+    testCaseGenerated: raw.test_case_generated ?? (Number(raw.test_case_count || 0) > 0),
     page_url: raw.page_url ?? (raw.inputs && raw.inputs.page_url) ?? null,
   }
 }
