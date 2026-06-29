@@ -17,6 +17,7 @@ function mockRunNewStory(ms = 1800): Promise<void> {
 }
 import {
   ArrowLeft,
+  ArrowRight,
   Upload,
   AlertTriangle,
   Sparkles,
@@ -29,6 +30,7 @@ import {
   ChevronDown,
   ChevronUp,
   Globe,
+  FolderOpen,
 } from "lucide-react";
 import { easeStandard, easeOut, duration, spring } from "@/lib/motion";
 
@@ -126,6 +128,7 @@ export default function CreateStoryPage() {
 
   // Step 0: project name for first-time users (no existing project / default only)
   const [showProjectStep, setShowProjectStep] = useState(false);
+  const [showFlowChoice, setShowFlowChoice] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
 
   useEffect(() => {
@@ -136,7 +139,6 @@ export default function CreateStoryPage() {
       localStorage.removeItem("pendingProject");
     }
     // Show the project naming step when there is no meaningful active project yet
-    // (i.e. the user has not completed onboarding or came here directly).
     if (!active || active === "default") {
       setShowProjectStep(true);
     }
@@ -217,42 +219,88 @@ export default function CreateStoryPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto py-10">
         <div className="max-w-[720px] mx-auto px-6">
-          {/* Step 0: project naming for first-time users (shown before the upload wizard) */}
-          {showProjectStep && (
-            <div className="bg-white border border-border rounded-card p-6 mb-6">
-              <h2 className="text-lg font-semibold text-navy mb-2">Name your project</h2>
-              <p className="text-sm text-muted mb-4">
-                Projects organise your stories. You can create more later.
-              </p>
-              <input
-                autoFocus
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newProjectName.trim()) {
-                    if (newProjectName.trim()) {
-                      localStorage.setItem("pendingProject", newProjectName.trim());
-                    }
-                    setShowProjectStep(false);
-                  }
-                }}
-                placeholder="e.g. Mobile App, Backend API, Payment Flow"
-                className="w-full h-11 px-4 rounded-lg border border-border text-sm text-navy focus:outline-none focus:border-pink mb-4"
-              />
-              <button
-                onClick={() => {
-                  if (newProjectName.trim()) {
-                    localStorage.setItem("pendingProject", newProjectName.trim());
-                  }
-                  setShowProjectStep(false);
-                }}
-                disabled={!newProjectName.trim()}
-                className="h-10 px-6 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors disabled:opacity-40"
-              >
-                Continue
-              </button>
+      {/* Step 0a: Full-screen project naming overlay */}
+      {showProjectStep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#FAFBFC] px-4">
+          <div className="w-full max-w-md bg-white border border-border rounded-2xl shadow-card p-8">
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-pink/10 mx-auto mb-5">
+              <FolderOpen size={26} className="text-pink" />
             </div>
-          )}
+            <h2 className="text-xl font-bold text-navy text-center mb-2">Name your project</h2>
+            <p className="text-sm text-muted text-center mb-6">
+              Projects organise your stories by product area or team. You can create more later.
+            </p>
+            <input
+              autoFocus
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newProjectName.trim()) {
+                  localStorage.setItem("pendingProject", newProjectName.trim());
+                  setShowProjectStep(false);
+                  setShowFlowChoice(true);
+                }
+              }}
+              placeholder="e.g. Mobile App, Backend API, Payment Flow"
+              className="w-full h-11 px-4 rounded-lg border border-border text-sm text-navy focus:outline-none focus:border-pink mb-4 transition-colors"
+            />
+            <button
+              onClick={() => {
+                if (newProjectName.trim()) {
+                  localStorage.setItem("pendingProject", newProjectName.trim());
+                }
+                setShowProjectStep(false);
+                setShowFlowChoice(true);
+              }}
+              disabled={!newProjectName.trim()}
+              className="w-full h-11 rounded-btn bg-pink text-white text-sm font-semibold hover:bg-pink/90 transition-colors disabled:opacity-40"
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 0b: Full-screen flow choice overlay (Import vs Generate) */}
+      {showFlowChoice && !showProjectStep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#FAFBFC] px-4">
+          <div className="w-full max-w-lg bg-white border border-border rounded-2xl shadow-card p-8">
+            <h2 className="text-xl font-bold text-navy text-center mb-2">Create a new story</h2>
+            <p className="text-sm text-muted text-center mb-6">Choose how you want to add your story.</p>
+            <div className="space-y-3">
+              <button
+                onClick={() => setShowFlowChoice(false)}
+                className="w-full flex items-start gap-4 p-4 rounded-xl border border-border hover:border-pink/40 hover:bg-pink/5 transition-all text-left group"
+              >
+                <span className="w-10 h-10 rounded-xl bg-pink/10 flex items-center justify-center flex-shrink-0 group-hover:bg-pink/20 transition-colors">
+                  <Upload size={18} className="text-pink" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-navy">Import Existing User Story</p>
+                  <p className="text-xs text-muted mt-0.5">Paste a story, upload a story file, or import from Jira, then go straight to test generation.</p>
+                </div>
+                <ArrowRight size={16} className="text-muted ml-auto flex-shrink-0 mt-1 group-hover:text-pink transition-colors" />
+              </button>
+              <Link
+                href="/stories/generate"
+                className="w-full flex items-start gap-4 p-4 rounded-xl border border-border hover:border-pink/40 hover:bg-pink/5 transition-all text-left group"
+              >
+                <span className="w-10 h-10 rounded-xl bg-pink/10 flex items-center justify-center flex-shrink-0 group-hover:bg-pink/20 transition-colors">
+                  <Sparkles size={18} className="text-pink" />
+                </span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-navy">Generate User Stories From Requirements</p>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-pink text-white">AI</span>
+                  </div>
+                  <p className="text-xs text-muted mt-0.5">Upload a BRD, PRD, SRS or requirement doc. AI extracts features, actors and rules, then drafts structured user stories for you to review.</p>
+                </div>
+                <ArrowRight size={16} className="text-muted ml-auto flex-shrink-0 mt-1 group-hover:text-pink transition-colors" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
           {/* Step content */}
           <AnimatePresence mode="wait" custom={direction}>
