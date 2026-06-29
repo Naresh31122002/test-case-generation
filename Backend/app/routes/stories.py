@@ -1301,7 +1301,7 @@ def upload_story():
             except OutOfCreditsException as e:
                 return jsonify({'error': str(e)}), 402
             except Exception as e:
-            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+                return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
         # Create project folder if it doesn't exist
         import os
