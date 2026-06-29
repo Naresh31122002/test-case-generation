@@ -38,6 +38,25 @@ from app.models.test_case_collaboration_model import (
 stories_bp = Blueprint('stories', __name__)
 
 
+def _workspace_has_own_key(workspace_id: str) -> bool:
+    """Returns True if the workspace has its own AI API key stored.
+    When True, callers should skip credit deduction."""
+    if not workspace_id:
+        return False
+    try:
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM workspace_integrations "
+                    "WHERE workspace_id = %s AND integration_type = 'ai_api_key' "
+                    "AND secret_enc IS NOT NULL AND secret_enc != ''",
+                    (workspace_id,)
+                )
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 _JSON_VALID_ESCAPE_NEXT = set('"\\/bfnrtu')
 
 
@@ -748,13 +767,14 @@ def improve_story():
         if not story_content:
             return jsonify({'error': 'story_content is required'}), 400
 
-        try:
-            from app.models.credits_model import CreditsModel, OutOfCreditsException
-            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="improve_story")
-        except OutOfCreditsException as e:
-            return jsonify({'error': str(e)}), 402
-        except Exception:
-            pass  # non-fatal
+        if not _workspace_has_own_key(workspace_id):
+            try:
+                from app.models.credits_model import CreditsModel, OutOfCreditsException
+                CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="improve_story")
+            except OutOfCreditsException as e:
+                return jsonify({'error': str(e)}), 402
+            except Exception:
+                pass  # non-fatal
 
         use_analysis = data.get('use_analysis', False)
         analysis_data = data.get('analysis_data') or {}
@@ -1273,13 +1293,14 @@ def upload_story():
                 'error': f'Story with ID "{story_id}" already exists'
             }), 409
 
-        # Check and deduct credit before proceeding
-        try:
-            from app.models.credits_model import CreditsModel, OutOfCreditsException
-            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="generate_tests", story_id=story_id)
-        except OutOfCreditsException as e:
-            return jsonify({'error': str(e)}), 402
-        except Exception as e:
+        # Check and deduct credit before proceeding (skip if workspace has own AI key)
+        if not _workspace_has_own_key(workspace_id):
+            try:
+                from app.models.credits_model import CreditsModel, OutOfCreditsException
+                CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="generate_tests", story_id=story_id)
+            except OutOfCreditsException as e:
+                return jsonify({'error': str(e)}), 402
+            except Exception as e:
             return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
         # Create project folder if it doesn't exist
@@ -3310,14 +3331,15 @@ def regenerate_tests(story_id):
 
         project_id = str(row_data.iloc[0].get('project_id', ''))
 
-        # Check and deduct credit before proceeding
-        try:
-            from app.models.credits_model import CreditsModel, OutOfCreditsException
-            CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="regenerate_tests", story_id=story_id)
-        except OutOfCreditsException as e:
-            return jsonify({'error': str(e)}), 402
-        except Exception as e:
-            return jsonify({'error': f'Credit system error: {str(e)}'}), 500
+        # Check and deduct credit before proceeding (skip if workspace has own AI key)
+        if not _workspace_has_own_key(workspace_id):
+            try:
+                from app.models.credits_model import CreditsModel, OutOfCreditsException
+                CreditsModel.check_and_deduct_credit(workspace_id, user_id, action="regenerate_tests", story_id=story_id)
+            except OutOfCreditsException as e:
+                return jsonify({'error': str(e)}), 402
+            except Exception as e:
+                return jsonify({'error': f'Credit system error: {str(e)}'}), 500
 
         # Fetch cached quality analysis BEFORE deleting (so the hints survive the DELETE)
         _quality_hints = ""

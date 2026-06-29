@@ -15,7 +15,9 @@ export interface AuthUser {
   emailVerified: boolean
   currentWorkspace: string | null
   onboardingCompleted: boolean
-  /** Display name set in the first-login modal (Sprint 1 Phase 6). */
+  /** Display name (shown in sidebar, profile page). */
+  displayName: string | null
+  /** Full name set in the first-login modal. */
   fullName: string | null
   /** Human-friendly name of the current workspace, for the sidebar. */
   currentWorkspaceName: string | null
@@ -61,6 +63,7 @@ function normalizeUser(raw: any, workspace?: any): AuthUser {
     emailVerified: !!(raw?.email_verified ?? raw?.emailVerified ?? false),
     currentWorkspace: wsId,
     onboardingCompleted: !!(raw?.onboarding_completed ?? raw?.onboardingCompleted ?? false),
+    displayName: raw?.display_name ?? raw?.displayName ?? null,
     fullName: raw?.full_name ?? raw?.fullName ?? null,
     currentWorkspaceName: wsName,
   }

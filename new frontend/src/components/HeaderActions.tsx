@@ -568,8 +568,20 @@ function DeleteProjectModal({
 
 function CreditsIndicator() {
   const [show, setShow] = useState(false);
-  const { creditsUsed, creditsTotal, creditsRemaining } = useAIAction();
+  const { creditsUsed, creditsTotal, creditsRemaining, creditsResetDate, creditsPlan } = useAIAction();
   const pct = Math.round((creditsUsed / creditsTotal) * 100);
+
+  // Format reset date nicely
+  const resetLabel = creditsResetDate
+    ? (() => {
+        try {
+          return new Date(creditsResetDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch { return creditsResetDate; }
+      })()
+    : null;
+
+  const planLabel = creditsPlan ? creditsPlan.charAt(0).toUpperCase() + creditsPlan.slice(1) : 'Free';
+  const barColor = pct >= 90 ? 'bg-error' : pct >= 70 ? 'bg-warning' : 'bg-pink';
 
   return (
     <div
@@ -581,7 +593,6 @@ function CreditsIndicator() {
       {/* Full credits (≥1200px) */}
       <div
         className="hidden min-[1200px]:flex items-center gap-2 h-9 px-3 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap"
-        title="Credits are used for AI operations: generating tests (1 credit), regenerating (0.5), quality analysis (0.5). Credits reset monthly."
       >
         <Zap size={15} className="text-pink flex-shrink-0" />
         <span className="tabular-nums">
@@ -590,10 +601,9 @@ function CreditsIndicator() {
         </span>
         <span className="text-muted text-xs">Credits</span>
       </div>
-      {/* Compact badge (&lt;1200px) */}
+      {/* Compact badge (<1200px) */}
       <div
         className="flex min-[1200px]:hidden items-center gap-1.5 h-9 px-2.5 rounded-btn border border-border bg-white text-sm font-medium text-navy cursor-default whitespace-nowrap"
-        title="Credits are used for AI operations: generating tests (1 credit), regenerating (0.5), quality analysis (0.5). Credits reset monthly."
       >
         <Zap size={15} className="text-pink flex-shrink-0" />
         <span className="tabular-nums">{creditsUsed}</span>
@@ -606,24 +616,55 @@ function CreditsIndicator() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-60 bg-white border border-border rounded-card shadow-card p-3"
+            className="absolute right-0 mt-2 w-64 bg-white border border-border rounded-card shadow-card p-4 z-50"
           >
-            <div className="flex items-center justify-between mb-2">
+            {/* Header row: Credits title + plan badge */}
+            <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-semibold text-navy">Credits</span>
-              <span className="text-xs text-muted">{pct}% used</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink/10 text-pink border border-pink/20">
+                {planLabel}
+              </span>
             </div>
-            <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden mb-3">
+
+            {/* Usage bar */}
+            <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden mb-2">
               <div
-                className="h-full rounded-full bg-pink"
-                style={{ width: `${pct}%` }}
+                className={`h-full rounded-full transition-all ${barColor}`}
+                style={{ width: `${Math.min(pct, 100)}%` }}
               />
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-navy font-medium">Remaining</span>
-              <span className="font-semibold text-success tabular-nums">
+
+            {/* Used / Total */}
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-muted">{pct}% used</span>
+              <span className="text-navy font-medium tabular-nums">{creditsUsed} / {creditsTotal}</span>
+            </div>
+
+            {/* Remaining */}
+            <div className="flex items-center justify-between text-xs mb-3">
+              <span className="text-muted">Remaining</span>
+              <span className={`font-semibold tabular-nums ${creditsRemaining <= 20 ? 'text-error' : 'text-success'}`}>
                 {creditsRemaining}
               </span>
             </div>
+
+            {/* Reset date */}
+            {resetLabel && (
+              <div className="flex items-center justify-between text-xs mb-3 pt-2.5 border-t border-border">
+                <span className="text-muted">Resets on</span>
+                <span className="text-navy font-medium">{resetLabel}</span>
+              </div>
+            )}
+
+            {/* Buy more link */}
+            <Link
+              href="/settings/billing"
+              className="flex items-center justify-center gap-1.5 w-full h-8 rounded-btn bg-pink text-white text-xs font-semibold hover:bg-pink/90 transition-colors"
+              onClick={() => setShow(false)}
+            >
+              <Zap size={12} />
+              Buy more credits
+            </Link>
           </motion.div>
         )}
       </AnimatePresence>

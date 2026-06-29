@@ -75,6 +75,8 @@ interface AIActionContextValue {
   creditsUsed: number;
   creditsTotal: number;
   creditsRemaining: number;
+  creditsResetDate: string | null;
+  creditsPlan: string;
   /** Confirm → run → consume credits → toast. Returns true if it completed. */
   runAIAction: (config: AIActionConfig) => void;
   /** Fire a standalone toast (used internally; exposed for convenience). */
@@ -88,12 +90,14 @@ const AIActionContext = createContext<AIActionContextValue | null>(null);
 type Phase = "idle" | "loading" | "error";
 
 interface CreditUsageResponse {
-  credits: { limit: number; used: number; remaining: number };
+  credits: { limit: number; used: number; remaining: number; reset_date?: string; plan?: string };
 }
 
 export function AIActionProvider({ children }: { children: ReactNode }) {
   const [creditsUsed, setCreditsUsed] = useState(0);
   const [creditsTotal, setCreditsTotal] = useState(FALLBACK_CREDITS_TOTAL);
+  const [creditsResetDate, setCreditsResetDate] = useState<string | null>(null);
+  const [creditsPlan, setCreditsPlan] = useState<string>("free");
   const [pending, setPending] = useState<AIActionConfig | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
@@ -105,6 +109,8 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
       const data = await apiGet<CreditUsageResponse>("/api/workspaces/current/credits");
       setCreditsUsed(data.credits.used);
       setCreditsTotal(data.credits.limit);
+      if (data.credits.reset_date) setCreditsResetDate(data.credits.reset_date);
+      if (data.credits.plan) setCreditsPlan(data.credits.plan);
     } catch {
       // Best-effort — keep last known values (or the fallback) on failure.
     }
@@ -172,6 +178,8 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
         creditsUsed,
         creditsTotal,
         creditsRemaining,
+        creditsResetDate,
+        creditsPlan,
         runAIAction,
         notify,
       }}

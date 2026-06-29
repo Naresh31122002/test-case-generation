@@ -100,12 +100,12 @@ export default function NotificationsSettings() {
               </div>
               <button
                 onClick={() => toggle(item.id)}
-                className={`relative w-10 rounded-full transition-colors flex-shrink-0 ${prefs[item.id] ? "bg-pink" : "bg-border"}`}
-                style={{ height: "22px" }}
+                aria-checked={prefs[item.id]}
+                role="switch"
+                className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 focus:outline-none ${prefs[item.id] ? "bg-pink" : "bg-gray-200"}`}
               >
                 <span
-                  className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
-                  style={{ transform: `translateX(${prefs[item.id] ? "22px" : "2px"})` }}
+                  className={`inline-block w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${prefs[item.id] ? "translate-x-5" : "translate-x-0.5"}`}
                 />
               </button>
             </div>

@@ -74,7 +74,7 @@ export function Sidebar() {
 
   // Phase 6: show the user's display name, falling back to nothing (not the email
   // prefix) so the name line never duplicates the email line below it.
-  const displayName = user?.fullName?.trim() || null;
+  const displayName = user?.displayName?.trim() || user?.fullName?.trim() || null;
   const avatarInitials = displayName
     ? displayName.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase()
     : user?.email

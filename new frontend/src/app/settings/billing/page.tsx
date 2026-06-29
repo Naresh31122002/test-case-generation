@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Key, CheckCircle2, Trash2, Eye, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
 
 const PLANS = [
@@ -19,13 +19,25 @@ export default function BillingSettings() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Own AI API key state
+  const [ownKey, setOwnKey] = useState<{ has_key: boolean; masked_key: string | null; provider: string | null } | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyProvider, setKeyProvider] = useState("groq");
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyDeleting, setKeyDeleting] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keySuccess, setKeySuccess] = useState<string | null>(null);
+
   useEffect(() => {
     Promise.all([
       fetch('/api/workspaces/current/credits', { credentials: 'include' }).then(r => r.json()),
       fetch('/api/workspaces/current', { credentials: 'include' }).then(r => r.json()),
-    ]).then(([c, w]) => {
+      fetch('/api/workspaces/ai-key', { credentials: 'include' }).then(r => r.json()),
+    ]).then(([c, w, k]) => {
       setCredits(c.credits);
       setWorkspace(w.workspace ?? w);
+      setOwnKey(k);
     }).catch((err: any) => {
       setActionError(err?.message ?? 'Failed to load billing information.');
     }).finally(() => setLoading(false));
@@ -33,6 +45,47 @@ export default function BillingSettings() {
 
   const currentPlan = workspace?.plan ?? 'free';
   const usedPct = credits ? Math.round((credits.used / credits.limit) * 100) : 0;
+
+  async function handleSaveKey() {
+    setKeySaving(true); setKeyError(null); setKeySuccess(null);
+    try {
+      const wsId = typeof window !== 'undefined' ? localStorage.getItem('activeWorkspaceId') || '' : '';
+      const r = await fetch('/api/workspaces/ai-key', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Workspace-Id': wsId },
+        body: JSON.stringify({ api_key: keyInput.trim(), provider: keyProvider }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Failed to save key');
+      setOwnKey({ has_key: true, masked_key: d.masked_key, provider: d.provider });
+      setKeyInput('');
+      setKeySuccess('API key saved! AI operations will now use your key — no credits deducted.');
+      setTimeout(() => setKeySuccess(null), 5000);
+    } catch (e: any) {
+      setKeyError(e.message);
+    } finally {
+      setKeySaving(false);
+    }
+  }
+
+  async function handleDeleteKey() {
+    setKeyDeleting(true); setKeyError(null);
+    try {
+      const wsId = typeof window !== 'undefined' ? localStorage.getItem('activeWorkspaceId') || '' : '';
+      const r = await fetch('/api/workspaces/ai-key', {
+        method: 'DELETE', credentials: 'include',
+        headers: { 'X-Workspace-Id': wsId },
+      });
+      if (!r.ok) throw new Error('Failed to remove key');
+      setOwnKey({ has_key: false, masked_key: null, provider: null });
+      setKeySuccess('API key removed. System credits will be used again.');
+      setTimeout(() => setKeySuccess(null), 4000);
+    } catch (e: any) {
+      setKeyError(e.message);
+    } finally {
+      setKeyDeleting(false);
+    }
+  }
 
   async function handleUpgrade(planId: string) {
     setCheckoutLoading(planId); setActionError(null);
@@ -152,6 +205,85 @@ export default function BillingSettings() {
           {portalLoading && <Loader2 size={11} className="animate-spin" />}
           Manage Billing
         </button>
+      </div>
+
+      {/* ── Own AI API Key ── */}
+      <div className="bg-white border border-border rounded-card p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <span className="w-9 h-9 rounded-lg bg-cyan/10 flex items-center justify-center flex-shrink-0">
+            <Key size={17} className="text-cyan" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-navy">Use your own AI API key</p>
+            <p className="text-xs text-muted mt-0.5 leading-relaxed">
+              Bring your own Groq, OpenAI, or Anthropic key. AI operations will use your key
+              instead of system credits — giving you unlimited usage.
+            </p>
+          </div>
+        </div>
+
+        {ownKey?.has_key ? (
+          <div className="flex items-center gap-3 p-3 bg-success/5 border border-success/20 rounded-lg">
+            <CheckCircle2 size={15} className="text-success flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-navy">Key active</p>
+              <p className="text-xs text-muted font-mono truncate">{ownKey.masked_key} · {ownKey.provider}</p>
+            </div>
+            <button
+              onClick={handleDeleteKey}
+              disabled={keyDeleting}
+              className="flex items-center gap-1.5 text-xs text-error hover:underline disabled:opacity-50"
+            >
+              {keyDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <select
+                value={keyProvider}
+                onChange={e => setKeyProvider(e.target.value)}
+                className="h-9 px-3 text-sm border border-border rounded-btn bg-white text-navy focus:outline-none focus:border-cyan flex-shrink-0"
+              >
+                <option value="groq">Groq (gsk_...)</option>
+                <option value="openai">OpenAI (sk-...)</option>
+                <option value="anthropic">Anthropic (sk-ant-...)</option>
+              </select>
+              <div className="relative flex-1">
+                <input
+                  type={keyVisible ? "text" : "password"}
+                  value={keyInput}
+                  onChange={e => setKeyInput(e.target.value)}
+                  placeholder="Paste your API key here"
+                  className="w-full h-9 px-3 pr-9 text-sm border border-border rounded-btn text-navy placeholder:text-muted focus:outline-none focus:border-cyan font-mono"
+                  onKeyDown={e => e.key === "Enter" && keyInput.trim() && handleSaveKey()}
+                />
+                <button
+                  type="button"
+                  onClick={() => setKeyVisible(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-navy"
+                >
+                  {keyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <button
+                onClick={handleSaveKey}
+                disabled={keySaving || !keyInput.trim()}
+                className="h-9 px-4 text-sm font-semibold bg-cyan text-white rounded-btn hover:bg-cyan/90 transition-colors disabled:opacity-40 flex items-center gap-1.5 flex-shrink-0"
+              >
+                {keySaving && <Loader2 size={13} className="animate-spin" />}
+                Save key
+              </button>
+            </div>
+            <p className="text-[11px] text-muted">
+              Your key is stored securely and never exposed. Only used for AI operations in this workspace.
+            </p>
+          </div>
+        )}
+
+        {keyError && <p className="text-xs text-error">{keyError}</p>}
+        {keySuccess && <p className="text-xs text-success">{keySuccess}</p>}
       </div>
     </>
   );

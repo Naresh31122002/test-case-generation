@@ -179,9 +179,10 @@ def delete_integration(integration_type):
 def current_workspace_credits():
     ws_id = get_current_workspace_id()
     try:
-        # get_credit_usage already ensures the workspace_credits row exists
-        # (backfill for workspaces created before this feature) internally.
         usage = CreditsModel.get_credit_usage(ws_id)
+        # Also return the workspace plan so the frontend can display it
+        ws = WorkspaceModel.get_by_id(ws_id) or {}
+        usage["plan"] = ws.get("plan", "free")
         return jsonify({"credits": usage}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -555,5 +556,99 @@ def get_pending_invites_for_user():
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             })
         return jsonify({"invites": invites}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Own AI API Key endpoints ──────────────────────────────────────────────────
+
+_AI_KEY_INTEGRATION = "ai_api_key"
+
+
+@workspaces_bp.route("/ai-key", methods=["GET"])
+@workspace_required
+def get_ai_key():
+    """Return whether the workspace has its own AI API key set (masked)."""
+    ws_id = get_current_workspace_id()
+    try:
+        from app.config import Config
+        import psycopg2.extras
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT secret_enc, config FROM workspace_integrations "
+                    "WHERE workspace_id = %s AND integration_type = %s",
+                    (ws_id, _AI_KEY_INTEGRATION),
+                )
+                row = cur.fetchone()
+        if not row or not row["secret_enc"]:
+            return jsonify({"has_key": False, "masked_key": None, "provider": None}), 200
+        key = row["secret_enc"]
+        cfg = row["config"] or {}
+        masked = key[:8] + "..." + key[-4:] if len(key) > 12 else key[:4] + "..."
+        return jsonify({"has_key": True, "masked_key": masked, "provider": cfg.get("provider", "groq")}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@workspaces_bp.route("/ai-key", methods=["POST"])
+@workspace_required
+@require_workspace_role(["owner", "admin"])
+def set_ai_key():
+    """Save the workspace's own AI API key."""
+    ws_id = get_current_workspace_id()
+    data = request.get_json(silent=True) or {}
+    api_key = (data.get("api_key") or "").strip()
+    provider = (data.get("provider") or "groq").strip().lower()
+
+    if not api_key:
+        return jsonify({"error": "api_key is required"}), 400
+    if len(api_key) < 20:
+        return jsonify({"error": "API key looks too short — please check and try again"}), 400
+    if provider not in ("groq", "openai", "anthropic", "gemini"):
+        return jsonify({"error": "provider must be one of: groq, openai, anthropic, gemini"}), 400
+    if provider == "groq" and not api_key.startswith("gsk_"):
+        return jsonify({"error": "Groq API keys start with gsk_"}), 400
+    if provider == "openai" and not api_key.startswith("sk-"):
+        return jsonify({"error": "OpenAI API keys start with sk-"}), 400
+    if provider == "anthropic" and not api_key.startswith("sk-ant-"):
+        return jsonify({"error": "Anthropic API keys start with sk-ant-"}), 400
+
+    try:
+        from app.config import Config
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO workspace_integrations
+                        (workspace_id, integration_type, config, secret_enc)
+                    VALUES (%s, %s, %s::jsonb, %s)
+                    ON CONFLICT (workspace_id, integration_type)
+                    DO UPDATE SET secret_enc = EXCLUDED.secret_enc,
+                                  config = EXCLUDED.config
+                """, (ws_id, _AI_KEY_INTEGRATION, f'{{"provider":"{provider}"}}', api_key))
+                conn.commit()
+        masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else api_key[:4] + "..."
+        return jsonify({"success": True, "masked_key": masked, "provider": provider}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@workspaces_bp.route("/ai-key", methods=["DELETE"])
+@workspace_required
+@require_workspace_role(["owner", "admin"])
+def delete_ai_key():
+    """Remove the workspace's own AI API key (reverts to system credits)."""
+    ws_id = get_current_workspace_id()
+    try:
+        from app.config import Config
+        with Config.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM workspace_integrations "
+                    "WHERE workspace_id = %s AND integration_type = %s",
+                    (ws_id, _AI_KEY_INTEGRATION),
+                )
+                conn.commit()
+        return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

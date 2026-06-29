@@ -15,7 +15,7 @@ export default function ProfileSettings() {
   // Seed form from real user on mount
   useEffect(() => {
     if (user) {
-      setName((user as any).display_name || user.email.split("@")[0] || "");
+      setName(user.displayName || user.fullName || user.email.split("@")[0] || "");
     }
   }, [user]);
 

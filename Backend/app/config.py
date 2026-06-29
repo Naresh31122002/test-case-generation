@@ -36,7 +36,48 @@ def get_llm_impact():
     return _llm_impact
 
 
-class GoogleEmbeddingWrapper:
+def get_workspace_llm(workspace_id: str = None):
+    """
+    Return an LLM for a specific workspace.
+    If the workspace has its own AI API key stored, use it (no credit deduction needed).
+    Otherwise fall back to the system key.
+    Returns (llm, using_own_key: bool).
+    """
+    if not workspace_id:
+        return get_llm(), False
+    try:
+        from app.config import Config as _C
+        with _C.get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT secret_enc, config FROM workspace_integrations "
+                    "WHERE workspace_id = %s AND integration_type = 'ai_api_key'",
+                    (workspace_id,)
+                )
+                row = cur.fetchone()
+        if not row or not row[0]:
+            return get_llm(), False
+        api_key = row[0]
+        cfg = row[1] or {}
+        provider = (cfg.get("provider") if isinstance(cfg, dict) else "groq") or "groq"
+        # Build LLM with workspace's own key
+        if provider == "groq":
+            from langchain_groq import ChatGroq
+            llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.4, groq_api_key=api_key)
+        elif provider == "openai":
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model="gpt-4o", temperature=0.4, api_key=api_key)
+        elif provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0.4, api_key=api_key)
+        else:
+            return get_llm(), False
+        return llm, True
+    except Exception as e:
+        print(f"[workspace_llm] Failed to load workspace key: {e}")
+        return get_llm(), False
+
+
     """Wraps Google's text-embedding-004 model using the new google-genai SDK.
     Produces 768-dim vectors padded/truncated to match LanceDB schema."""
 
