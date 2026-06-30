@@ -458,6 +458,65 @@ def delete_story(story_id):
         print(f"Error deleting story {story_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@stories_bp.route('/pre-upload-impact', methods=['POST'])
+@dev_jwt_required
+def pre_upload_impact():
+    """
+    Preview potential cross-story impact BEFORE uploading a new story.
+    Takes story text, finds similar existing stories in the workspace,
+    returns their IDs, descriptions, and test counts.
+    No credits deducted — this is a free preview.
+    """
+    try:
+        workspace_id = get_current_workspace_id()
+        data = request.get_json(silent=True) or {}
+        content = (data.get('content') or '').strip()
+        if not content or len(content) < 30:
+            return jsonify({'similar_stories': [], 'total_affected_tests': 0}), 200
+
+        # Use Chat_RAG to find similar stories (already workspace-scoped)
+        from app.LLM.Test_case_generator import Chat_RAG
+        rag_results = Chat_RAG(content[:800], top_k=5, workspace_id=workspace_id)
+
+        similar_stories = []
+        total_tests = 0
+        for r in rag_results:
+            story_id = r.get('story_id')
+            if not story_id:
+                continue
+            tc_json = r.get('test_case_json') or {}
+            test_cases = tc_json.get('test_cases', []) if isinstance(tc_json, dict) else []
+            test_count = len(test_cases)
+            # Get description from LanceDB
+            description = ''
+            try:
+                import lancedb
+                db = lancedb.connect(Config.LANCE_DB_PATH)
+                table = db.open_table(Config.TABLE_NAME_LANCE)
+                df = table.to_pandas()
+                rows = df[df['storyID'] == story_id]
+                if not rows.empty:
+                    description = str(rows.iloc[0].get('storyDescription', '') or '')
+            except Exception:
+                pass
+            if test_count > 0:
+                total_tests += test_count
+                similar_stories.append({
+                    'story_id': story_id,
+                    'description': description[:80] if description else story_id,
+                    'test_count': test_count,
+                    'similarity_score': float(r.get('similarity_score') or 0),
+                })
+
+        return jsonify({
+            'similar_stories': similar_stories[:5],
+            'total_affected_tests': total_tests,
+        }), 200
+    except Exception as e:
+        print(f'[pre_upload_impact] error: {e}')
+        return jsonify({'similar_stories': [], 'total_affected_tests': 0}), 200
+
+
 @stories_bp.route('/search', methods=['POST'])
 @dev_jwt_required
 def search_stories():

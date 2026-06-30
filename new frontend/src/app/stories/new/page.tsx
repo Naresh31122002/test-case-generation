@@ -31,6 +31,7 @@ import {
   ChevronUp,
   Globe,
   FolderOpen,
+  Loader2,
 } from "lucide-react";
 import { easeStandard, easeOut, duration, spring } from "@/lib/motion";
 
@@ -1133,6 +1134,29 @@ function StepGenerate({
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState("");
 
+  // Real impact preview state
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactData, setImpactData] = useState<{ similar_stories: Array<{story_id: string; description: string; test_count: number}>; total_affected_tests: number } | null>(null);
+
+  // Fetch real impact preview on mount
+  useEffect(() => {
+    const content = pasteBlocks.join('\n---\n').trim();
+    if (!content || content.length < 30) return;
+    setImpactLoading(true);
+    const wsId = typeof window !== 'undefined' ? localStorage.getItem('activeWorkspaceId') || '' : '';
+    fetch('/api/stories/pre-upload-impact', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Workspace-Id': wsId },
+      body: JSON.stringify({ content: content.slice(0, 800) }),
+    })
+      .then(r => r.json())
+      .then(d => setImpactData(d))
+      .catch(() => {})
+      .finally(() => setImpactLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Improve Story modal state
   const [improveModalOpen, setImproveModalOpen] = useState(false);
   const [improveInstructions, setImproveInstructions] = useState("");
@@ -1334,25 +1358,46 @@ function StepGenerate({
         </div>
       </div>
 
-      {/* Impact detection panel */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: duration.base, delay: 0.85 }}
-        className="bg-surface-cyan border border-cyan/30 rounded-card p-4 mb-6"
-      >
-        <div className="flex items-start gap-2">
-          <Sparkles size={16} className="text-cyan flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-navy mb-1">Potential impact detected.</p>
-            <p className="text-sm text-muted">
-              This story may affect existing stories:{" "}
-              <span className="text-navy font-medium">LOGIN-001 Login · AUTH-002 Registration · AUTH-003 Password Reset</span>.
-              Estimated affected tests: 18.
-            </p>
-          </div>
+      {/* Impact detection panel — real data from backend */}
+      {impactLoading && (
+        <div className="bg-surface-cyan border border-cyan/30 rounded-card p-4 mb-6 flex items-center gap-2">
+          <Loader2 size={15} className="text-cyan animate-spin flex-shrink-0" />
+          <p className="text-sm text-muted">Checking for cross-story impact…</p>
         </div>
-      </motion.div>
+      )}
+      {!impactLoading && impactData && impactData.similar_stories.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: duration.base, delay: 0.85 }}
+          className="bg-surface-cyan border border-cyan/30 rounded-card p-4 mb-6"
+        >
+          <div className="flex items-start gap-2">
+            <Sparkles size={16} className="text-cyan flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-navy mb-1">Potential impact detected.</p>
+              <p className="text-sm text-muted">
+                This story may affect existing stories:{" "}
+                <span className="text-navy font-medium">
+                  {impactData.similar_stories.map(s => `${s.story_id} ${s.description}`).join(' · ')}
+                </span>.
+                {impactData.total_affected_tests > 0 && ` Estimated affected tests: ${impactData.total_affected_tests}.`}
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+      {!impactLoading && impactData && impactData.similar_stories.length === 0 && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: duration.base, delay: 0.85 }}
+          className="bg-gray-50 border border-border rounded-card p-4 mb-6 flex items-center gap-2"
+        >
+          <Sparkles size={15} className="text-muted flex-shrink-0" />
+          <p className="text-sm text-muted">No cross-story impact detected for this story.</p>
+        </motion.div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between">
