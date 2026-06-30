@@ -102,10 +102,21 @@ export default function NotificationsSettings() {
                 onClick={() => toggle(item.id)}
                 aria-checked={prefs[item.id]}
                 role="switch"
-                className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 focus:outline-none ${prefs[item.id] ? "bg-pink" : "bg-gray-200"}`}
+                style={{ width: 44, height: 24, borderRadius: 12, padding: 0, border: 'none', cursor: 'pointer', flexShrink: 0, position: 'relative', transition: 'background-color 0.2s', backgroundColor: prefs[item.id] ? '#FF0A78' : '#D1D5DB' }}
               >
                 <span
-                  className={`inline-block w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ${prefs[item.id] ? "translate-x-5" : "translate-x-0.5"}`}
+                  style={{
+                    display: 'block',
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    backgroundColor: 'white',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    position: 'absolute',
+                    top: 2,
+                    left: prefs[item.id] ? 22 : 2,
+                    transition: 'left 0.2s',
+                  }}
                 />
               </button>
             </div>
